@@ -74,6 +74,8 @@ pub enum EditOp {
     Effect(Effect),
     /// The Advanced adjustments (white balance, exposure, tone, colour, detail) as one step.
     Adjust(crate::develop::Adjust),
+    /// A preset look at an intensity (0…1).
+    Look { look: crate::looks::Look, amount: f32 },
 }
 
 impl EditOp {
@@ -90,6 +92,7 @@ impl EditOp {
             EditOp::Tune { .. } => "Tuning".into(),
             EditOp::Effect(e) => e.label().into(),
             EditOp::Adjust(a) => a.label(),
+            EditOp::Look { look, amount } => format!("{} {:.0} %", look.label(), amount * 100.0),
         }
     }
 }
@@ -400,6 +403,10 @@ pub fn apply(mut img: RgbaImage, op: &EditOp) -> RgbaImage {
         EditOp::Effect(e) => apply_effect(img, *e),
         EditOp::Adjust(a) => {
             crate::develop::apply(&mut img, a);
+            img
+        }
+        EditOp::Look { look, amount } => {
+            crate::looks::apply(&mut img, *look, *amount);
             img
         }
     }
@@ -714,7 +721,7 @@ pub fn fill_light(img: &mut RgbaImage, f: f32) {
     }
 }
 
-fn apply_effect(mut img: RgbaImage, e: Effect) -> RgbaImage {
+pub fn apply_effect(mut img: RgbaImage, e: Effect) -> RgbaImage {
     let aspect = img.width() as f32 / img.height() as f32;
     let centre_dist = move |x: f32, y: f32| (((x - 0.5) * aspect).powi(2) + (y - 0.5).powi(2)).sqrt() / (0.5 * aspect.max(1.0));
     match e {

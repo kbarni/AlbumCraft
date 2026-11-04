@@ -70,6 +70,7 @@ pub enum View {
 pub enum Tab {
     /// One-click fixes and tools (Basic) or the adjustment sliders (Advanced).
     Edit,
+    Presets,
     Effects,
 }
 
@@ -258,6 +259,8 @@ pub struct App {
     pub big_order: VecDeque<usize>,
     pub big_req: HashSet<usize>,
     pub effect_previews: Option<(usize, Vec<EditOp>, Vec<TextureHandle>)>,
+    /// Small previews of every preset look for (picture, edits they start from).
+    pub look_previews: Option<(usize, Vec<EditOp>, Vec<TextureHandle>)>,
 
     pub pool: Pool,
     pub tx: Sender<Done>,
@@ -372,6 +375,7 @@ impl App {
             big_order: VecDeque::new(),
             big_req: HashSet::new(),
             effect_previews: None,
+            look_previews: None,
             pool,
             tx,
             rx,
@@ -508,6 +512,12 @@ impl App {
                 app.open_editor(2);
                 app.edit.show_info = true;
             }
+            if shot_view == "presets" && app.photos.len() > 3 {
+                let k = app.photos[3].key.clone();
+                app.store.meta.entry(k).or_default().edits.push(EditOp::Look { look: crate::looks::Look::Polaroid, amount: 0.8 });
+                app.open_editor(3);
+                app.edit.tab = Tab::Presets;
+            }
         } else {
             app.rescan();
             std::thread::spawn(crate::thumbcache::prune);
@@ -560,6 +570,7 @@ impl App {
         self.big_order.clear();
         self.big_req.clear();
         self.effect_previews = None;
+        self.look_previews = None;
         self.selection.clear();
         self.held.clear();
         self.anchor = None;

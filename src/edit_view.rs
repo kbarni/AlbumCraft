@@ -3,6 +3,7 @@
 use crate::app::*;
 use crate::develop::{self, Adjust};
 use crate::imaging::{self, EditOp, Effect};
+use crate::looks::Look;
 use crate::library::{fmt_bytes, fmt_date, fmt_time};
 use crate::library_view::paint_thumb;
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureOptions, Vec2};
@@ -394,7 +395,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().left_bg).inner_margin(egui::Margin::same(8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for (t, label) in [(Tab::Edit, "Edit"), (Tab::Effects, "Effects")] {
+                    for (t, label) in [(Tab::Edit, "Edit"), (Tab::Presets, "Presets"), (Tab::Effects, "Effects")] {
                         if ui.selectable_label(self.edit.tab == t, RichText::new(label).strong()).clicked() {
                             self.edit.tab = t;
                         }
@@ -448,6 +449,7 @@ impl App {
 
                 match self.edit.tab {
                     Tab::Edit => self.edit_tab(ui),
+                    Tab::Presets => self.presets_tab(ui),
                     Tab::Effects => self.effects_tab(ui),
                 }
             });
@@ -649,6 +651,103 @@ impl App {
             self.set_adjust(id, Adjust::default());
         }
         ui.label(RichText::new("Moving a slider again right after changes the same step, so Undo takes it back in one go.").size(11.5).weak());
+    }
+
+    /// The preset look being edited: the last edit step when it is a look.
+    fn current_look(&self, id: usize) -> Option<(Look, f32)> {
+        match self.meta(id).and_then(|m| m.edits.last()) {
+            Some(EditOp::Look { look, amount }) => Some((*look, *amount)),
+            _ => None,
+        }
+    }
+
+    /// Choose a look: it replaces the look chosen just before (so trying presets doesn't stack
+    /// them), otherwise it is added at full strength.
+    fn set_look(&mut self, id: usize, look: Look, amount: f32) {
+        let op = EditOp::Look { look, amount: amount.clamp(0.0, 1.0) };
+        let m = self.meta_mut(id);
+        match m.edits.last_mut() {
+            Some(last @ EditOp::Look { .. }) => *last = op,
+            _ => m.edits.push(op),
+        }
+        self.edit.redo.clear();
+        self.refresh_thumb(id);
+    }
+
+    fn presets_tab(&mut self, ui: &mut egui::Ui) {
+        let id = self.edit.id;
+        let current = self.current_look(id);
+        // previews start from the picture before the current look, so they show the alternatives
+        let mut start = self.edits(id);
+        if current.is_some() {
+            start.pop();
+        }
+        let fresh = matches!(&self.look_previews, Some((pid, e, _)) if *pid == id && *e == start);
+        if !fresh {
+            if let Some(base) = self.thumb_base.get(&id) {
+                let (w, h) = imaging::fit(base.width(), base.height(), 96);
+                let small = image::imageops::resize(base, w, h, image::imageops::FilterType::Triangle);
+                let cur = imaging::apply_all(&small, &start);
+                let texs = Look::ALL
+                    .iter()
+                    .map(|l| {
+                        let mut img = cur.clone();
+                        crate::looks::apply(&mut img, *l, 1.0);
+                        self.ctx.load_texture(format!("look{}", l.label()), to_color_image(&img), TextureOptions::LINEAR)
+                    })
+                    .collect();
+                self.look_previews = Some((id, start.clone(), texs));
+            } else {
+                self.request_thumb(id);
+            }
+        }
+        if let Some((look, mut amount)) = current {
+            ui.label(RichText::new(look.label()).strong().size(15.0));
+            ui.horizontal(|ui| {
+                ui.label("Intensity");
+                ui.spacing_mut().slider_width = 120.0;
+                let mut pct = amount * 100.0;
+                if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).suffix(" %").max_decimals(0)).changed() {
+                    amount = pct / 100.0;
+                    self.set_look(id, look, amount);
+                }
+            });
+            if ui.button("Remove preset").clicked() {
+                self.undo();
+            }
+            ui.separator();
+        } else {
+            ui.label(RichText::new("Looks for the whole picture. Click one, then set its intensity.").size(12.0).weak());
+        }
+        let mut chosen = None;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("looks").num_columns(3).spacing([4.0, 4.0]).show(ui, |ui| {
+                for (i, l) in Look::ALL.iter().enumerate() {
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(76.0, 80.0), Sense::click());
+                    let p = ui.painter();
+                    let on = current.is_some_and(|(c, _)| c == *l);
+                    if on {
+                        p.rect_filled(rect, 4, t().select_bg);
+                    } else if resp.hovered() {
+                        p.rect_filled(rect, 4, t().hover_wash);
+                    }
+                    let img_area = Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), egui::vec2(68.0, 52.0));
+                    let tex = self.look_previews.as_ref().and_then(|(_, _, t)| t.get(i));
+                    paint_thumb(p, img_area, tex, true);
+                    p.text(rect.center_bottom() - egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, l.label(), egui::FontId::proportional(11.0), t().text);
+                    if resp.on_hover_text(l.tip()).clicked() {
+                        chosen = Some(*l);
+                    }
+                    if i % 3 == 2 {
+                        ui.end_row();
+                    }
+                }
+            });
+        });
+        if let Some(l) = chosen {
+            let amount = current.map_or(1.0, |(_, a)| a);
+            self.set_look(id, l, amount);
+        }
     }
 
     fn effects_tab(&mut self, ui: &mut egui::Ui) {

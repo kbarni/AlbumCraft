@@ -7,6 +7,7 @@ mod exifinfo;
 mod imaging;
 mod library;
 mod library_view;
+mod looks;
 mod shell;
 mod print;
 mod print_view;
