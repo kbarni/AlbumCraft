@@ -143,6 +143,24 @@ impl App {
         });
     }
 
+    /// "Copy edits" (from a single picture) and "Paste edits" (onto `ids`).
+    pub fn edit_clipboard_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
+        let one = if let [one] = ids { Some(*one) } else { None };
+        let has = one.is_some_and(|id| !crate::app::copyable_edits(&self.edits(id)).is_empty());
+        if ui.add_enabled(has, egui::Button::new("Copy edits          Ctrl+Shift+C")).clicked() {
+            if let Some(id) = one {
+                self.copy_edits(id);
+            }
+            ui.close();
+        }
+        let n = self.copied_edits.as_ref().map_or(0, |e| e.len());
+        let label = if n > 0 { format!("Paste {n} edit{}       Ctrl+Shift+V", if n == 1 { "" } else { "s" }) } else { "Paste edits         Ctrl+Shift+V".into() };
+        if ui.add_enabled(n > 0 && !ids.is_empty(), egui::Button::new(label)).clicked() {
+            self.paste_edits(ids);
+            ui.close();
+        }
+    }
+
     /// Keys for culling, acting on `ids`: P pick, X reject, U clear the flag, 0–5 rating.
     pub fn flag_rating_keys(&mut self, ctx: &egui::Context, ids: &[usize]) {
         if ids.is_empty() {
@@ -236,6 +254,17 @@ impl App {
         if !self.selection.is_empty() || !self.held.is_empty() {
             let t = self.tray();
             self.flag_rating_keys(ctx, &t);
+            let (copy, paste) = edit_clipboard_keys(ctx);
+            if copy {
+                if let [one] = t[..] {
+                    self.copy_edits(one);
+                } else {
+                    self.toast("Select one picture to copy its edits.");
+                }
+            }
+            if paste {
+                self.paste_edits(&t);
+            }
         }
     }
 
@@ -330,6 +359,8 @@ impl App {
                         }
                         ui.separator();
                         self.flag_rating_menu(ui, &tray);
+                        ui.separator();
+                        self.edit_clipboard_menu(ui, &tray);
                         ui.separator();
                         if ui.button("Rotate left   Ctrl+[").clicked() {
                             self.rotate(&tray, -1);
@@ -608,6 +639,9 @@ impl App {
             }
             ui.separator();
             self.flag_rating_menu(ui, &tray);
+            ui.separator();
+            self.edit_clipboard_menu(ui, &tray);
+            ui.separator();
             if ui.button("⟲ Rotate left").clicked() {
                 self.rotate(&tray, -1);
                 ui.close();
@@ -713,6 +747,15 @@ fn percent_encode_path(p: &str) -> String {
         }
     }
     out
+}
+
+/// Ctrl+Shift+C / Ctrl+Shift+V: copy / paste edits. (Plain Ctrl+C / Ctrl+V reach egui as
+/// clipboard events, not keys, so the shifted forms are used.)
+pub fn edit_clipboard_keys(ctx: &egui::Context) -> (bool, bool) {
+    ctx.input(|i| {
+        let m = i.modifiers.command && i.modifiers.shift;
+        (m && i.key_pressed(egui::Key::C), m && i.key_pressed(egui::Key::V))
+    })
 }
 
 #[cfg(test)]

@@ -289,6 +289,13 @@ impl App {
         let id = self.edit.id;
         if id < self.photos.len() {
             self.flag_rating_keys(ctx, &[id]);
+            let (copy, paste) = crate::library_view::edit_clipboard_keys(ctx);
+            if copy {
+                self.copy_edits(id);
+            }
+            if paste {
+                self.paste_edits(&[id]);
+            }
         }
     }
 
@@ -333,11 +340,20 @@ impl App {
                             ui.label(if i + 1 == edits.len() { t.strong() } else { t });
                         }
                     });
-                    if !edits.is_empty() && ui.small_button("Undo all edits").clicked() {
-                        let all = std::mem::take(&mut self.meta_mut(id).edits);
-                        self.edit.redo.extend(all.into_iter().rev());
-                        self.refresh_thumb(id);
-                    }
+                    ui.horizontal(|ui| {
+                        if !edits.is_empty() && ui.small_button("Undo all edits").clicked() {
+                            let all = std::mem::take(&mut self.meta_mut(id).edits);
+                            self.edit.redo.extend(all.into_iter().rev());
+                            self.refresh_thumb(id);
+                        }
+                        if !edits.is_empty() && ui.small_button("Copy edits").on_hover_text("Copy these edits to paste them on other pictures (Ctrl+Shift+C)").clicked() {
+                            self.copy_edits(id);
+                        }
+                        if let Some(n) = self.copied_edits.as_ref().map(|e| e.len())
+                            && ui.small_button(format!("Paste {n}")).on_hover_text("Add the copied edits to this picture (Ctrl+Shift+V)").clicked() {
+                                self.paste_edits(&[id]);
+                            }
+                    });
                     ui.add_space(6.0);
                     self.histogram_box(ui, id);
                 });

@@ -44,6 +44,7 @@ Single-window eframe/egui app (edition 2024). `main.rs` parses `--screenshot` an
 Key design rules:
 - **Originals are never modified.** Edits, stars, captions, tags, people, albums are stored as `Meta` in `library.json` under the user data dir (`dirs::data_dir()/AlbumCraft/library.json`, see `library::store_path`; a library saved under the earlier working name `PhotoShelf/` is copied over on first start). Photos are keyed by file path string.
 - **Culling:** `Meta.flag` (`Flag::None/Pick/Reject`) and `Meta.rating` (0–5). Keys P / X / U / 0–5 act on the tray (library) or the current picture (editor); `library_view::flag_rating_menu` / `flag_rating_keys`. The yes/no `star` of older libraries and `.picasa.ini` `star=yes` become picks (`Meta::upgrade`, on load).
+- **Copy / paste edits:** `App::copy_edits` / `paste_edits` (Ctrl+Shift+C / Ctrl+Shift+V; plain Ctrl+C/V reach egui as clipboard events, not keys). Pasting appends the copied ops (red-eye fixes excluded, `copyable_edits`) to each picture's own edits.
 - **`.picasa.ini` files are read once per folder and never written** (tracked via `Store.imported_ini`).
 - All decoding/rendering goes through the `Pool`; UI code requests via `Job`s and consumes `Done` results each frame (textures are cached in `App` maps keyed by photo id).
 

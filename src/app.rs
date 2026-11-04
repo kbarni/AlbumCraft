@@ -232,6 +232,8 @@ pub struct App {
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
+    /// Edits copied from a picture, ready to paste onto others.
+    pub copied_edits: Option<Vec<EditOp>>,
     /// Bumped whenever the library or its notes may have changed: invalidates `list_cache`.
     pub list_rev: u64,
     /// `groups()` for (list_rev, source, search, filter).
@@ -351,6 +353,7 @@ impl App {
             persist,
             save_error: None,
             list_rev: 0,
+            copied_edits: None,
             list_cache: Default::default(),
             photos: vec![],
             folders: vec![],
@@ -865,6 +868,37 @@ impl App {
             self.edit.redo.clear();
         }
         self.refresh_thumb(id);
+    }
+
+    /// Copy a picture's edits (all but red-eye fixes, which belong to that picture's eyes).
+    pub fn copy_edits(&mut self, id: usize) {
+        let ops = copyable_edits(&self.edits(id));
+        if ops.is_empty() {
+            self.toast("This picture has no edits to copy.");
+            return;
+        }
+        let n = ops.len();
+        self.copied_edits = Some(ops);
+        self.toast(format!("Copied {n} edit{}. Select pictures and paste them (Ctrl+Shift+V).", if n == 1 { "" } else { "s" }));
+    }
+
+    /// Add the copied edits after each picture's own edits (undo them one by one in the editor,
+    /// or with "Undo all edits").
+    pub fn paste_edits(&mut self, ids: &[usize]) {
+        let Some(ops) = self.copied_edits.clone() else {
+            self.toast("Copy the edits of a picture first (Ctrl+Shift+C).");
+            return;
+        };
+        let ids: Vec<usize> = ids.iter().copied().filter(|&id| id < self.photos.len()).collect();
+        for &id in &ids {
+            self.meta_mut(id).edits.extend(ops.iter().cloned());
+            if self.edit.id == id {
+                self.edit.redo.clear();
+            }
+            self.refresh_thumb(id);
+        }
+        let n = ids.len();
+        self.toast(format!("Pasted the edits onto {n} picture{}.", if n == 1 { "" } else { "s" }));
     }
 
     pub fn rotate(&mut self, ids: &[usize], dir: i32) {
@@ -1757,6 +1791,12 @@ impl App {
     }
 }
 
+/// The edits worth copying to other pictures: everything except red-eye fixes (they mark this
+/// picture's eyes).
+pub fn copyable_edits(edits: &[EditOp]) -> Vec<EditOp> {
+    edits.iter().filter(|op| !matches!(op, EditOp::Redeye(_))).cloned().collect()
+}
+
 /// Export one picture with its edits as `<stem>.jpg` in `dir` (or `<stem>-1.jpg`, … when taken).
 /// Never overwrites a file, and removes its own half-written file when something fails.
 fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8) -> Result<(), String> {
@@ -1888,6 +1928,14 @@ impl eframe::App for App {
 #[cfg(test)]
 mod tray_tests {
     use super::*;
+
+    #[test]
+    fn redeye_fixes_are_not_copied() {
+        let edits = [EditOp::Rotate(1), EditOp::Redeye([0.1, 0.1, 0.2, 0.2]), EditOp::AutoColor];
+        let copied = copyable_edits(&edits);
+        assert_eq!(copied.len(), 2);
+        assert!(copied.iter().all(|op| !matches!(op, EditOp::Redeye(_))));
+    }
 
     #[test]
     fn export_never_overwrites() {
