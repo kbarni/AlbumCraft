@@ -355,35 +355,49 @@ mod win {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
+    /// # Safety
+    /// `p` is null or points to a NUL-terminated UTF-16 string that stays valid during the call.
     unsafe fn from_wide(p: *const u16) -> String {
         if p.is_null() {
             return String::new();
         }
         let mut n = 0;
+        // SAFETY: the caller guarantees a terminator, so every read up to it is in bounds.
         while unsafe { *p.add(n) } != 0 {
             n += 1;
         }
+        // SAFETY: the n characters before the terminator were just read.
         String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, n) })
     }
 
     pub fn printers() -> Vec<String> {
-        unsafe {
-            let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
-            let (mut needed, mut count) = (0u32, 0u32);
-            let _ = EnumPrintersW(flags, PCWSTR::null(), 4, None, &mut needed, &mut count);
-            if needed == 0 {
-                return vec![];
-            }
-            let mut buf = vec![0u8; needed as usize];
-            if EnumPrintersW(flags, PCWSTR::null(), 4, Some(&mut buf), &mut needed, &mut count).is_err() {
-                return vec![];
-            }
-            let infos = std::slice::from_raw_parts(buf.as_ptr() as *const PRINTER_INFO_4W, count as usize);
-            infos.iter().map(|i| from_wide(i.pPrinterName.0)).filter(|s| !s.is_empty()).collect()
+        let flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
+        let (mut needed, mut count) = (0u32, 0u32);
+        // SAFETY: a size query: no buffer, only the two out-parameters are written.
+        let _ = unsafe { EnumPrintersW(flags, PCWSTR::null(), 4, None, &mut needed, &mut count) };
+        if needed == 0 {
+            return vec![];
         }
+        // u64 words, so the PRINTER_INFO_4W records at the start of the buffer are aligned
+        let words = (needed as usize).div_ceil(8);
+        let mut buf = vec![0u64; words];
+        let len = words * 8;
+        // SAFETY: the same allocation viewed as `len` bytes; it lives until the end of this function.
+        let bytes = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<u8>(), len) };
+        // SAFETY: the buffer is at least `needed` bytes, as the size query asked.
+        if unsafe { EnumPrintersW(flags, PCWSTR::null(), 4, Some(bytes), &mut needed, &mut count) }.is_err() {
+            return vec![];
+        }
+        let count = (count as usize).min(len / std::mem::size_of::<PRINTER_INFO_4W>());
+        // SAFETY: EnumPrintersW wrote `count` records at the start of the 8-byte-aligned buffer (bounded
+        // by its size above); their name pointers point to strings inside the same buffer.
+        let infos = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<PRINTER_INFO_4W>(), count) };
+        infos.iter().map(|i| unsafe { from_wide(i.pPrinterName.0) }).filter(|s| !s.is_empty()).collect()
     }
 
     pub fn default_printer() -> Option<String> {
+        // SAFETY: a size query, then a call with a buffer of exactly the size it asked for; the
+        // name is read from our own buffer, which Windows NUL-terminates.
         unsafe {
             let mut n = 0u32;
             let _ = GetDefaultPrinterW(None, &mut n);
@@ -399,14 +413,19 @@ mod win {
         }
     }
 
+    /// # Safety
+    /// `p.devmode`, when set, holds a complete DEVMODEW as returned by the print dialog.
     unsafe fn open_dc(p: &PrinterChoice) -> Option<HDC> {
         let name = wide(&p.name);
         let dm = p.devmode.as_ref().map(|d| d.as_ptr() as *const DEVMODEW);
+        // SAFETY: `name` is NUL-terminated and outlives the call; the DEVMODE is complete (see above).
         let dc = unsafe { CreateDCW(PCWSTR::null(), PCWSTR(name.as_ptr()), PCWSTR::null(), dm) };
         (!dc.is_invalid()).then_some(dc)
     }
 
     pub fn paper(p: &PrinterChoice) -> Option<Paper> {
+        // SAFETY: the device context is created, queried and deleted here; the DEVMODE comes from
+        // the print dialog only.
         unsafe {
             let dc = open_dc(p)?;
             let cap = |i| GetDeviceCaps(Some(dc), i) as f32;
@@ -428,6 +447,9 @@ mod win {
 
     /// The Windows "Print Setup" dialog: printer, paper size, orientation.
     pub fn setup_dialog(current: &PrinterChoice) -> Option<PrinterChoice> {
+        // SAFETY: the global memory blocks are allocated with room for what is copied into them,
+        // locked while used, handed to PrintDlgW and freed once; DEVMODE/DEVNAMES read back are
+        // the ones Windows filled in, read within their own sizes (dmSize + dmDriverExtra).
         unsafe {
             let mut pd = PRINTDLGW { lStructSize: std::mem::size_of::<PRINTDLGW>() as u32, Flags: PD_PRINTSETUP, ..Default::default() };
             // start from the current printer and its settings
@@ -494,6 +516,8 @@ mod win {
     /// Send rendered pages (each covering the printable area) to the printer. `to_file` makes the
     /// driver write its output there (for example a PDF with "Microsoft Print to PDF").
     pub fn print_pages(p: &PrinterChoice, doc: &str, pages: &mut dyn Iterator<Item = RgbaImage>, to_file: Option<&str>) -> Result<usize, String> {
+        // SAFETY: the strings passed in DOCINFOW live until EndDoc; each page's pixel buffer is
+        // exactly width x height x 4 bytes as the BITMAPINFO describes, and lives during StretchDIBits.
         unsafe {
             let dc = open_dc(p).ok_or("The printer could not be opened.")?;
             let doc_w = wide(doc);
