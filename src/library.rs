@@ -537,12 +537,13 @@ pub const BIG_DIM: u32 = 1400;
 /// Longest side of the sharp render used when zooming in (keeps memory and GPU textures in bounds).
 pub const ZOOM_DIM: u32 = 5000;
 
-/// The photo's real size in pixels (read from the file header, or the sample's size).
+/// The photo's real size in pixels as shown, i.e. after the EXIF orientation (read from the file
+/// header, or the sample's size).
 pub fn source_dims(key: &str) -> Option<(u32, u32)> {
     if let Some(seed) = key.strip_prefix(imaging::SAMPLE_PREFIX) {
         return seed.parse().ok().map(imaging::sample_size);
     }
-    image::image_dimensions(key).ok()
+    imaging::oriented_dims(key)
 }
 
 #[derive(Clone)]

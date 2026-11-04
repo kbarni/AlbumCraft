@@ -192,7 +192,16 @@ pub fn read(path: &str) -> Option<CameraInfo> {
     if let (Some(off), Some(len)) = (off, len) {
         let (o, l) = (off as usize, len as usize);
         if let Some(bytes) = exif.buf().get(o..o.saturating_add(l)) {
-            info.thumbnail = image::load_from_memory(bytes).ok().map(|i| i.to_rgba8());
+            let orientation = info
+                .orientation
+                .and_then(|o| u8::try_from(o).ok())
+                .and_then(image::metadata::Orientation::from_exif);
+            info.thumbnail = image::load_from_memory(bytes).ok().map(|mut i| {
+                if let Some(o) = orientation {
+                    i.apply_orientation(o);
+                }
+                i.to_rgba8()
+            });
         }
     }
     for f in exif.fields() {
@@ -242,22 +251,31 @@ pub fn write_demo_jpeg(path: &std::path::Path) -> std::io::Result<()> {
         short(Tag::ExposureProgram, 2),
         short(Tag::ColorSpace, 1),
     ];
+    std::fs::write(path, jpeg_with_exif(&main, &fields, Some(&thumb))?)
+}
+
+/// A JPEG file: `jpeg` (an encoded picture) with an EXIF block holding `fields` and an optional
+/// embedded thumbnail. For tests and demo pictures.
+pub fn jpeg_with_exif(jpeg: &[u8], fields: &[exif::Field], thumb: Option<&[u8]>) -> std::io::Result<Vec<u8>> {
     let mut w = exif::experimental::Writer::new();
-    for f in &fields {
+    for f in fields {
         w.push_field(f);
     }
-    w.set_jpeg(&thumb, In::THUMBNAIL);
+    if let Some(t) = thumb {
+        w.set_jpeg(t, In::THUMBNAIL);
+    }
     let mut tiff = std::io::Cursor::new(Vec::new());
     w.write(&mut tiff, true).map_err(|e| std::io::Error::other(e.to_string()))?;
     let tiff = tiff.into_inner();
+    let len = u16::try_from(2 + 6 + tiff.len()).map_err(|_| std::io::Error::other("EXIF block too large"))?;
+    let body = jpeg.get(2..).ok_or_else(|| std::io::Error::other("not a JPEG"))?;
     // JPEG = start marker, APP1 "Exif" block, then the encoded picture without its own start marker
     let mut file = vec![0xFF, 0xD8, 0xFF, 0xE1];
-    let len = (2 + 6 + tiff.len()) as u16;
     file.extend_from_slice(&len.to_be_bytes());
     file.extend_from_slice(b"Exif\0\0");
     file.extend_from_slice(&tiff);
-    file.extend_from_slice(&main[2..]);
-    std::fs::write(path, file)
+    file.extend_from_slice(body);
+    Ok(file)
 }
 
 #[cfg(test)]

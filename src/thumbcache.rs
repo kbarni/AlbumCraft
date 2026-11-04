@@ -1,6 +1,6 @@
 //! Persistent on-disk cache of 256 px thumbnails, in `dirs::cache_dir()/AlbumCraft/thumbs`.
 //!
-//! The file name is a hash of (path, modified time, size, THUMB_DIM), so an edited or replaced
+//! The file name is a hash of (format version, path, modified time, size, THUMB_DIM), so an edited or replaced
 //! picture simply misses the cache; stale files are harmless and can be deleted at any time.
 //! Opaque thumbnails are stored as JPEG (small), ones with transparency as PNG.
 
@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 const JPEG_QUALITY: u8 = 88;
+const VERSION: u32 = 2;
 
 fn dir() -> Option<PathBuf> {
     Some(dirs::cache_dir()?.join("AlbumCraft").join("thumbs"))
@@ -26,7 +27,8 @@ fn base(key: &str, dim: u32) -> Option<PathBuf> {
     }
     let meta = std::fs::metadata(key).ok()?;
     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
-    let id = format!("{key}\0{mtime}\0{}\0{dim}", meta.len());
+    // bump VERSION when the way thumbnails are made changes (2: EXIF orientation applied)
+    let id = format!("{VERSION}\0{key}\0{mtime}\0{}\0{dim}", meta.len());
     Some(dir()?.join(format!("{:016x}", fnv(id.as_bytes()))))
 }
 
