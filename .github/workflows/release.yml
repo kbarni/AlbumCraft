@@ -1,0 +1,109 @@
+name: Release
+
+# Pushing a tag v<version> builds AlbumCraft for Linux, Windows and macOS and publishes a GitHub
+# release with the three packages. Tags with a "-" (v0.1.0-alpha.1) become pre-releases. Notes come
+# from docs/release-notes/<version>.md when it exists.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Draft release
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          args=(--draft --title "AlbumCraft ${version}")
+          [[ "$version" == *-* ]] && args+=(--prerelease)
+          if [ -f "docs/release-notes/${version}.md" ]; then
+            args+=(--notes-file "docs/release-notes/${version}.md")
+          else
+            args+=(--generate-notes)
+          fi
+          gh release create "$tag" --verify-tag "${args[@]}"
+
+  build:
+    needs: create
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: windows-latest
+            target: windows-x86_64
+          - os: macos-latest
+            target: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev libasound2-dev
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked
+      - name: Package and upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          docs=(README.md LICENSE-MIT LICENSE-APACHE NOTICE)
+          case "${{ matrix.target }}" in
+            linux-*)
+              name="albumcraft-${version}-${{ matrix.target }}"
+              mkdir -p "$name"
+              cp target/release/albumcraft "${docs[@]}" packaging/linux/albumcraft.desktop "$name/"
+              cp assets/app-icon/hicolor/256x256/apps/albumcraft.png "$name/"
+              tar czf "$name.tar.gz" "$name"
+              file="$name.tar.gz"
+              ;;
+            windows-*)
+              name="albumcraft-${version}-${{ matrix.target }}"
+              mkdir -p "$name"
+              cp target/release/albumcraft.exe "${docs[@]}" "$name/"
+              7z a -tzip "$name.zip" "$name" > /dev/null
+              file="$name.zip"
+              ;;
+            macos-*)
+              app="AlbumCraft.app"
+              mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+              cp target/release/albumcraft "$app/Contents/MacOS/"
+              sed "s/@VERSION@/${version}/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+              iconset=albumcraft.iconset
+              mkdir -p "$iconset"
+              for s in 16 32 128 256 512; do
+                sips -z $s $s assets/app-icon/albumcraft-1024.png --out "$iconset/icon_${s}x${s}.png" > /dev/null
+                d=$((s * 2))
+                sips -z $d $d assets/app-icon/albumcraft-1024.png --out "$iconset/icon_${s}x${s}@2x.png" > /dev/null
+              done
+              iconutil -c icns "$iconset" -o "$app/Contents/Resources/albumcraft.icns"
+              cp "${docs[@]}" "$app/Contents/Resources/"
+              # ad-hoc signature (no developer certificate): needed to run on Apple Silicon
+              codesign --force --deep --sign - "$app"
+              file="AlbumCraft-${version}-${{ matrix.target }}.zip"
+              ditto -c -k --keepParent "$app" "$file"
+              ;;
+          esac
+          gh release upload "${GITHUB_REF_NAME}" "$file" --clobber
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish the release
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false

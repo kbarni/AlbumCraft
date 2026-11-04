@@ -8,7 +8,7 @@ AlbumCraft is a native photo organizer with a simple non-destructive editor, wri
 |---|---|
 | `CLAUDE.md` | Layout, build/run/test commands, module map, key design rules |
 | `new_features.md` | Feature ideas, feasibility, phases and current status: the work list |
-| `shots/` | Reference screenshots of the app |
+| `docs/screenshots/` | Screenshots used by the README |
 
 ## 2. Code map (`src/`)
 

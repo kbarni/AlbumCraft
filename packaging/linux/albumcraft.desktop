@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AlbumCraft
+GenericName=Photo Organizer
+Comment=Organize, edit and share your pictures
+Exec=albumcraft
+Icon=albumcraft
+Terminal=false
+Categories=Graphics;Photography;Viewer;RasterGraphics;
+Keywords=photo;picture;album;raw;slideshow;

@@ -1,0 +1,24 @@
+AlbumCraft
+Copyright (c) 2026 Keresztes Barna and the AlbumCraft contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+The app icon (assets/app-icon/, a gecko) is original artwork made for AlbumCraft and is covered
+by the license above.
+
+Third-party material
+
+AlbumCraft builds embed the default fonts of egui (crate epaint_default_fonts), used for the user
+interface and drawn into pictures by the text effect and print captions:
+
+  Ubuntu Light (Ubuntu-Light.ttf) - Ubuntu Font Licence 1.0
+  Hack Regular (Hack-Regular.ttf) - MIT License (Copyright 2018 Source Foundry Authors; DejaVu parts public domain)
+  Noto Emoji (NotoEmoji-Regular.ttf) - SIL Open Font License 1.1
+  emoji-icon-font / egui-icons (emoji-icon-font.ttf, egui-icons.ttf) - MIT License (Copyright 2014 John Slegers)
+
+Their license texts are in the epaint_default_fonts crate (fonts/UFL.txt, fonts/Hack-Regular.txt,
+fonts/OFL.txt, fonts/emoji-icon-font-mit-license.txt).
+
+All other dependencies are Rust crates under their own licenses (see Cargo.lock; most are MIT
+and/or Apache-2.0). Movie export runs the separately installed FFmpeg program, which is not
+distributed with AlbumCraft.

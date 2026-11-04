@@ -21,7 +21,7 @@ cargo build            # dev profile: opt-level 1 for this crate, 3 for dependen
 cargo run
 cargo test             # tests are inline #[cfg(test)] modules (library.rs ini_tests, imaging.rs filter_tests, exifinfo.rs, edit_view.rs, app.rs tray_tests, print.rs, thumbcache.rs)
 cargo test <name>      # single test, e.g. cargo test ini_tests
-cargo run -- --screenshot out.png   # renders a frame, saves it, and exits (used for the screenshots in `shots/`)
+cargo run -- --screenshot out.png   # renders a frame, saves it, and exits (used for `docs/screenshots/`; on a tiling window manager retry until the window is wide)
 ```
 
 - `rust-toolchain.toml` selects plain `stable` (plus clippy and rustfmt) on every platform. On a Windows machine without the MSVC linker, run `rustup set default-host x86_64-pc-windows-gnu` once; a local, gitignored `.cargo/config.toml` can hold that machine's GNU linker workarounds (paths to `.tools/`, used only for the `x86_64-pc-windows-gnu` target). The `windows` crate is a `[target.'cfg(windows)'.dependencies]` entry and is only used under `#[cfg(windows)]` in `print.rs`; non-Windows has a stub `mod other`. `cargo test`: 13 pass, 1 ignored (`prints_to_pdf`).
@@ -65,5 +65,6 @@ Key design rules:
 ## Other files
 
 - `new_features.md` — feature plan, phases, review findings (phase 0) and status.
-- `shots/` — screenshots of the app for comparison; `scratch/` (gitignored) is throwaway.
+- `docs/screenshots/` — README screenshots (JPEG, 1400 px wide); `scratch/` (gitignored) is throwaway.
+- Releases: push a tag `v<version>` (matching `Cargo.toml`); `.github/workflows/release.yml` builds Linux x86_64 (tar.gz with `.desktop` file), Windows x86_64 (zip) and macOS arm64 (ad-hoc signed `.app` zip) and publishes a GitHub release (pre-release when the version has a `-`), with notes from `docs/release-notes/<version>.md`. `packaging/` holds the `.desktop` file and `Info.plist`. License: MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`).
 - `assets/app-icon/` — the gecko app icon: `albumcraft.svg` is the hand-made source; PNG sizes, `hicolor/` layout and `.ico` are exported from it (commands in its README). `main.rs` embeds the 64 px (sidebar badge, `App::app_icon`) and 256 px (window icon) PNGs.
