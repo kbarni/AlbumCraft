@@ -312,13 +312,17 @@ pub struct Folder {
 /// One scanned folder: its path and (file path, modified, size) for each picture.
 pub type ScannedFolder = (String, Vec<(String, i64, u64)>);
 
-pub fn scan_roots(roots: &[String], limit: usize) -> Vec<ScannedFolder> {
+/// Most pictures one library scan takes in (keeps memory and start-up time bounded).
+pub const SCAN_LIMIT: usize = 200_000;
+
+/// Scan the folders for pictures; the flag is true when the scan stopped at `limit`.
+pub fn scan_roots(roots: &[String], limit: usize) -> (Vec<ScannedFolder>, bool) {
     let mut out = vec![];
     let mut count = 0;
     for r in roots {
         scan_dir(Path::new(r), 0, &mut out, &mut count, limit);
     }
-    out
+    (out, count >= limit)
 }
 
 fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut usize, limit: usize) {
@@ -431,6 +435,20 @@ mod store_tests {
         assert!(!path.exists());
         assert!(std::fs::read_to_string(&backup).unwrap().contains("a.jpg"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_reports_when_it_stops_at_the_limit() {
+        let dir = temp_dir("scan-limit");
+        for n in ["a.jpg", "b.png", "c.jpg", "notes.txt"] {
+            std::fs::write(dir.join(n), b"x").unwrap();
+        }
+        let root = [dir.to_string_lossy().to_string()];
+        let (all, cut) = scan_roots(&root, 10);
+        let (_, cut_small) = scan_roots(&root, 3);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(all.iter().map(|f| f.1.len()).sum::<usize>(), 3);
+        assert!(!cut && cut_small);
     }
 
     #[test]
@@ -601,7 +619,8 @@ pub enum Done {
     Big { id: usize, key: String, img: Option<RgbaImage> },
     /// `unedited_width` is the width of the loaded picture before edits (to know its scale).
     Zoom { id: usize, key: String, ops: Vec<EditOp>, img: Option<RgbaImage>, unedited_width: u32 },
-    Scan(Vec<ScannedFolder>),
+    /// Scanned folders, and whether the scan stopped at SCAN_LIMIT.
+    Scan(Vec<ScannedFolder>, bool),
     Message(String),
 }
 

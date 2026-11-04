@@ -443,7 +443,7 @@ impl App {
                 let dir = std::env::temp_dir().join("albumcraft-props-demo");
                 let _ = std::fs::create_dir_all(&dir);
                 if crate::exifinfo::write_demo_jpeg(&dir.join("P8184048.JPG")).is_ok() {
-                    let found = library::scan_roots(&[dir.to_string_lossy().to_string()], 10);
+                    let (found, _) = library::scan_roots(&[dir.to_string_lossy().to_string()], 10);
                     app.set_library(found, false);
                     if !app.photos.is_empty() {
                         app.open_editor(0);
@@ -480,8 +480,8 @@ impl App {
         let ctx = self.ctx.clone();
         self.scanning = true;
         std::thread::spawn(move || {
-            let found = library::scan_roots(&roots, 20_000);
-            let _ = tx.send(Done::Scan(found));
+            let (found, truncated) = library::scan_roots(&roots, library::SCAN_LIMIT);
+            let _ = tx.send(Done::Scan(found, truncated));
             ctx.request_repaint();
         });
     }
@@ -1294,12 +1294,18 @@ impl App {
                         }
                     }
                 }
-                Done::Scan(found) => {
+                Done::Scan(found, truncated) => {
                     self.scanning = false;
                     if found.is_empty() {
                         self.set_library(library::sample_folders(), true);
                     } else {
                         self.set_library(found, false);
+                    }
+                    if truncated {
+                        self.toast(format!(
+                            "Only the first {} pictures are shown: remove some folders from the library to see the rest.",
+                            fmt_count(library::SCAN_LIMIT)
+                        ));
                     }
                 }
                 Done::Message(m) => {
