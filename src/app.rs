@@ -1355,7 +1355,7 @@ impl App {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export_one(key, edits, &dir, stem, max_dim, quality)))
                     .unwrap_or_else(|_| Err("unexpected error".into()));
                 match result {
-                    Ok(()) => ok += 1,
+                    Ok(_) => ok += 1,
                     Err(e) => failed.push(format!("{name}: {e}")),
                 }
             }
@@ -1995,7 +1995,7 @@ pub fn copyable_edits(edits: &[EditOp]) -> Vec<EditOp> {
 
 /// Export one picture with its edits as `<stem>.jpg` in `dir` (or `<stem>-1.jpg`, … when taken).
 /// Never overwrites a file, and removes its own half-written file when something fails.
-fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8) -> Result<(), String> {
+pub fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8) -> Result<PathBuf, String> {
     let src = imaging::load_source(key, max_dim).ok_or("the picture could not be read")?;
     let img = imaging::apply_all(&src, edits);
     let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
@@ -2015,9 +2015,13 @@ fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, ma
         rgb.write_with_encoder(enc).map_err(|e| e.to_string())?;
         w.flush().map_err(|e| e.to_string())
     };
-    write().inspect_err(|_| {
-        let _ = std::fs::remove_file(&out);
-    })
+    match write() {
+        Ok(()) => Ok(out),
+        Err(e) => {
+            let _ = std::fs::remove_file(&out);
+            Err(e)
+        }
+    }
 }
 
 /// "2009:05:12 10:00:00" -> "2009/05/12 10:00:00" (only the date part is
@@ -2167,5 +2171,38 @@ mod tray_tests {
         assert_eq!(fmt_count(1234), "1,234");
         assert_eq!(fmt_count(1234567), "1,234,567");
         assert_eq!(exif_date_slashes("2009:05:12 10:00:00"), "2009/05/12 10:00:00");
+    }
+}
+
+impl crate::commands::Host for App {
+    fn store(&self) -> &Store {
+        &self.store
+    }
+    fn store_mut(&mut self) -> &mut Store {
+        self.dirty = true;
+        &mut self.store
+    }
+    fn photos(&self) -> &[Photo] {
+        &self.photos
+    }
+    fn folders(&self) -> &[Folder] {
+        &self.folders
+    }
+    fn find(&self, key: &str) -> Option<usize> {
+        self.key_index.get(key).copied()
+    }
+    fn changed(&mut self, id: usize) {
+        self.dirty = true;
+        self.refresh_thumb(id);
+    }
+    fn rescan(&mut self) {
+        App::rescan(self);
+    }
+    fn show(&mut self, id: usize) -> Result<(), String> {
+        if id >= self.photos.len() {
+            return Err("no such picture".into());
+        }
+        self.open_editor(id);
+        Ok(())
     }
 }
