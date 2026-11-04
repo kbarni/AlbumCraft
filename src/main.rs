@@ -10,6 +10,7 @@ mod library;
 mod library_view;
 mod looks;
 mod shell;
+mod slides;
 mod print;
 mod print_view;
 mod raw;

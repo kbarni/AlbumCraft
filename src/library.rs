@@ -98,6 +98,8 @@ pub struct Store {
     pub print: crate::print::PrintSettings,
     /// Appearance: "system", "light" or "dark".
     pub theme: String,
+    /// Slideshow (and movie) settings.
+    pub slideshow: crate::slides::SlideSettings,
 }
 
 impl Default for Store {
@@ -112,6 +114,7 @@ impl Default for Store {
             dont_ask_end_2up: false,
             print: Default::default(),
             theme: "system".into(),
+            slideshow: Default::default(),
         }
     }
 }
@@ -265,7 +268,7 @@ fn migrate_old_store(path: &Path) {
 pub enum Loaded {
     /// No library yet (first start).
     Fresh,
-    Store(Store),
+    Store(Box<Store>),
     /// The file exists but can't be used. `backup` is where it was moved so that a new library
     /// can be saved without losing it; `None` means it is still in place and must not be overwritten.
     Unreadable { error: String, backup: Option<PathBuf> },
@@ -287,7 +290,7 @@ impl Store {
         match serde_json::from_str::<Store>(&text) {
             Ok(mut store) => {
                 store.sanitize();
-                Loaded::Store(store)
+                Loaded::Store(Box::new(store))
             }
             Err(e) => {
                 // Keep the unreadable file next to where it was, under a name that is never overwritten.

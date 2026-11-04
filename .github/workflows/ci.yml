@@ -31,4 +31,4 @@ jobs:
       dev-debug: ""
       packages: >-
         pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev
-        libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev
+        libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev libasound2-dev

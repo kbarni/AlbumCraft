@@ -215,10 +215,15 @@ pub struct Slideshow {
     pub list: Vec<usize>,
     pub pos: usize,
     pub playing: bool,
-    pub last: f64,
-    pub interval: f32,
+    /// When the current picture appeared (the clock of its motion and of auto-advance).
+    pub started: f64,
+    /// The picture before, still fading out: (photo id, position in the list, when it appeared).
+    pub prev: Option<(usize, usize, f64)>,
+    /// While paused: when the pause began (motion and timers stand still).
+    pub paused_at: Option<f64>,
     pub from: View,
     pub last_move: f64,
+    pub music: Option<crate::slides::Music>,
 }
 
 pub struct BigEntry {
@@ -318,7 +323,7 @@ impl App {
         let mut load_problem = None;
         let mut store = if persist {
             match Store::load() {
-                Loaded::Store(s) => s,
+                Loaded::Store(s) => *s,
                 Loaded::Fresh => {
                     first_run = true;
                     Store::default()
@@ -517,6 +522,10 @@ impl App {
                 m.edits.push(EditOp::Decor(crate::decor::Decor::Text(crate::decor::TextOverlay { text: "Summer 2009".into(), anchor: 7, size: 0.07, color: [40, 40, 40], halo: false })));
                 app.open_editor(4);
                 app.edit.tab = Tab::Effects;
+            }
+            if shot_view == "slideshow" {
+                let list: Vec<usize> = (0..app.photos.len()).collect();
+                app.start_slideshow(list, 0);
             }
             if shot_view == "presets" && app.photos.len() > 3 {
                 let k = app.photos[3].key.clone();
@@ -1248,10 +1257,27 @@ impl App {
         }
         let now = self.ctx.input(|i| i.time);
         let pos = list.iter().position(|&x| x == start).unwrap_or(0);
-        self.slide = Some(Slideshow { list, pos, playing: true, last: now, interval: 3.0, from: self.view, last_move: now });
+        let music = self.start_music();
+        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music });
         self.view = View::Slideshow;
         if self.shot.is_none() {
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        }
+    }
+
+    /// The slideshow's music, when it is switched on (problems are reported, not fatal).
+    pub fn start_music(&mut self) -> Option<crate::slides::Music> {
+        let s = &self.store.slideshow;
+        if !s.music_on || self.shot.is_some() {
+            return None;
+        }
+        let path = s.music.clone()?;
+        match crate::slides::Music::start(&path) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                self.toast(format!("No music: {e}"));
+                None
+            }
         }
     }
 
