@@ -9,6 +9,7 @@ mod library_view;
 mod shell;
 mod print;
 mod print_view;
+mod raw;
 mod theme;
 mod thumbcache;
 

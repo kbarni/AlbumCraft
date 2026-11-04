@@ -132,4 +132,6 @@ Low / clean-up:
 - Phase 0 (branch `fix/phase0`, 2026-11-04): fixed 1–7, 10, 12, 13, 16–20; 8 fixed except carrying EXIF over to exported files; 9: the zoom part was not a bug (only one zoom render is requested at a time), the dialog part is fixed.
 - Phase 0 left open: 8 (EXIF in exported files, needs a metadata writer), 11 (non-UTF-8 file names: keys would have to become `PathBuf`), 14 (saving off the UI thread), 15 (faster first thumbnails). None loses data; 14 and 15 only matter for very large libraries.
 - Not in the list but noticed: the tray's buttons for services that no longer exist (Upload, Shop, BlogThis!, Geo-Tag) only show a "not available" message, and Movie only explains it is not available yet: to remove, or replace by the planned features. The tray buttons overlap in a narrow window.
-- Next: phase 1.
+- Phase 1 (2026-11-04), one branch per feature, stacked: `feature/ratings` (pick/reject flags, 1–5 star ratings, filters, P/X/U/0–5 keys; old stars and `.picasa.ini` stars become picks), `feature/copy-edits` (copy/paste edits, Ctrl+Shift+C/V), `feature/raw-previews` (raw files via their embedded JPEG preview; checked on a real Nikon D3S NEF: 4256×2832 preview in 0.1 s).
+- Phase 1 left open: raw+JPEG pairs of the same shot show as two pictures; CR3/RAF/other formats were only tested with synthetic files.
+- Next: phase 2 (new Edit tab).

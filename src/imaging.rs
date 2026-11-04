@@ -104,6 +104,11 @@ pub fn load_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
         let (w, h) = sample_size(seed);
         sample_image(seed, w, h)
     } else {
+        if crate::raw::is_raw(key) {
+            let img = crate::raw::preview(key)?;
+            let img = if max_dim > 0 && (img.width() > max_dim || img.height() > max_dim) { img.thumbnail(max_dim, max_dim) } else { img };
+            return Some(img.to_rgba8());
+        }
         let mut decoder = open_decoder(key)?;
         // the camera's "this way up" (EXIF orientation), applied after scaling down (cheaper)
         let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
@@ -130,6 +135,9 @@ fn open_decoder(path: &str) -> Option<impl image::ImageDecoder> {
 /// turned a quarter (EXIF orientation 5–8). Reads only the file header.
 pub fn oriented_dims(path: &str) -> Option<(u32, u32)> {
     use image::metadata::Orientation as O;
+    if crate::raw::is_raw(path) {
+        return crate::raw::preview_dims(path);
+    }
     let mut decoder = open_decoder(path)?;
     let (w, h) = decoder.dimensions();
     let turned = matches!(

@@ -11,6 +11,11 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 pub const EXTENSIONS: [&str; 9] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "jpe"];
 
+/// Whether a file with this (lower-case) extension is shown in the library.
+pub fn is_picture_extension(ext: &str) -> bool {
+    EXTENSIONS.contains(&ext) || crate::raw::RAW_EXTENSIONS.contains(&ext)
+}
+
 /// Culling flag: keep it (pick), drop it (reject), or not decided.
 #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -390,7 +395,7 @@ fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut 
         if md.is_dir() {
             subdirs.push(path);
         } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
-            && EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) && md.len() > 0 {
+            && is_picture_extension(&ext.to_ascii_lowercase()) && md.len() > 0 {
                 let modified = md
                     .modified()
                     .ok()
@@ -487,7 +492,7 @@ mod store_tests {
     #[test]
     fn scan_reports_when_it_stops_at_the_limit() {
         let dir = temp_dir("scan-limit");
-        for n in ["a.jpg", "b.png", "c.jpg", "notes.txt"] {
+        for n in ["a.jpg", "b.png", "c.NEF", "notes.txt"] {
             std::fs::write(dir.join(n), b"x").unwrap();
         }
         let root = [dir.to_string_lossy().to_string()];

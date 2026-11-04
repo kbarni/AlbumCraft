@@ -38,6 +38,7 @@ Single-window eframe/egui app (edition 2024). `main.rs` parses `--screenshot` an
 - `library_view.rs` — shared library helpers: `paint_star`, key handling (`library_keys`), the menu items and the per-picture context menu (`cell_menu`).
 - `edit_view.rs` — editor UI (tabs of tools, crop, compare modes, effect previews) and slideshow.
 - `imaging.rs` — non-destructive edit pipeline: `EditOp` / `Effect` applied on the fly by `apply_all`; image loading (`load_source`); built-in sample images (keys prefixed `SAMPLE_PREFIX`) used when no real folders are scanned.
+- `raw.rs` — camera raw files (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF…) shown through their largest embedded JPEG preview, turned by the raw file's EXIF orientation; `imaging::load_source` / `oriented_dims` route raw files here. No sensor-data developing. `ALBUMCRAFT_RAW_SAMPLE=<file> cargo test real_raw_file -- --ignored --nocapture` checks a real file.
 - `exifinfo.rs` — EXIF/camera info and embedded thumbnails (kamadak-exif).
 - `print.rs` / `print_view.rs` — print layouts, paper/borders/captions; real printing through Win32 GDI on Windows only.
 
