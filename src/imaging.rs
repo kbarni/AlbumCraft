@@ -20,21 +20,6 @@ pub enum Effect {
 }
 
 impl Effect {
-    pub const ALL: [Effect; 12] = [
-        Effect::Sharpen,
-        Effect::Sepia,
-        Effect::BlackWhite,
-        Effect::Warmify,
-        Effect::FilmGrain,
-        Effect::Tint,
-        Effect::Saturation,
-        Effect::SoftFocus,
-        Effect::Glow,
-        Effect::FilteredBw,
-        Effect::FocalBw,
-        Effect::GraduatedTint,
-    ];
-
     pub fn label(&self) -> &'static str {
         match self {
             Effect::Sharpen => "Sharpen",
@@ -76,6 +61,8 @@ pub enum EditOp {
     Adjust(crate::develop::Adjust),
     /// A preset look at an intensity (0…1).
     Look { look: crate::looks::Look, amount: f32 },
+    /// Vignette, border, shadow, rounded corners or text (the Effects tab).
+    Decor(crate::decor::Decor),
 }
 
 impl EditOp {
@@ -93,6 +80,7 @@ impl EditOp {
             EditOp::Effect(e) => e.label().into(),
             EditOp::Adjust(a) => a.label(),
             EditOp::Look { look, amount } => format!("{} {:.0} %", look.label(), amount * 100.0),
+            EditOp::Decor(d) => d.label(),
         }
     }
 }
@@ -409,6 +397,7 @@ pub fn apply(mut img: RgbaImage, op: &EditOp) -> RgbaImage {
             crate::looks::apply(&mut img, *look, *amount);
             img
         }
+        EditOp::Decor(d) => d.apply(img),
     }
 }
 

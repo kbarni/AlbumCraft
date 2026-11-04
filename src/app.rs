@@ -258,7 +258,6 @@ pub struct App {
     pub big: HashMap<usize, BigEntry>,
     pub big_order: VecDeque<usize>,
     pub big_req: HashSet<usize>,
-    pub effect_previews: Option<(usize, Vec<EditOp>, Vec<TextureHandle>)>,
     /// Small previews of every preset look for (picture, edits they start from).
     pub look_previews: Option<(usize, Vec<EditOp>, Vec<TextureHandle>)>,
 
@@ -374,7 +373,6 @@ impl App {
             big: HashMap::new(),
             big_order: VecDeque::new(),
             big_req: HashSet::new(),
-            effect_previews: None,
             look_previews: None,
             pool,
             tx,
@@ -512,6 +510,14 @@ impl App {
                 app.open_editor(2);
                 app.edit.show_info = true;
             }
+            if shot_view == "effects" && app.photos.len() > 4 {
+                let k = app.photos[4].key.clone();
+                let m = app.store.meta.entry(k).or_default();
+                m.edits.push(EditOp::Decor(crate::decor::Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }));
+                m.edits.push(EditOp::Decor(crate::decor::Decor::Text(crate::decor::TextOverlay { text: "Summer 2009".into(), anchor: 7, size: 0.07, color: [40, 40, 40], halo: false })));
+                app.open_editor(4);
+                app.edit.tab = Tab::Effects;
+            }
             if shot_view == "presets" && app.photos.len() > 3 {
                 let k = app.photos[3].key.clone();
                 app.store.meta.entry(k).or_default().edits.push(EditOp::Look { look: crate::looks::Look::Polaroid, amount: 0.8 });
@@ -569,7 +575,6 @@ impl App {
         self.list_pick = None;
         self.big_order.clear();
         self.big_req.clear();
-        self.effect_previews = None;
         self.look_previews = None;
         self.selection.clear();
         self.held.clear();

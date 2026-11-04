@@ -2,7 +2,8 @@
 
 use crate::app::*;
 use crate::develop::{self, Adjust};
-use crate::imaging::{self, EditOp, Effect};
+use crate::imaging::{self, EditOp};
+use crate::decor::{Decor, TextOverlay};
 use crate::looks::Look;
 use crate::library::{fmt_bytes, fmt_date, fmt_time};
 use crate::library_view::paint_thumb;
@@ -59,6 +60,28 @@ fn place(area: Rect, tex: [usize; 2], r: Option<f32>, zoom: Option<f32>, pan: Ve
 fn clamp_pan(pan: Vec2, size: Vec2, view: Vec2) -> Vec2 {
     let max = ((size - view) * 0.5).max(Vec2::ZERO);
     egui::vec2(pan.x.clamp(-max.x, max.x), pan.y.clamp(-max.y, max.y))
+}
+
+/// A row of colour choices; true when one was clicked.
+fn swatches(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
+    const COLOURS: [[u8; 3]; 7] = [[255, 255, 255], [250, 248, 242], [128, 128, 128], [20, 20, 20], [250, 210, 60], [220, 50, 50], [40, 90, 200]];
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.add_sized([70.0, 18.0], egui::Label::new(label));
+        for c in COLOURS {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::click());
+            let fill = Color32::from_rgb(c[0], c[1], c[2]);
+            ui.painter().rect_filled(rect, 3, fill);
+            let on = *color == c;
+            let stroke = if on { Stroke::new(2.0, t().accent) } else { Stroke::new(1.0, t().border) };
+            ui.painter().rect_stroke(rect, 3, stroke, StrokeKind::Outside);
+            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                *color = c;
+                changed = true;
+            }
+        }
+    });
+    changed
 }
 
 #[derive(Clone, Copy)]
@@ -750,52 +773,119 @@ impl App {
         }
     }
 
+    /// The effect being edited: the last edit step when it is one.
+    fn current_decor(&self, id: usize) -> Option<Decor> {
+        match self.meta(id).and_then(|m| m.edits.last()) {
+            Some(EditOp::Decor(d)) => Some(d.clone()),
+            _ => None,
+        }
+    }
+
+    /// Change the last effect when it is of the same kind, otherwise add this one.
+    fn set_decor(&mut self, id: usize, d: Decor) {
+        let m = self.meta_mut(id);
+        match m.edits.last_mut() {
+            Some(EditOp::Decor(cur)) if cur.same_kind(&d) => *cur = d,
+            _ => m.edits.push(EditOp::Decor(d)),
+        }
+        self.edit.redo.clear();
+        self.refresh_thumb(id);
+    }
+
     fn effects_tab(&mut self, ui: &mut egui::Ui) {
         let id = self.edit.id;
-        let edits = self.edits(id);
-        let fresh = matches!(&self.effect_previews, Some((pid, e, _)) if *pid == id && *e == edits);
-        if !fresh {
-            if let Some(base) = self.thumb_base.get(&id) {
-                let (w, h) = imaging::fit(base.width(), base.height(), 96);
-                let small = image::imageops::resize(base, w, h, image::imageops::FilterType::Triangle);
-                let cur = imaging::apply_all(&small, &edits);
-                let texs = Effect::ALL
-                    .iter()
-                    .map(|e| {
-                        let img = imaging::apply(cur.clone(), &EditOp::Effect(*e));
-                        self.ctx.load_texture(format!("fx{}", e.label()), to_color_image(&img), TextureOptions::LINEAR)
-                    })
-                    .collect();
-                self.effect_previews = Some((id, edits.clone(), texs));
-            } else {
-                self.request_thumb(id);
+        ui.label(RichText::new("Add on or around the picture").size(12.0).weak());
+        let white = [255, 255, 255];
+        let adds: [(&str, &str, Decor); 6] = [
+            ("◐", "Vignette", Decor::Vignette { amount: 0.5, size: 0.5 }),
+            ("▢", "Border", Decor::Border { width: 0.03, bottom: 0.0, color: white }),
+            ("🖼", "Instant frame", Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }),
+            ("▣", "Drop shadow", Decor::Shadow { size: 0.04, opacity: 0.55, background: white }),
+            ("▢", "Rounded corners", Decor::Rounded { radius: 0.06, background: white }),
+            ("🔤", "Text", Decor::Text(TextOverlay { text: "Your text".into(), ..Default::default() })),
+        ];
+        let mut add = None;
+        egui::Grid::new("decor_add").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
+            for (i, (icon, label, d)) in adds.iter().enumerate() {
+                if tool_button(ui, icon, label).clicked() {
+                    add = Some(d.clone());
+                }
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
             }
+        });
+        if let Some(d) = add {
+            // always a new step (adding two borders makes a double frame)
+            self.push_edit(id, EditOp::Decor(d));
         }
-        ui.label(RichText::new("Fun and useful image processing").size(12.0).weak());
-        let mut chosen = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("fx").num_columns(3).spacing([4.0, 4.0]).show(ui, |ui| {
-                for (i, e) in Effect::ALL.iter().enumerate() {
-                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(76.0, 80.0), Sense::click());
-                    let p = ui.painter();
-                    if resp.hovered() {
-                        p.rect_filled(rect, 4, t().hover_wash);
-                    }
-                    let img_area = Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), egui::vec2(68.0, 52.0));
-                    let tex = self.effect_previews.as_ref().and_then(|(_, _, t)| t.get(i));
-                    paint_thumb(p, img_area, tex, true);
-                    p.text(rect.center_bottom() - egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, e.label(), egui::FontId::proportional(11.5), t().text);
-                    if resp.clicked() {
-                        chosen = Some(*e);
-                    }
-                    if i % 3 == 2 {
-                        ui.end_row();
-                    }
+        let Some(mut d) = self.current_decor(id) else {
+            ui.add_space(8.0);
+            ui.label(RichText::new("Effects go on top of every other edit. Add one to adjust it here.").size(11.5).weak());
+            return;
+        };
+        let before = d.clone();
+        ui.separator();
+        ui.label(RichText::new(d.label()).strong().size(15.0));
+        ui.spacing_mut().slider_width = 120.0;
+        let pct = |ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32| {
+            ui.horizontal(|ui| {
+                ui.add_sized([70.0, 18.0], egui::Label::new(label));
+                let mut p = *v * 100.0;
+                if ui.add(egui::Slider::new(&mut p, lo..=hi).suffix(" %").max_decimals(0)).changed() {
+                    *v = p / 100.0;
                 }
             });
-        });
-        if let Some(e) = chosen {
-            self.push_edit(id, EditOp::Effect(e));
+        };
+        match &mut d {
+            Decor::Vignette { amount, size } => {
+                pct(ui, "Amount", amount, -100.0, 100.0);
+                pct(ui, "Size", size, 0.0, 100.0);
+                ui.label(RichText::new("Left of the middle lightens the corners instead.").size(11.0).weak());
+            }
+            Decor::Border { width, bottom, color } => {
+                pct(ui, "Width", width, 0.0, 20.0);
+                pct(ui, "Bottom", bottom, 0.0, 30.0);
+                swatches(ui, "Colour", color);
+            }
+            Decor::Shadow { size, opacity, background } => {
+                pct(ui, "Size", size, 1.0, 10.0);
+                pct(ui, "Darkness", opacity, 0.0, 100.0);
+                swatches(ui, "Background", background);
+            }
+            Decor::Rounded { radius, background } => {
+                pct(ui, "Radius", radius, 1.0, 25.0);
+                swatches(ui, "Background", background);
+            }
+            Decor::Text(t) => {
+                ui.add(egui::TextEdit::singleline(&mut t.text).hint_text("Your text").desired_width(f32::INFINITY));
+                pct(ui, "Size", &mut t.size, 2.0, 25.0);
+                swatches(ui, "Colour", &mut t.color);
+                ui.checkbox(&mut t.halo, "Soft halo (readable on any picture)");
+                ui.label("Position");
+                egui::Grid::new("text_anchor").spacing([2.0, 2.0]).show(ui, |ui| {
+                    for a in 0..9u8 {
+                        let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 20.0), Sense::click());
+                        let on = t.anchor == a;
+                        let fill = if on { crate::theme::t().accent } else if resp.hovered() { crate::theme::t().surface_hover } else { crate::theme::t().surface };
+                        ui.painter().rect_filled(rect, 3, fill);
+                        ui.painter().rect_stroke(rect, 3, Stroke::new(1.0, crate::theme::t().border), StrokeKind::Inside);
+                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            t.anchor = a;
+                        }
+                        if a % 3 == 2 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            }
+        }
+        if d != before {
+            self.set_decor(id, d);
+        }
+        ui.add_space(6.0);
+        if ui.button("Remove this effect").clicked() {
+            self.undo();
         }
     }
 
