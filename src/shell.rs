@@ -247,8 +247,8 @@ impl App {
                 // brand
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
-                    ui.painter().rect_filled(r, 9, t().accent);
-                    ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, "A", egui::FontId::proportional(16.0), Color32::WHITE);
+                    let icon = self.app_icon();
+                    ui.painter().image(icon.id(), r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                     ui.label(RichText::new("AlbumCraft").size(16.0).strong().color(t().text_strong));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.menu_button(RichText::new("☰").size(17.0), |ui| {

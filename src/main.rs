@@ -24,6 +24,20 @@ mod thumbcache;
 
 use std::path::PathBuf;
 
+/// The gecko app icon (original artwork, `assets/app-icon/albumcraft.svg`), as PNGs.
+pub const ICON_64: &[u8] = include_bytes!("../assets/app-icon/hicolor/64x64/apps/albumcraft.png");
+const ICON_256: &[u8] = include_bytes!("../assets/app-icon/hicolor/256x256/apps/albumcraft.png");
+
+fn window_icon() -> eframe::egui::IconData {
+    match image::load_from_memory(ICON_256) {
+        Ok(img) => {
+            let img = img.to_rgba8();
+            eframe::egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() }
+        }
+        Err(_) => eframe::egui::IconData::default(),
+    }
+}
+
 /// Where panics are written down (release builds have no console on Windows).
 pub fn crash_log_path() -> Option<PathBuf> {
     Some(dirs::data_dir()?.join("AlbumCraft").join("crash.log"))
@@ -102,7 +116,8 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("AlbumCraft")
             .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([900.0, 560.0]),
+            .with_min_inner_size([900.0, 560.0])
+            .with_icon(window_icon()),
         ..Default::default()
     };
     eframe::run_native(

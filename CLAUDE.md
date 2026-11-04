@@ -66,3 +66,4 @@ Key design rules:
 
 - `new_features.md` — feature plan, phases, review findings (phase 0) and status.
 - `shots/` — screenshots of the app for comparison; `scratch/` (gitignored) is throwaway.
+- `assets/app-icon/` — the gecko app icon: `albumcraft.svg` is the hand-made source; PNG sizes, `hicolor/` layout and `.ico` are exported from it (commands in its README). `main.rs` embeds the 64 px (sidebar badge, `App::app_icon`) and 256 px (window icon) PNGs.

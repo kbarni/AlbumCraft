@@ -247,6 +247,7 @@ pub struct App {
     pub save_error: Option<String>,
     /// The control connection for the MCP server (see control.rs) and its queue of commands.
     control: Option<(crate::control::Server, Receiver<crate::control::Request>)>,
+    icon_tex: Option<TextureHandle>,
     /// Whether FFmpeg (for movies) was found; looked up when the Movie window first opens.
     pub ffmpeg: Option<bool>,
     /// Edits copied from a picture, ready to paste onto others.
@@ -373,6 +374,7 @@ impl App {
             list_rev: 0,
             copied_edits: None,
             ffmpeg: None,
+            icon_tex: None,
             control: None,
             list_cache: Default::default(),
             photos: vec![],
@@ -1279,6 +1281,17 @@ impl App {
         if self.shot.is_none() {
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
         }
+    }
+
+    /// The gecko icon as a texture (for the sidebar), made once.
+    pub fn app_icon(&mut self) -> TextureHandle {
+        if let Some(t) = &self.icon_tex {
+            return t.clone();
+        }
+        let img = image::load_from_memory(crate::ICON_64).map(|i| i.to_rgba8()).unwrap_or_else(|_| RgbaImage::from_pixel(1, 1, image::Rgba([217, 71, 138, 255])));
+        let tex = self.ctx.load_texture("app_icon", to_color_image(&img), TextureOptions::LINEAR);
+        self.icon_tex = Some(tex.clone());
+        tex
     }
 
     /// Listen for commands from the MCP server (problems only disable it).
