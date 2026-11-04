@@ -5,6 +5,7 @@ mod decor;
 mod develop;
 mod edit_view;
 mod exifinfo;
+mod gallery;
 mod imaging;
 mod library;
 mod library_view;

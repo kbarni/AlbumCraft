@@ -43,6 +43,7 @@ Single-window eframe/egui app (edition 2024). `main.rs` parses `--screenshot` an
 - `imaging.rs` — non-destructive edit pipeline: `EditOp` / `Effect` applied on the fly by `apply_all`; image loading (`load_source`); built-in sample images (keys prefixed `SAMPLE_PREFIX`) used when no real folders are scanned.
 - `raw.rs` — camera raw files (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF…) shown through their largest embedded JPEG preview, turned by the raw file's EXIF orientation; `imaging::load_source` / `oriented_dims` route raw files here. No sensor-data developing. `ALBUMCRAFT_RAW_SAMPLE=<file> cargo test real_raw_file -- --ignored --nocapture` checks a real file.
 - `slides.rs` — slideshow settings (`Store.slideshow`: seconds per picture, crossfade, pan-and-zoom motion, music file), `ken_burns_uv` / `fade_in` (shared with the movie export) and `Music` (rodio, looping; Linux builds need the ALSA headers, `libasound2-dev`).
+- `gallery.rs` — web gallery: a new folder (never an existing one) with `images/`, `thumbs/` and a self-contained `index.html` (inline CSS + lightbox script; light grid, dark grid or masonry). Captions and titles are HTML-escaped and the lightbox data is JSON with `<` escaped. `ALBUMCRAFT_GALLERY_OUT=<dir> cargo test demo_gallery -- --ignored` writes demos.
 - `exifinfo.rs` — EXIF/camera info and embedded thumbnails (kamadak-exif).
 - `print.rs` / `print_view.rs` — print layouts, paper/borders/captions; real printing through Win32 GDI on Windows only.
 

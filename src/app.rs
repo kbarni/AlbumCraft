@@ -117,6 +117,8 @@ pub enum Dialog {
     RenameAlbum { idx: usize, name: String },
     Tag { tags: String, people: String },
     Export { max_dim: u32, quality: u8 },
+    /// Make a web gallery of the tray.
+    Gallery { title: String, style: crate::gallery::Style, size: u32, captions: bool },
     FolderNote { path: String, text: String },
     FolderManager,
     Collage,
@@ -1366,6 +1368,53 @@ impl App {
         self.arm_tray_check();
     }
 
+    /// Open the web-gallery dialog for the tray, titled after what is shown.
+    pub fn open_gallery_dialog(&mut self) {
+        let title = match &self.source {
+            Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()),
+            Source::Person(n) => Some(n.clone()),
+            _ => self.tray().first().and_then(|&id| self.photos.get(id)).and_then(|p| self.folders.get(p.folder)).map(|f| f.name.clone()),
+        }
+        .unwrap_or_else(|| "My pictures".into());
+        self.dialog = Some(Dialog::Gallery { title, style: crate::gallery::Style::Light, size: 1280, captions: true });
+    }
+
+    pub fn make_gallery(&mut self, ids: Vec<usize>, opts: crate::gallery::Options) {
+        if ids.is_empty() {
+            self.toast("Select some pictures first.");
+            return;
+        }
+        let Some(parent) = rfd::FileDialog::new().set_title("Make the web gallery in…").pick_folder() else { return };
+        let items: Vec<crate::gallery::Item> = ids
+            .iter()
+            .filter_map(|&id| {
+                let p = self.photos.get(id)?;
+                let caption = self.meta(id).map(|m| m.caption.clone()).unwrap_or_default();
+                Some((p.key.clone(), p.name.clone(), self.edits(id), caption))
+            })
+            .collect();
+        let tx = self.tx.clone();
+        let ctx = self.ctx.clone();
+        self.toast(format!("Making the web gallery of {} picture(s)…", items.len()));
+        std::thread::spawn(move || {
+            let msg = match crate::gallery::write(&parent, &items, &opts) {
+                Ok((dir, failed)) => {
+                    let index = dir.join("index.html");
+                    let _ = crate::library_view::open_with_system(&index);
+                    let mut m = format!("The web gallery is ready:\n{}", index.display());
+                    if failed > 0 {
+                        m.push_str(&format!("\n\n{failed} picture(s) could not be read and were left out."));
+                    }
+                    m
+                }
+                Err(e) => format!("Could not make the web gallery: {e}"),
+            };
+            let _ = tx.send(Done::Message(msg));
+            ctx.request_repaint();
+        });
+        self.arm_tray_check();
+    }
+
     pub fn collage(&mut self, ids: Vec<usize>) {
         if ids.len() < 2 {
             self.toast("Put at least two pictures in the tray to make a collage.");
@@ -1535,6 +1584,7 @@ impl App {
             Dialog::RenameAlbum { .. } => "Rename album".into(),
             Dialog::Tag { .. } => "Tags and people".into(),
             Dialog::Export { .. } => "Export pictures".into(),
+            Dialog::Gallery { .. } => "Web gallery".into(),
             Dialog::FolderNote { .. } => "Folder description".into(),
             Dialog::FolderManager => "Folder manager".into(),
             Dialog::Collage => "Make a collage".into(),
@@ -1647,6 +1697,32 @@ impl App {
                         if ui.button("Choose folder and export…").clicked() {
                             let (m, q) = (*max_dim, *quality);
                             self.export(targets.clone(), m, q);
+                            close = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::Gallery { title, style, size, captions } => {
+                    ui.label(format!("A web page with {} picture(s) and your edits, viewable in any browser or uploadable to a web host.", targets.len()));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Title:");
+                        ui.text_edit_singleline(title);
+                    });
+                    ui.label("Style:");
+                    for st in crate::gallery::Style::ALL {
+                        ui.radio_value(style, st, st.label());
+                    }
+                    ui.label("Picture size:");
+                    ui.radio_value(size, 1280, "Medium (1280 pixels, small files)");
+                    ui.radio_value(size, 2048, "Large (2048 pixels, for big screens)");
+                    ui.checkbox(captions, "Show captions");
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(!targets.is_empty(), egui::Button::new("Choose folder and make…")).clicked() {
+                            let opts = crate::gallery::Options { title: title.clone(), style: *style, size: *size, captions: *captions };
+                            self.make_gallery(targets.clone(), opts);
                             close = true;
                         }
                         if ui.button("Cancel").clicked() {

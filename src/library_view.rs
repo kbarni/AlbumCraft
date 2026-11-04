@@ -284,6 +284,10 @@ impl App {
                         self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                         ui.close();
                     }
+                    if ui.button("Make a web gallery…").clicked() {
+                        self.open_gallery_dialog();
+                        ui.close();
+                    }
                     if ui.button("Print…   Ctrl+P").clicked() {
                         self.open_print();
                         ui.close();
@@ -613,8 +617,8 @@ impl App {
                             self.dialog = Some(Dialog::Export { max_dim: 800, quality: 85 });
                             self.toast("Export small copies, then attach them to an email.");
                         }
-                        if big_button(ui, "📤", "Upload", "Upload to web albums").clicked() {
-                            self.service_gone("Upload");
+                        if big_button(ui, "🌐", "Web page", "Make a web gallery of these pictures").clicked() {
+                            self.open_gallery_dialog();
                         }
                     });
                 });
@@ -733,6 +737,18 @@ fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
             }
         });
         Ok(())
+    }
+}
+
+/// Open a file with the system's default program (a web page in the browser).
+pub fn open_with_system(path: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Command;
+    if cfg!(target_os = "windows") {
+        Command::new("explorer").arg(path).spawn().map(drop)
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(path).spawn().map(drop)
+    } else {
+        Command::new("xdg-open").arg(path).spawn().map(drop)
     }
 }
 
