@@ -509,6 +509,16 @@ impl App {
         self.held.clear();
         self.anchor = None;
         self.using_samples = samples;
+        // Everything else that remembers photo numbers: they mean other pictures after a rescan.
+        self.tray_check = None;
+        self.print = None;
+        self.edit.list.clear();
+        if matches!(self.dialog, Some(Dialog::ClearTray { .. } | Dialog::PrintReview { .. } | Dialog::ChooseEdits { .. })) {
+            self.dialog = None;
+        }
+        if self.slide.take().is_some() {
+            self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
         if self.view != View::Library {
             self.view = View::Library;
         }
@@ -1293,7 +1303,12 @@ impl App {
                     }
                 }
                 Done::Message(m) => {
-                    self.dialog = Some(Dialog::Info { title: "Done".into(), text: m });
+                    // don't throw away a dialog the user is filling in
+                    if self.dialog.is_none() {
+                        self.dialog = Some(Dialog::Info { title: "Done".into(), text: m });
+                    } else {
+                        self.toast(m);
+                    }
                 }
             }
         }
