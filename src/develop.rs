@@ -293,7 +293,7 @@ fn detail(img: &mut RgbaImage, a: &Adjust) {
     let px = img.as_raw();
     let mut lum = vec![0f32; w * h];
     lum.par_chunks_mut(w).zip(px.par_chunks(w * 4)).for_each(|(l, row)| {
-        for (v, p) in l.iter_mut().zip(row.chunks_exact(4)) {
+        for (v, p) in l.iter_mut().zip(row.as_chunks::<4>().0) {
             *v = luma(p[0] as f32, p[1] as f32, p[2] as f32) / 255.0;
         }
     });
