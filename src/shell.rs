@@ -8,7 +8,7 @@
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
 use crate::app::*;
-use crate::library::{civil, fmt_date};
+use crate::library::{fmt_date, local_year};
 use crate::library_view::paint_star;
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 
@@ -314,7 +314,7 @@ impl App {
                     caption(ui, "Folders");
                     let mut by_year: Vec<(i32, Vec<usize>)> = vec![];
                     for (fi, f) in self.folders.iter().enumerate() {
-                        let y = civil(f.date).0;
+                        let y = local_year(f.date);
                         match by_year.last_mut() {
                             Some((yy, v)) if *yy == y => v.push(fi),
                             _ => by_year.push((y, vec![fi])),

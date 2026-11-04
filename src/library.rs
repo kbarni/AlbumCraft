@@ -480,6 +480,7 @@ mod ini_tests {
 // ---------------------------------------------------------------------------
 // Dates
 
+/// (year, month, day) of a timestamp, without any time zone.
 pub fn civil(ts: i64) -> (i32, u32, u32) {
     let z = ts.div_euclid(86_400) + 719_468;
     let era = z.div_euclid(146_097);
@@ -493,15 +494,52 @@ pub fn civil(ts: i64) -> (i32, u32, u32) {
     ((if m <= 2 { y + 1 } else { y }) as i32, m, d)
 }
 
+/// The timestamp moved to the local time zone (its offset at that moment, so summer time counts).
+fn local(ts: i64) -> i64 {
+    use chrono::TimeZone;
+    let offset = chrono::Local.timestamp_opt(ts, 0).single().map(|d| i64::from(d.offset().local_minus_utc())).unwrap_or(0);
+    ts.saturating_add(offset)
+}
+
+/// The year of a timestamp, in local time.
+pub fn local_year(ts: i64) -> i32 {
+    civil(local(ts)).0
+}
+
+/// "May 12, 2009", in local time.
 pub fn fmt_date(ts: i64) -> String {
+    fmt_date_utc(local(ts))
+}
+
+/// "10:05", in local time.
+pub fn fmt_time(ts: i64) -> String {
+    fmt_time_utc(local(ts))
+}
+
+fn fmt_date_utc(ts: i64) -> String {
     const M: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let (y, m, d) = civil(ts);
     format!("{} {}, {}", M[(m as usize).saturating_sub(1).min(11)], d, y)
 }
 
-pub fn fmt_time(ts: i64) -> String {
+fn fmt_time_utc(ts: i64) -> String {
     let s = ts.rem_euclid(86_400);
     format!("{:02}:{:02}", s / 3600, (s % 3600) / 60)
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::*;
+
+    #[test]
+    fn dates_and_times() {
+        let t = 1_242_122_700; // 2009-05-12 10:05 UTC
+        assert_eq!(fmt_date_utc(t), "May 12, 2009");
+        assert_eq!(fmt_time_utc(t), "10:05");
+        // local time differs from UTC by the zone's offset only
+        let shift = local(t) - t;
+        assert!(shift.abs() <= 14 * 3600 && shift % 900 == 0);
+    }
 }
 
 pub fn fmt_bytes(b: u64) -> String {
