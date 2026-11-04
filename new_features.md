@@ -129,4 +129,7 @@ Low / clean-up:
 
 - Done: persistent on-disk thumbnail cache (`src/thumbcache.rs`, `dirs::cache_dir()/AlbumCraft/thumbs`).
 - Already present before this plan: export of edited copies (size/quality), basic slideshow, printing, one-click edit tools and 12 effects.
-- Next: phase 0.
+- Phase 0 (branch `fix/phase0`, 2026-11-04): fixed 1–7, 10, 12, 13, 16–20; 8 fixed except carrying EXIF over to exported files; 9: the zoom part was not a bug (only one zoom render is requested at a time), the dialog part is fixed.
+- Phase 0 left open: 8 (EXIF in exported files, needs a metadata writer), 11 (non-UTF-8 file names: keys would have to become `PathBuf`), 14 (saving off the UI thread), 15 (faster first thumbnails). None loses data; 14 and 15 only matter for very large libraries.
+- Not in the list but noticed: the tray's buttons for services that no longer exist (Upload, Shop, BlogThis!, Geo-Tag) only show a "not available" message, and Movie only explains it is not available yet: to remove, or replace by the planned features. The tray buttons overlap in a narrow window.
+- Next: phase 1.

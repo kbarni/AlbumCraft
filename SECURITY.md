@@ -43,7 +43,8 @@ General bugs without a security impact go through normal issues.
 
 - There is no network service: AlbumCraft opens no port and has no automation interface yet. When the MCP server is added it must use stdio, or bind to localhost only and require a random bearer token; tools that touch the filesystem must be restricted to the library's folders and the chosen export folder.
 - Pictures are decoded with the `image` crate's default limits (allocations up to 512 MiB per decode) on up to six worker threads at once, so a folder of hostile files can use several GiB of memory. There is no per-file timeout.
-- A panic while decoding or editing in a background worker is not yet contained (see phase 0 in `new_features.md`); one bad file can stop thumbnail loading until restart. Some panics on the UI thread caused by unusual metadata are possible and are being removed.
-- `library.json` is not yet written atomically, and an unreadable `library.json` is currently replaced by an empty library at the next save. Keep a backup until phase 0 lands.
+- A panic while decoding or editing a picture in a background worker (thumbnails, previews, zoom, export, collage) is caught: that picture fails, the others carry on. Every panic is written with a backtrace to `crash.log` in the data directory; a crash of the main thread is reported at the next start.
+- `library.json` is written atomically (temporary file, flushed, then renamed). An unreadable library is moved aside as `library.unreadable-<time>.json`, never overwritten; if it can't be moved, nothing is saved during that session. Values in it are range-checked on load.
+- File names that are not valid UTF-8 are not supported (such pictures show as unreadable).
 - Captions, tags and file names are shown as plain text in egui (no HTML or script interpretation). Exported files contain only picture data (no metadata is copied).
 - `.picasa.ini` files are only read, never written. Original pictures are never modified.
