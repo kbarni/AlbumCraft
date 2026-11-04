@@ -154,6 +154,7 @@ dependencies = [
  "dirs",
  "eframe",
  "epaint_default_fonts",
+ "getrandom 0.4.3",
  "image",
  "kamadak-exif",
  "rayon",

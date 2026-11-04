@@ -2,6 +2,7 @@
 
 mod app;
 mod commands;
+mod control;
 mod decor;
 mod develop;
 mod edit_view;
@@ -10,6 +11,7 @@ mod gallery;
 mod imaging;
 mod library;
 mod library_view;
+mod mcp;
 mod movie;
 mod looks;
 mod shell;
@@ -65,6 +67,23 @@ fn install_panic_hook() {
 
 fn main() -> eframe::Result<()> {
     install_panic_hook();
+    if std::env::args().skip(1).any(|a| a == "--mcp") {
+        // MCP server on stdin/stdout; no window
+        let code = match mcp::Config::default_paths() {
+            Ok(cfg) => match mcp::serve(std::io::stdin().lock(), std::io::stdout().lock(), &cfg) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("albumcraft --mcp: {e}");
+                    1
+                }
+            },
+            Err(e) => {
+                eprintln!("albumcraft --mcp: {e}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
     let trace = std::env::var_os("ALBUMCRAFT_TRACE").is_some();
     if trace {
         eprintln!("start");

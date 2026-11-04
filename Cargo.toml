@@ -11,6 +11,7 @@ eframe = "0.37.0"
 epaint_default_fonts = "0.37.0"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp", "tiff", "rayon"] }
 kamadak-exif = "0.6.1"
+getrandom = "0.4"
 rayon = "1"
 rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "flac", "vorbis", "wav", "mp4"] }
 rfd = "0.17.2"

@@ -390,7 +390,7 @@ fn edits_of(host: &dyn Host, id: usize) -> Vec<EditOp> {
     host.photos().get(id).and_then(|p| host.store().meta.get(&p.key)).map(|m| m.edits.clone()).unwrap_or_default()
 }
 
-fn meta_mut<'a>(host: &'a mut dyn Host, id: usize) -> Option<&'a mut library::Meta> {
+fn meta_mut(host: &mut dyn Host, id: usize) -> Option<&mut library::Meta> {
     let key = host.photos().get(id)?.key.clone();
     Some(host.store_mut().meta.entry(key).or_default())
 }

@@ -245,6 +245,8 @@ pub struct App {
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
+    /// The control connection for the MCP server (see control.rs) and its queue of commands.
+    control: Option<(crate::control::Server, Receiver<crate::control::Request>)>,
     /// Whether FFmpeg (for movies) was found; looked up when the Movie window first opens.
     pub ffmpeg: Option<bool>,
     /// Edits copied from a picture, ready to paste onto others.
@@ -371,6 +373,7 @@ impl App {
             list_rev: 0,
             copied_edits: None,
             ffmpeg: None,
+            control: None,
             list_cache: Default::default(),
             photos: vec![],
             folders: vec![],
@@ -546,6 +549,9 @@ impl App {
         } else {
             app.rescan();
             std::thread::spawn(crate::thumbcache::prune);
+            if persist {
+                app.start_control();
+            }
         }
         if let Some(text) = load_problem {
             app.dialog = Some(Dialog::Info { title: "Library".into(), text });
@@ -1272,6 +1278,44 @@ impl App {
         self.view = View::Slideshow;
         if self.shot.is_none() {
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        }
+    }
+
+    /// Listen for commands from the MCP server (problems only disable it).
+    fn start_control(&mut self) {
+        let Some(file) = crate::control::control_path() else { return };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.ctx.clone();
+        match crate::control::start(file, tx, move || ctx.request_repaint()) {
+            Ok(server) => self.control = Some((server, rx)),
+            Err(e) => eprintln!("control connection not available: {e}"),
+        }
+    }
+
+    /// Run the commands the MCP server sent; slow ones finish on their own thread.
+    fn run_control_requests(&mut self) {
+        let requests: Vec<crate::control::Request> = match &self.control {
+            Some((_, rx)) => rx.try_iter().collect(),
+            None => return,
+        };
+        for r in requests {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::commands::run(self, &r.command, &r.args)))
+                .unwrap_or_else(|_| Err("unexpected error".into()));
+            match outcome {
+                Ok(crate::commands::Outcome::Now(reply)) => {
+                    let _ = r.reply.send(Ok(reply));
+                }
+                Ok(crate::commands::Outcome::Later(work)) => {
+                    let reply = r.reply;
+                    std::thread::spawn(move || {
+                        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| Err("unexpected error".into()));
+                        let _ = reply.send(res);
+                    });
+                }
+                Err(e) => {
+                    let _ = r.reply.send(Err(e));
+                }
+            }
         }
     }
 
@@ -2076,6 +2120,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::theme::apply(ctx, crate::theme::Mode::from_name(&self.store.theme), false);
         self.process_results();
+        self.run_control_requests();
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
         let closing = ctx.input(|i| i.viewport().close_requested());
@@ -2126,6 +2171,39 @@ impl eframe::App for App {
     }
 }
 
+impl crate::commands::Host for App {
+    fn store(&self) -> &Store {
+        &self.store
+    }
+    fn store_mut(&mut self) -> &mut Store {
+        self.dirty = true;
+        &mut self.store
+    }
+    fn photos(&self) -> &[Photo] {
+        &self.photos
+    }
+    fn folders(&self) -> &[Folder] {
+        &self.folders
+    }
+    fn find(&self, key: &str) -> Option<usize> {
+        self.key_index.get(key).copied()
+    }
+    fn changed(&mut self, id: usize) {
+        self.dirty = true;
+        self.refresh_thumb(id);
+    }
+    fn rescan(&mut self) {
+        App::rescan(self);
+    }
+    fn show(&mut self, id: usize) -> Result<(), String> {
+        if id >= self.photos.len() {
+            return Err("no such picture".into());
+        }
+        self.open_editor(id);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tray_tests {
     use super::*;
@@ -2171,38 +2249,5 @@ mod tray_tests {
         assert_eq!(fmt_count(1234), "1,234");
         assert_eq!(fmt_count(1234567), "1,234,567");
         assert_eq!(exif_date_slashes("2009:05:12 10:00:00"), "2009/05/12 10:00:00");
-    }
-}
-
-impl crate::commands::Host for App {
-    fn store(&self) -> &Store {
-        &self.store
-    }
-    fn store_mut(&mut self) -> &mut Store {
-        self.dirty = true;
-        &mut self.store
-    }
-    fn photos(&self) -> &[Photo] {
-        &self.photos
-    }
-    fn folders(&self) -> &[Folder] {
-        &self.folders
-    }
-    fn find(&self, key: &str) -> Option<usize> {
-        self.key_index.get(key).copied()
-    }
-    fn changed(&mut self, id: usize) {
-        self.dirty = true;
-        self.refresh_thumb(id);
-    }
-    fn rescan(&mut self) {
-        App::rescan(self);
-    }
-    fn show(&mut self, id: usize) -> Result<(), String> {
-        if id >= self.photos.len() {
-            return Err("no such picture".into());
-        }
-        self.open_editor(id);
-        Ok(())
     }
 }

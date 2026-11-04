@@ -8,6 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This directory is the git repository and the Cargo project. The parent directory holds local research notes and generated tool bookkeeping; they are deliberately not in the repository.
 
+## Using it from an agent
+
+Register the MCP server with an MCP client, e.g. for Claude Code: `claude mcp add albumcraft -- /path/to/albumcraft --mcp`. Works with or without the window open.
+
 ## Build / run / test
 
 Run from the repository root:
@@ -45,6 +49,9 @@ Single-window eframe/egui app (edition 2024). `main.rs` parses `--screenshot` an
 - `slides.rs` — slideshow settings (`Store.slideshow`: seconds per picture, crossfade, pan-and-zoom motion, music file), `ken_burns_uv` / `fade_in` (shared with the movie export) and `Music` (rodio, looping; Linux builds need the ALSA headers, `libasound2-dev`).
 - `gallery.rs` — web gallery: a new folder (never an existing one) with `images/`, `thumbs/` and a self-contained `index.html` (inline CSS + lightbox script; light grid, dark grid or masonry). Captions and titles are HTML-escaped and the lightbox data is JSON with `<` escaped. `ALBUMCRAFT_GALLERY_OUT=<dir> cargo test demo_gallery -- --ignored` writes demos.
 - `movie.rs` — movie export: frames rendered with the slideshow's timing (`at_time`), crossfade and pan-and-zoom, piped as raw RGBA to the `ffmpeg` program (H.264 if available, else MPEG-4; looped music muxed with `-shortest`). Needs FFmpeg on the PATH; the Movie dialog says so when it is missing. The test makes a real short movie when FFmpeg is installed and skips otherwise.
+- `commands.rs` — the command layer: 23 named commands with JSON-schema parameters (search, flag, rating, caption, tags/people, albums, add folder, edit steps, auto fixes, undo, copy edits, `render_preview` returning a PNG, export, web gallery, movie, show in editor). They run on a `Host`: the window (`App`, impl at the end of app.rs) or `Headless` (library.json without a window). Pictures are named by key (file path). Slow commands return `Outcome::Later` (a closure run off the UI thread). Bad parameters are `Err`, never panics (`bad_input_is_an_error_not_a_crash`).
+- `mcp.rs` — `albumcraft --mcp`: MCP server (JSON-RPC 2.0, one message per line on stdin/stdout; `initialize`, `tools/list`, `tools/call`, `ping`). Each call goes to the open window through `control.rs` when there is one, otherwise to a `Headless` library that is reloaded before and saved after each changing call. Nothing but protocol messages may be written to stdout in this mode.
+- `control.rs` — the window's control connection: 127.0.0.1 on a free port, a random 256-bit token, both in `<data dir>/AlbumCraft/control.json` (mode 0600, removed when the window closes); one JSON line per request, 1 MB limit, 4 connections, wrong token closes the connection. The window runs requests in `App::run_control_requests` each frame.
 - `exifinfo.rs` — EXIF/camera info and embedded thumbnails (kamadak-exif).
 - `print.rs` / `print_view.rs` — print layouts, paper/borders/captions; real printing through Win32 GDI on Windows only; `print::AVAILABLE` hides every print entry point (tray, menus, editor, Ctrl+P) elsewhere.
 
