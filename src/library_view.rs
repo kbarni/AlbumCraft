@@ -1,7 +1,7 @@
 //! The Library view: menu, toolbar, folder list, lightbox of thumbnails and the photo tray.
 
 use crate::app::*;
-use crate::library::fmt_bytes;
+use crate::library::{fmt_bytes, Flag, MAX_RATING};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 
 /// A big tray button: icon above a label.
@@ -46,13 +46,132 @@ pub fn paint_star(p: &egui::Painter, c: Pos2, r: f32, fill: Color32, outline: Co
     p.add(egui::Shape::closed_line(pts, Stroke::new(1.0, outline)));
 }
 
-/// A square button showing a filled or hollow star.
-pub fn star_button(ui: &mut egui::Ui, on: bool, size: Vec2) -> egui::Response {
+/// A pick flag (pole and pennant) centred on `c`, `r` = half its height.
+pub fn paint_flag(p: &egui::Painter, c: Pos2, r: f32, fill: Color32, outline: Color32) {
+    let x = c.x - r * 0.55;
+    let (top, bottom) = (c.y - r, c.y + r);
+    let pennant = vec![Pos2::new(x, top), Pos2::new(x + r * 1.25, top + r * 0.45), Pos2::new(x, top + r * 0.9)];
+    p.add(egui::Shape::convex_polygon(pennant, fill, Stroke::new(1.0, outline)));
+    p.line_segment([Pos2::new(x, top), Pos2::new(x, bottom)], Stroke::new((r * 0.22).max(1.2), outline));
+}
+
+/// The reject mark: a crossed circle centred on `c`.
+pub fn paint_reject(p: &egui::Painter, c: Pos2, r: f32, color: Color32, bg: Color32) {
+    p.circle_filled(c, r, bg);
+    p.circle_stroke(c, r, Stroke::new(1.5, color));
+    let d = r * 0.45;
+    let s = Stroke::new(1.8, color);
+    p.line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], s);
+    p.line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], s);
+}
+
+/// `n` small filled stars in a row starting at `left` (vertically centred on it).
+pub fn paint_rating(p: &egui::Painter, left: Pos2, n: u8, r: f32, outline: Color32) {
+    for i in 0..n {
+        let c = left + egui::vec2(r + i as f32 * r * 2.2, 0.0);
+        paint_star(p, c, r, t().star, outline);
+    }
+}
+
+/// A square button showing a pick flag, filled when on.
+pub fn pick_button(ui: &mut egui::Ui, on: bool, size: Vec2) -> egui::Response {
     let resp = ui.add_sized(size, egui::Button::new(""));
-    let fill = if on { t().star } else { Color32::TRANSPARENT };
-    let outline = if on { t().star_outline } else { t().text_weak };
-    paint_star(ui.painter(), resp.rect.center(), size.y.min(size.x) * 0.32, fill, outline);
+    let (fill, outline) = if on { (t().pick, t().pick) } else { (Color32::TRANSPARENT, t().text_weak) };
+    paint_flag(ui.painter(), resp.rect.center(), size.y.min(size.x) * 0.3, fill, outline);
     resp
+}
+
+/// A square button showing the reject mark, coloured when on.
+pub fn reject_button(ui: &mut egui::Ui, on: bool, size: Vec2) -> egui::Response {
+    let resp = ui.add_sized(size, egui::Button::new(""));
+    let color = if on { t().reject } else { t().text_weak };
+    paint_reject(ui.painter(), resp.rect.center(), size.y.min(size.x) * 0.26, color, Color32::TRANSPARENT);
+    resp
+}
+
+/// Five stars to click: returns the new rating (clicking the current rating clears it).
+pub fn rating_input(ui: &mut egui::Ui, base: egui::Id, current: u8, r: f32) -> Option<u8> {
+    let step = r * 2.4;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(step * MAX_RATING as f32, r * 2.6), Sense::hover());
+    let mut chosen = None;
+    let hover_n = ui.ctx().pointer_hover_pos().filter(|p| rect.contains(*p)).map(|p| ((p.x - rect.left()) / step).floor() as u8 + 1);
+    for i in 0..MAX_RATING {
+        let c = Pos2::new(rect.left() + step * (i as f32 + 0.5), rect.center().y);
+        let cell = Rect::from_center_size(c, egui::vec2(step, rect.height()));
+        let resp = ui.interact(cell, base.with(i), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let n = i + 1;
+        let lit = hover_n.map_or(n <= current, |h| n <= h);
+        let fill = if lit { t().star } else { Color32::TRANSPARENT };
+        let outline = if lit { t().star_outline } else { t().text_weak };
+        paint_star(ui.painter(), c, r, fill, outline);
+        if resp.clicked() {
+            chosen = Some(if current == n { 0 } else { n });
+        }
+    }
+    chosen
+}
+
+/// "No rating", "1 star", "3 stars".
+pub fn rating_label(n: u8) -> String {
+    match n {
+        0 => "No rating".into(),
+        1 => "1 star".into(),
+        n => format!("{n} stars"),
+    }
+}
+
+impl App {
+    /// Pick / reject / rating entries for a menu, acting on `ids`.
+    pub fn flag_rating_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
+        let all = |f: Flag| !ids.is_empty() && ids.iter().all(|&id| self.flag(id) == f);
+        let (picked, rejected) = (all(Flag::Pick), all(Flag::Reject));
+        if ui.button(if picked { "Unpick              P" } else { "Pick                P" }).clicked() {
+            self.toggle_flag(ids, Flag::Pick);
+            ui.close();
+        }
+        if ui.button(if rejected { "Unreject            X" } else { "Reject              X" }).clicked() {
+            self.toggle_flag(ids, Flag::Reject);
+            ui.close();
+        }
+        ui.menu_button("Rating", |ui| {
+            for n in (0..=MAX_RATING).rev() {
+                if ui.button(format!("{:<12}  {n}", rating_label(n))).clicked() {
+                    self.set_rating(ids, n);
+                    ui.close();
+                }
+            }
+        });
+    }
+
+    /// Keys for culling, acting on `ids`: P pick, X reject, U clear the flag, 0–5 rating.
+    pub fn flag_rating_keys(&mut self, ctx: &egui::Context, ids: &[usize]) {
+        if ids.is_empty() {
+            return;
+        }
+        use egui::Key;
+        let keys = [Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5];
+        let (pick, reject, unflag, rating) = ctx.input(|i| {
+            let plain = !i.modifiers.command && !i.modifiers.alt;
+            (
+                plain && i.key_pressed(Key::P),
+                plain && i.key_pressed(Key::X),
+                plain && i.key_pressed(Key::U),
+                if plain { keys.iter().position(|k| i.key_pressed(*k)) } else { None },
+            )
+        });
+        if pick {
+            self.toggle_flag(ids, Flag::Pick);
+        }
+        if reject {
+            self.toggle_flag(ids, Flag::Reject);
+        }
+        if unflag {
+            self.set_flag(ids, Flag::None);
+        }
+        if let Some(n) = rating {
+            self.set_rating(ids, n as u8);
+        }
+    }
 }
 
 pub fn paint_thumb(p: &egui::Painter, cell: Rect, tex: Option<&egui::TextureHandle>, shadow: bool) -> Rect {
@@ -114,6 +233,10 @@ impl App {
             let t = self.tray();
             self.rotate(&t, if ctrl_r { 1 } else { -1 });
         }
+        if !self.selection.is_empty() || !self.held.is_empty() {
+            let t = self.tray();
+            self.flag_rating_keys(ctx, &t);
+        }
     }
 
     pub fn app_menu_items(&mut self, ui: &mut egui::Ui) {
@@ -157,9 +280,8 @@ impl App {
                     }
                 });
                 ui.menu_button("View", |ui| {
-                    if ui.checkbox(&mut self.only_starred, "Only starred pictures").clicked() {
-                        ui.close();
-                    }
+                    ui.checkbox(&mut self.filter.picks, "Only picks");
+                    ui.checkbox(&mut self.filter.hide_rejects, "Hide rejected pictures");
                     if ui.button("Larger thumbnails").clicked() {
                         self.store.thumb_size = (self.store.thumb_size + 24.0).min(256.0);
                         self.dirty = true;
@@ -206,10 +328,9 @@ impl App {
                             self.open_editor(tray[0]);
                             ui.close();
                         }
-                        if ui.button("Star / unstar").clicked() {
-                            self.toggle_star(&tray);
-                            ui.close();
-                        }
+                        ui.separator();
+                        self.flag_rating_menu(ui, &tray);
+                        ui.separator();
                         if ui.button("Rotate left   Ctrl+[").clicked() {
                             self.rotate(&tray, -1);
                             ui.close();
@@ -331,7 +452,7 @@ impl App {
                             TraySet::Folder(_) => "Folder selected",
                             TraySet::Album(_) => "Album selected",
                             TraySet::Person(_) => "Person selected",
-                            TraySet::Starred => "Starred pictures selected",
+                            TraySet::Picks => "Picks selected",
                         };
                         let text = format!("{what} - {} photo{}", tray.len(), if tray.len() == 1 { "" } else { "s" });
                         let galley = p.layout_no_wrap(text, egui::FontId::proportional(12.5), Color32::WHITE);
@@ -415,9 +536,9 @@ impl App {
 
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            let starred = !tray.is_empty() && tray.iter().all(|&id| self.is_starred(id));
-                            if star_button(ui, starred, egui::vec2(36.0, 30.0)).on_hover_text("Star / unstar").clicked() {
-                                self.toggle_star(&tray);
+                            let picked = !tray.is_empty() && tray.iter().all(|&id| self.is_picked(id));
+                            if pick_button(ui, picked, egui::vec2(36.0, 30.0)).on_hover_text("Pick / unpick (P)").clicked() {
+                                self.toggle_flag(&tray, Flag::Pick);
                             }
                             if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("⟲").size(18.0))).on_hover_text("Rotate left").clicked() {
                                 self.rotate(&tray, -1);
@@ -486,10 +607,7 @@ impl App {
                 ui.close();
             }
             ui.separator();
-            if ui.button("Star / unstar").clicked() {
-                self.toggle_star(&tray);
-                ui.close();
-            }
+            self.flag_rating_menu(ui, &tray);
             if ui.button("⟲ Rotate left").clicked() {
                 self.rotate(&tray, -1);
                 ui.close();

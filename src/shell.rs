@@ -9,7 +9,8 @@
 
 use crate::app::*;
 use crate::library::{fmt_date, local_year};
-use crate::library_view::paint_star;
+use crate::library::Flag;
+use crate::library_view::{paint_flag, paint_rating, paint_reject};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 
 const GAP: f32 = 4.0;
@@ -141,7 +142,7 @@ impl App {
             Source::Library => "All pictures".to_string(),
             Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_default(),
             Source::Person(n) => n.clone(),
-            Source::Starred => "Starred".to_string(),
+            Source::Picks => "Picks".to_string(),
         }
     }
 
@@ -184,9 +185,28 @@ impl App {
                             }
                             ui.add_space(2.0);
                         }
-                        let on = self.only_starred;
-                        if chip(ui, if wide > 800.0 { "★  Starred" } else { "★" }, on).on_hover_text("Show only starred pictures").clicked() {
-                            self.only_starred = !on;
+                        // rating / rejects filter (a small menu), then the Picks toggle
+                        let f = self.filter.clone();
+                        let label = match (f.min_rating, f.hide_rejects) {
+                            (0, false) => "★  Any".to_string(),
+                            (0, true) => "★  Any, no rejects".to_string(),
+                            (n, false) => format!("★  {n}+"),
+                            (n, true) => format!("★  {n}+, no rejects"),
+                        };
+                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text("Filter by rating; hide rejected pictures");
+                        egui::Popup::menu(&resp).show(|ui| {
+                            for n in 0..=crate::library::MAX_RATING {
+                                let text = if n == 0 { "Any rating".to_string() } else { format!("{} or more", crate::library_view::rating_label(n)) };
+                                if ui.radio(self.filter.min_rating == n, text).clicked() {
+                                    self.filter.min_rating = n;
+                                }
+                            }
+                            ui.separator();
+                            ui.checkbox(&mut self.filter.hide_rejects, "Hide rejected pictures");
+                        });
+                        let on = self.filter.picks;
+                        if chip(ui, if wide > 800.0 { "⚑  Picks" } else { "⚑" }, on).on_hover_text("Show only picks").clicked() {
+                            self.filter.picks = !on;
                         }
                         ui.add_space(4.0);
                         egui::Frame::new()
@@ -248,12 +268,12 @@ impl App {
                         self.tray_set = None;
                         self.list_pick = None;
                     }
-                    let nstar = (0..self.photos.len()).filter(|&i| self.is_starred(i)).count();
-                    let r = nav_row(ui, "", "Starred", Some(nstar), self.source == Source::Starred);
-                    paint_star(ui.painter(), Pos2::new(r.rect.left() + 18.0, r.rect.center().y), 7.0, t().star, t().star_outline);
+                    let npicks = (0..self.photos.len()).filter(|&i| self.is_picked(i)).count();
+                    let r = nav_row(ui, "", "Picks", Some(npicks), self.source == Source::Picks);
+                    paint_flag(ui.painter(), Pos2::new(r.rect.left() + 18.0, r.rect.center().y), 7.0, t().pick, t().pick);
                     if r.clicked() {
-                        self.source = Source::Starred;
-                        self.pick_set(TraySet::Starred);
+                        self.source = Source::Picks;
+                        self.pick_set(TraySet::Picks);
                     }
 
                     ui.add_space(14.0);
@@ -418,15 +438,14 @@ impl App {
                                 let resp = ui.interact(rect, egui::Id::new(("tile", id)), Sense::click());
                                 let hovered = resp.contains_pointer();
                                 self.paint_tile(ui, rect, id, hovered);
-                                let (check, star) = self.tile_buttons(ui, rect, id, hovered);
+                                let (check, pick) = self.tile_buttons(ui, rect, id, hovered);
                                 if check {
                                     let mut m = ui.input(|i| i.modifiers);
                                     m.command = true;
                                     m.shift = false;
                                     clicked = Some((id, m));
-                                } else if star {
-                                    let one = [id];
-                                    self.toggle_star(&one);
+                                } else if pick {
+                                    self.toggle_flag(&[id], Flag::Pick);
                                 } else if resp.double_clicked() {
                                     open = Some(id);
                                 } else if resp.clicked() {
@@ -486,13 +505,13 @@ impl App {
             ui.add_space(ui.available_height() * 0.3);
             let (icon, msg) = if self.scanning {
                 ("⏳", "Looking for pictures…")
-            } else if !self.search.is_empty() || self.only_starred {
+            } else if !self.search.is_empty() || self.filter.is_active() {
                 ("🔍", "Nothing matches your search or filter.")
             } else {
                 match self.source {
                     Source::Album(_) => ("📚", "This album is empty. Select pictures and add them from the selection bar."),
                     Source::Person(_) => ("👤", "Nobody tagged yet."),
-                    Source::Starred => ("★", "No starred pictures yet. Hover a picture and click its star."),
+                    Source::Picks => ("⚑", "No picks yet. Hover a picture and click its flag, or press P."),
                     Source::Library => ("🖼", "Your library is empty. Import a folder to get started."),
                 }
             };
@@ -572,8 +591,24 @@ impl App {
             p.rect_filled(img, radius, Color32::from_white_alpha(14));
         }
         let m = self.meta(id);
-        if !hovered && m.is_some_and(|m| m.star) {
-            paint_star(p, Pos2::new(img.left() + 14.0, img.bottom() - 14.0), 7.0, t().star, Color32::from_black_alpha(140));
+        let flag = m.map(|m| m.flag).unwrap_or_default();
+        if flag == Flag::Reject {
+            // rejected: dimmed, with the reject mark
+            p.rect_filled(img, radius, Color32::from_black_alpha(120));
+            if !hovered {
+                paint_reject(p, Pos2::new(img.right() - 14.0, img.top() + 14.0), 8.0, t().reject, Color32::from_black_alpha(140));
+            }
+        }
+        // bottom left: pick flag, then the rating stars
+        let mut x = img.left() + 14.0;
+        let y = img.bottom() - 14.0;
+        if flag == Flag::Pick && !hovered {
+            paint_flag(p, Pos2::new(x, y), 7.0, t().pick, Color32::from_black_alpha(160));
+            x += 16.0;
+        }
+        let rating = m.map(|m| m.rating).unwrap_or(0);
+        if rating > 0 && img.width() > 70.0 {
+            paint_rating(p, Pos2::new(x - 6.0, y), rating, 5.0, Color32::from_black_alpha(140));
         }
         if m.is_some_and(|m| !m.edits.is_empty()) {
             let c = Pos2::new(img.right() - 12.0, img.bottom() - 12.0);
@@ -585,7 +620,7 @@ impl App {
         }
     }
 
-    /// The check circle (top left) and star (top right); returns what was clicked.
+    /// The check circle (top left) and pick flag (top right); returns what was clicked.
     fn tile_buttons(&self, ui: &mut egui::Ui, rect: Rect, id: usize, hovered: bool) -> (bool, bool) {
         let selected = self.selection.contains(&id);
         let inset = if selected { (rect.width().min(rect.height()) * 0.07).clamp(6.0, 14.0) } else { 0.0 };
@@ -607,12 +642,13 @@ impl App {
             p.circle_filled(c, 10.0, if check.hovered() { Color32::from_black_alpha(110) } else { Color32::from_black_alpha(60) });
             p.circle_stroke(c, 10.0, Stroke::new(1.8, Color32::WHITE));
         }
-        let sc = img.right_top() + egui::vec2(-18.0, 18.0);
-        let star_r = Rect::from_center_size(sc, Vec2::splat(30.0));
-        let star = ui.interact(star_r, egui::Id::new(("star", id)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let on = self.is_starred(id);
+        let fc = img.right_top() + egui::vec2(-18.0, 18.0);
+        let flag_r = Rect::from_center_size(fc, Vec2::splat(30.0));
+        let flag = ui.interact(flag_r, egui::Id::new(("pick", id)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Pick (P)");
+        let on = self.is_picked(id);
         let p = ui.painter();
-        paint_star(p, sc, if star.hovered() { 10.0 } else { 9.0 }, if on { t().star } else { Color32::TRANSPARENT }, if on { Color32::from_black_alpha(120) } else { Color32::WHITE });
-        (check.clicked(), star.clicked())
+        let r = if flag.hovered() { 9.0 } else { 8.0 };
+        paint_flag(p, fc, r, if on { t().pick } else { Color32::TRANSPARENT }, Color32::WHITE);
+        (check.clicked(), flag.clicked())
     }
 }

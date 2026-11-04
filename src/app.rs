@@ -1,7 +1,7 @@
 //! Application state, shared helpers, dialogs and the frame loop.
 
 use crate::imaging::{self, EditOp};
-use crate::library::{self, Album, Done, Folder, Job, Loaded, Meta, Photo, Pool, ScannedFolder, Store};
+use crate::library::{self, Album, Done, Flag, Folder, Job, Loaded, Meta, Photo, Pool, ScannedFolder, Store};
 use eframe::egui::{self, Color32, ColorImage, TextureHandle, TextureOptions};
 use image::RgbaImage;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -16,7 +16,24 @@ pub enum Source {
     Library,
     Album(usize),
     Person(String),
-    Starred,
+    Picks,
+}
+
+/// Which pictures are shown, on top of the source and the search.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Filter {
+    /// Only picks.
+    pub picks: bool,
+    /// At least this many stars (0 = any).
+    pub min_rating: u8,
+    /// Leave rejected pictures out.
+    pub hide_rejects: bool,
+}
+
+impl Filter {
+    pub fn is_active(&self) -> bool {
+        *self != Filter::default()
+    }
 }
 
 /// The tray as it was right after a picture output (export, print, collage) with held pictures
@@ -38,7 +55,7 @@ pub enum TraySet {
     Folder(usize),
     Album(usize),
     Person(String),
-    Starred,
+    Picks,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -217,9 +234,9 @@ pub struct App {
     pub save_error: Option<String>,
     /// Bumped whenever the library or its notes may have changed: invalidates `list_cache`.
     pub list_rev: u64,
-    /// `groups()` for (list_rev, source, search, only_starred).
+    /// `groups()` for (list_rev, source, search, filter).
     #[allow(clippy::type_complexity)]
-    list_cache: std::cell::RefCell<Option<((u64, Source, String, bool), Vec<(Option<usize>, Vec<usize>)>)>>,
+    list_cache: std::cell::RefCell<Option<((u64, Source, String, Filter), Vec<(Option<usize>, Vec<usize>)>)>>,
 
     pub photos: Vec<Photo>,
     pub folders: Vec<Folder>,
@@ -243,7 +260,7 @@ pub struct App {
     pub view: View,
     pub source: Source,
     pub search: String,
-    pub only_starred: bool,
+    pub filter: Filter,
     pub selection: BTreeSet<usize>,
     pub anchor: Option<usize>,
     pub held: Vec<usize>,
@@ -354,7 +371,7 @@ impl App {
             view: View::Library,
             source: Source::Library,
             search: String::new(),
-            only_starred: false,
+            filter: Filter::default(),
             selection: BTreeSet::new(),
             anchor: None,
             held: vec![],
@@ -410,11 +427,17 @@ impl App {
             for (i, p) in [0usize, 3, 10, 17].iter().enumerate() {
                 if *p < app.photos.len() {
                     let key = app.photos[*p].key.clone();
-                    app.store.meta.entry(key.clone()).or_default().star = true;
+                    let m = app.store.meta.entry(key.clone()).or_default();
+                    m.flag = Flag::Pick;
+                    m.rating = [5, 4, 3, 4][i];
                     if i < 3 {
                         app.store.albums[0].keys.push(key);
                     }
                 }
+            }
+            // one rejected picture, to show the mark
+            if let Some(p) = app.photos.get(6) {
+                app.store.meta.entry(p.key.clone()).or_default().flag = Flag::Reject;
             }
             let shot_view = std::env::var("ALBUMCRAFT_SHOT_VIEW").unwrap_or_default();
             if app.photos.len() > 5 {
@@ -630,15 +653,25 @@ impl App {
         self.meta(id).map(|m| m.edits.clone()).unwrap_or_default()
     }
 
-    pub fn is_starred(&self, id: usize) -> bool {
-        self.meta(id).is_some_and(|m| m.star)
+    pub fn flag(&self, id: usize) -> Flag {
+        self.meta(id).map(|m| m.flag).unwrap_or_default()
+    }
+
+    pub fn is_picked(&self, id: usize) -> bool {
+        self.flag(id) == Flag::Pick
+    }
+
+    pub fn rating(&self, id: usize) -> u8 {
+        self.meta(id).map(|m| m.rating).unwrap_or(0)
     }
 
     pub fn matches(&self, id: usize) -> bool {
-        let m = self.meta(id);
-        if self.only_starred && !m.is_some_and(|m| m.star) {
+        let (flag, rating) = (self.flag(id), self.rating(id));
+        let f = &self.filter;
+        if (f.picks && flag != Flag::Pick) || rating < f.min_rating || (f.hide_rejects && flag == Flag::Reject) {
             return false;
         }
+        let m = self.meta(id);
         let q = self.search.trim().to_lowercase();
         if q.is_empty() {
             return true;
@@ -658,11 +691,11 @@ impl App {
     }
 
     /// Groups shown in the lightbox: (folder index if any, photo ids).
-    /// The visible pictures grouped by folder (or one group for an album, person, Starred).
+    /// The visible pictures grouped by folder (or one group for an album, person, Picks).
     /// Cached: building it walks the whole library, and it is asked for several times a frame.
     pub fn groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
         let mut cache = self.list_cache.borrow_mut();
-        let key = (self.list_rev, self.source.clone(), self.search.clone(), self.only_starred);
+        let key = (self.list_rev, self.source.clone(), self.search.clone(), self.filter.clone());
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();
@@ -696,8 +729,8 @@ impl App {
                     .collect();
                 vec![(None, ids)]
             }
-            Source::Starred => {
-                let ids = (0..self.photos.len()).filter(|&id| self.is_starred(id) && self.matches(id)).collect();
+            Source::Picks => {
+                let ids = (0..self.photos.len()).filter(|&id| self.is_picked(id) && self.matches(id)).collect();
                 vec![(None, ids)]
             }
         }
@@ -750,7 +783,7 @@ impl App {
             TraySet::Person(name) => {
                 (0..self.photos.len()).filter(|&id| self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name))).collect()
             }
-            TraySet::Starred => (0..self.photos.len()).filter(|&id| self.is_starred(id)).collect(),
+            TraySet::Picks => (0..self.photos.len()).filter(|&id| self.is_picked(id)).collect(),
         }
     }
 
@@ -849,10 +882,29 @@ impl App {
         }
     }
 
-    pub fn toggle_star(&mut self, ids: &[usize]) {
-        let all = ids.iter().all(|&id| self.is_starred(id));
-        for &id in ids {
-            self.meta_mut(id).star = !all;
+    /// Set the flag on all of `ids`; when they all have it already, clear it instead.
+    pub fn toggle_flag(&mut self, ids: &[usize], flag: Flag) {
+        let ids: Vec<usize> = ids.iter().copied().filter(|&id| id < self.photos.len()).collect();
+        let all = !ids.is_empty() && ids.iter().all(|&id| self.flag(id) == flag);
+        let new = if all { Flag::None } else { flag };
+        for id in ids {
+            self.meta_mut(id).flag = new;
+        }
+    }
+
+    pub fn set_flag(&mut self, ids: &[usize], flag: Flag) {
+        let n = self.photos.len();
+        for &id in ids.iter().filter(|&&id| id < n) {
+            self.meta_mut(id).flag = flag;
+        }
+    }
+
+    /// Give `ids` this many stars (0 clears the rating).
+    pub fn set_rating(&mut self, ids: &[usize], stars: u8) {
+        let stars = stars.min(library::MAX_RATING);
+        let n = self.photos.len();
+        for &id in ids.iter().filter(|&&id| id < n) {
+            self.meta_mut(id).rating = stars;
         }
     }
 
@@ -1669,7 +1721,7 @@ impl App {
                 }
                 Dialog::About => {
                     ui.heading("AlbumCraft");
-                    ui.label("A desktop photo organizer: browse your picture folders, make albums, star favourites, fix and touch up photos, and play slideshows.");
+                    ui.label("A desktop photo organizer: browse your picture folders, make albums, pick, reject and rate pictures, fix and touch up photos, and play slideshows.");
                     ui.label("Edits never change your original files; they are applied when you look at or export a picture.");
                     if ui.button("OK").clicked() {
                         close = true;

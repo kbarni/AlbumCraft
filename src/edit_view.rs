@@ -286,6 +286,10 @@ impl App {
         if redo {
             self.redo();
         }
+        let id = self.edit.id;
+        if id < self.photos.len() {
+            self.flag_rating_keys(ctx, &[id]);
+        }
     }
 
     fn edit_tools_panel(&mut self, ui: &mut egui::Ui) {
@@ -548,10 +552,18 @@ impl App {
             .frame(egui::Frame::new().fill(t().tray_bg).inner_margin(egui::Margin::symmetric(8, 6)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let starred = self.is_starred(id);
-                    if crate::library_view::star_button(ui, starred, egui::vec2(34.0, 28.0)).on_hover_text("Star").clicked() {
-                        self.toggle_star(&[id]);
+                    use crate::library::Flag;
+                    use crate::library_view::{pick_button, rating_input, reject_button};
+                    if pick_button(ui, self.flag(id) == Flag::Pick, egui::vec2(34.0, 28.0)).on_hover_text("Pick (P)").clicked() {
+                        self.toggle_flag(&[id], Flag::Pick);
                     }
+                    if reject_button(ui, self.flag(id) == Flag::Reject, egui::vec2(34.0, 28.0)).on_hover_text("Reject (X)").clicked() {
+                        self.toggle_flag(&[id], Flag::Reject);
+                    }
+                    if let Some(n) = rating_input(ui, egui::Id::unique(("edit_rating", id)), self.rating(id), 8.0) {
+                        self.set_rating(&[id], n);
+                    }
+                    ui.add_space(6.0);
                     if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("⟲").size(17.0))).on_hover_text("Rotate left").clicked() {
                         self.rotate(&[id], -1);
                     }
@@ -797,7 +809,13 @@ impl App {
                         row(ui, "Caption", Some(m.caption.clone()));
                         row(ui, "Tags", Some(m.tags.join(", ")));
                         row(ui, "People", Some(m.people.join(", ")));
-                        row(ui, "Starred", m.star.then(|| "Yes".to_string()));
+                        let flag = match m.flag {
+                            crate::library::Flag::Pick => Some("Pick".to_string()),
+                            crate::library::Flag::Reject => Some("Rejected".to_string()),
+                            crate::library::Flag::None => None,
+                        };
+                        row(ui, "Flag", flag);
+                        row(ui, "Rating", (m.rating > 0).then(|| crate::library_view::rating_label(m.rating)));
                         row(ui, "Edits", (!m.edits.is_empty()).then(|| m.edits.iter().map(|e| e.label()).collect::<Vec<_>>().join(", ")));
 
                         // every EXIF entry the file holds

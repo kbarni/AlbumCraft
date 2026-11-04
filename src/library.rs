@@ -1,4 +1,4 @@
-//! The catalogue: scanned folders, per-photo notes (stars, captions, tags, edits) and albums.
+//! The catalogue: scanned folders, per-photo notes (pick/reject, rating, captions, tags, edits) and albums.
 
 use crate::imaging::{self, EditOp, SAMPLE_PREFIX};
 use image::RgbaImage;
@@ -11,19 +11,63 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 pub const EXTENSIONS: [&str; 9] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "jpe"];
 
+/// Culling flag: keep it (pick), drop it (reject), or not decided.
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Flag {
+    #[default]
+    None,
+    Pick,
+    Reject,
+}
+
+impl Flag {
+    pub fn is_none(&self) -> bool {
+        *self == Flag::None
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
 #[serde(default)]
 pub struct Meta {
+    /// Earlier libraries' yes/no star, read once and turned into a pick (see `Store::sanitize`).
+    #[serde(skip_serializing)]
     pub star: bool,
+    #[serde(skip_serializing_if = "Flag::is_none")]
+    pub flag: Flag,
+    /// 0 = not rated, 1–5 stars.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub rating: u8,
     pub caption: String,
     pub tags: Vec<String>,
     pub people: Vec<String>,
     pub edits: Vec<EditOp>,
 }
 
+fn is_zero(v: &u8) -> bool {
+    *v == 0
+}
+
+/// Highest rating.
+pub const MAX_RATING: u8 = 5;
+
 impl Meta {
     pub fn is_empty(&self) -> bool {
-        !self.star && self.caption.is_empty() && self.tags.is_empty() && self.people.is_empty() && self.edits.is_empty()
+        !self.star
+            && self.flag == Flag::None
+            && self.rating == 0
+            && self.caption.is_empty()
+            && self.tags.is_empty()
+            && self.people.is_empty()
+            && self.edits.is_empty()
+    }
+
+    /// Turn an old yes/no star into a pick, and keep the rating in range.
+    fn upgrade(&mut self) {
+        if std::mem::take(&mut self.star) && self.flag == Flag::None {
+            self.flag = Flag::Pick;
+        }
+        self.rating = self.rating.min(MAX_RATING);
     }
 }
 
@@ -157,7 +201,8 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
             let file = section.to_lowercase();
             let m = out.photos.entry(file.clone()).or_default();
             match k {
-                "star" => m.star = v.eq_ignore_ascii_case("yes"),
+                // a star there means "I like this one": a pick
+                "star" if v.eq_ignore_ascii_case("yes") => m.flag = Flag::Pick,
                 "caption" => m.caption = v.to_string(),
                 "keywords" => m.tags = v.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect(),
                 "rotate" => {
@@ -256,6 +301,9 @@ impl Store {
     pub fn sanitize(&mut self) {
         self.thumb_size = if self.thumb_size.is_finite() { self.thumb_size.clamp(64.0, 256.0) } else { 120.0 };
         self.print.copies = self.print.copies.clamp(1, 99);
+        for m in self.meta.values_mut() {
+            m.upgrade();
+        }
     }
 
     pub fn save(&mut self) -> Result<(), String> {
@@ -415,12 +463,12 @@ mod store_tests {
         let dir = temp_dir("store-roundtrip");
         let path = dir.join("library.json");
         let mut store = Store::default();
-        store.meta.insert("a.jpg".into(), Meta { star: true, ..Default::default() });
+        store.meta.insert("a.jpg".into(), Meta { flag: Flag::Pick, rating: 4, ..Default::default() });
         store.meta.insert("empty.jpg".into(), Meta::default());
         store.save_to(&path).unwrap();
         assert!(!path.with_extension("json.tmp").exists());
         let Loaded::Store(back) = Store::load_from(&path) else { panic!("not loaded") };
-        assert!(back.meta["a.jpg"].star);
+        assert_eq!((back.meta["a.jpg"].flag, back.meta["a.jpg"].rating), (Flag::Pick, 4));
         assert!(!back.meta.contains_key("empty.jpg"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -448,6 +496,21 @@ mod store_tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(all.iter().map(|f| f.1.len()).sum::<usize>(), 3);
         assert!(!cut && cut_small);
+    }
+
+    #[test]
+    fn old_stars_become_picks() {
+        let dir = temp_dir("store-stars");
+        let path = dir.join("library.json");
+        std::fs::write(&path, r#"{"meta": {"a.jpg": {"star": true}, "b.jpg": {"star": false, "caption": "x"}, "c.jpg": {"rating": 9}}}"#).unwrap();
+        let Loaded::Store(mut s) = Store::load_from(&path) else { panic!("not loaded") };
+        assert_eq!(s.meta["a.jpg"].flag, Flag::Pick);
+        assert_eq!(s.meta["b.jpg"].flag, Flag::None);
+        assert_eq!(s.meta["c.jpg"].rating, 5);
+        s.save_to(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!text.contains("star") && text.contains("\"flag\": \"pick\""));
     }
 
     #[test]
@@ -482,7 +545,7 @@ mod ini_tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(ini.description.as_deref(), Some("Beach week"));
         let m = &ini.photos["img_1.jpg"];
-        assert!(m.star);
+        assert_eq!(m.flag, Flag::Pick);
         assert_eq!(m.caption, "Sunset");
         assert_eq!(m.tags, vec!["sea", "sky"]);
         assert!(matches!(m.edits[0], EditOp::Crop(_)));
