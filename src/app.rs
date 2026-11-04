@@ -322,11 +322,10 @@ impl App {
         if let Ok(v) = std::env::var("ALBUMCRAFT_THEME") {
             store.theme = v;
         }
-        if first_run {
-            if let Some(p) = dirs::picture_dir() {
+        if first_run
+            && let Some(p) = dirs::picture_dir() {
                 store.roots.push(p.to_string_lossy().to_string());
             }
-        }
 
         let mut app = App {
             store,
@@ -540,7 +539,7 @@ impl App {
             self.view = View::Library;
         }
 
-        let mut folders: Vec<(String, Vec<(String, i64, u64)>)> = scanned;
+        let mut folders: Vec<ScannedFolder> = scanned;
         folders.sort_by_key(|(_, files)| -files.iter().map(|f| f.1).max().unwrap_or(0));
         for (path, files) in folders {
             let fi = self.folders.len();
@@ -563,11 +562,10 @@ impl App {
         if !samples {
             self.import_picasa_ini();
         }
-        if let Source::Album(i) = self.source {
-            if i >= self.store.albums.len() {
+        if let Source::Album(i) = self.source
+            && i >= self.store.albums.len() {
                 self.source = Source::Library;
             }
-        }
     }
 
     /// Bring in stars, captions, tags, rotations, crops, filters, folder descriptions and albums
@@ -665,11 +663,10 @@ impl App {
     pub fn groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
         let mut cache = self.list_cache.borrow_mut();
         let key = (self.list_rev, self.source.clone(), self.search.clone(), self.only_starred);
-        if let Some((k, groups)) = cache.as_ref() {
-            if *k == key {
+        if let Some((k, groups)) = cache.as_ref()
+            && *k == key {
                 return groups.clone();
             }
-        }
         let groups = self.build_groups();
         *cache = Some((key, groups.clone()));
         groups
@@ -728,11 +725,10 @@ impl App {
     /// single picture picked, a clicked folder / album / person puts its whole set in the tray
     /// ("Folder selected - 29 photos").
     pub fn tray(&self) -> Vec<usize> {
-        if self.held.is_empty() && self.selection.is_empty() {
-            if let Some(set) = &self.tray_set {
+        if self.held.is_empty() && self.selection.is_empty()
+            && let Some(set) = &self.tray_set {
                 return self.set_photos(set);
             }
-        }
         let mut v = self.held.clone();
         for &s in &self.selection {
             if !v.contains(&s) {
@@ -908,11 +904,10 @@ impl App {
         let mut ops = self.edits(id);
         ops.extend_from_slice(extra);
         let entry = self.big.get_mut(&id)?;
-        if let Some((cached, tex)) = &entry.tex {
-            if *cached == ops {
+        if let Some((cached, tex)) = &entry.tex
+            && *cached == ops {
                 return Some(tex.clone());
             }
-        }
         let img = imaging::apply_all(&entry.base, &ops);
         entry.hist = Some(histogram(&img));
         let tex = self.ctx.load_texture(format!("big{id}"), to_color_image(&img), TextureOptions::LINEAR);
@@ -925,11 +920,10 @@ impl App {
     pub fn big_version_texture(&mut self, id: usize, ops: &[EditOp]) -> Option<TextureHandle> {
         self.request_big(id, true);
         let entry = self.big.get_mut(&id)?;
-        if let Some((cached, tex)) = &entry.alt_tex {
-            if cached == ops {
+        if let Some((cached, tex)) = &entry.alt_tex
+            && cached == ops {
                 return Some(tex.clone());
             }
-        }
         let img = imaging::apply_all(&entry.base, ops);
         let tex = self.ctx.load_texture(format!("alt{id}"), to_color_image(&img), TextureOptions::LINEAR);
         entry.alt_tex = Some((ops.to_vec(), tex.clone()));
@@ -1126,11 +1120,10 @@ impl App {
         self.selection.clear();
         self.selection.insert(id);
         // preload neighbours
-        if let Some(pos) = self.edit.list.iter().position(|&x| x == id) {
-            if let Some(&n) = self.edit.list.get(pos + 1) {
+        if let Some(pos) = self.edit.list.iter().position(|&x| x == id)
+            && let Some(&n) = self.edit.list.get(pos + 1) {
                 self.request_big(n, false);
             }
-        }
     }
 
     pub fn start_slideshow(&mut self, list: Vec<usize>, start: usize) {
@@ -1150,11 +1143,10 @@ impl App {
     pub fn stop_slideshow(&mut self) {
         if let Some(s) = self.slide.take() {
             self.view = if s.from == View::Edit { View::Edit } else { View::Library };
-            if s.from == View::Edit {
-                if let Some(&id) = s.list.get(s.pos) {
+            if s.from == View::Edit
+                && let Some(&id) = s.list.get(s.pos) {
                     self.set_edit_photo(id);
                 }
-            }
         } else {
             self.view = View::Library;
         }
@@ -1317,14 +1309,13 @@ impl App {
                 }
                 Done::Zoom { id, key, ops, img, unedited_width } => {
                     self.edit.zoom_req = None;
-                    if self.photos.get(id).is_some_and(|p| p.key == key) && id == self.edit.id {
-                        if let Some(img) = img {
+                    if self.photos.get(id).is_some_and(|p| p.key == key) && id == self.edit.id
+                        && let Some(img) = img {
                             let real_w = library::source_dims(&key).map(|d| d.0).unwrap_or(unedited_width);
                             let r = real_w.max(1) as f32 / unedited_width.max(1) as f32;
                             let tex = self.ctx.load_texture(format!("zoom{id}"), to_color_image(&img), TextureOptions::LINEAR);
                             self.edit.zoom_tex = Some((id, ops, tex, r));
                         }
-                    }
                 }
                 Done::Scan(found, truncated) => {
                     self.scanning = false;
@@ -1753,7 +1744,7 @@ pub fn fmt_count(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -1786,46 +1777,6 @@ pub fn selection_text(items: &[(String, i64, u64)], one_date: Option<&str>, dims
             }
             s
         }
-    }
-}
-
-#[cfg(test)]
-mod tray_tests {
-    use super::*;
-
-    #[test]
-    fn export_never_overwrites() {
-        let dir = std::env::temp_dir().join(format!("albumcraft-export-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.jpg"), b"keep me").unwrap();
-        let key = format!("{}1", imaging::SAMPLE_PREFIX);
-        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
-        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
-        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", 64, 80);
-        let kept = std::fs::read(dir.join("a.jpg")).unwrap();
-        let made = [dir.join("a-1.jpg"), dir.join("a-2.jpg")].map(|p| image::image_dimensions(p).ok());
-        let b_exists = dir.join("b.jpg").exists();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(kept, b"keep me");
-        assert!(made.iter().all(|d| d.is_some_and(|(w, h)| w.max(h) == 64)));
-        assert!(unreadable.is_err() && !b_exists);
-    }
-
-    #[test]
-    fn selection_line() {
-        assert_eq!(selection_text(&[], None, None), "No Selection");
-        let day = 1_242_122_400; // 12 May 2009
-        let one = [("a.jpg".to_string(), day, 2 << 20)];
-        assert_eq!(selection_text(&one, Some("2009/05/12 10:00:00"), Some((3000, 2000))), "a.jpg     2009/05/12 10:00:00     3000x2000 pixels     2.0 MB");
-        let two = [("a.jpg".to_string(), day, 1 << 20), ("b.jpg".to_string(), day + 60, 1 << 20)];
-        assert_eq!(selection_text(&two, None, None), "2 pictures     May 12, 2009      2.0 MB on disk");
-        let apart = [("a.jpg".to_string(), day, 1 << 20), ("b.jpg".to_string(), day + 86_400 * 2, 1 << 20)];
-        assert_eq!(selection_text(&apart, None, None), "2 pictures     May 12, 2009 to May 14, 2009     2.0 MB on disk");
-        assert_eq!(fmt_count(999), "999");
-        assert_eq!(fmt_count(1234), "1,234");
-        assert_eq!(fmt_count(1234567), "1,234,567");
-        assert_eq!(exif_date_slashes("2009:05:12 10:00:00"), "2009/05/12 10:00:00");
     }
 }
 
@@ -1879,5 +1830,45 @@ impl eframe::App for App {
         self.tick_tray_check(&ctx);
         self.dialogs(&ctx);
         self.toast_ui(&ctx);
+    }
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::*;
+
+    #[test]
+    fn export_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.jpg"), b"keep me").unwrap();
+        let key = format!("{}1", imaging::SAMPLE_PREFIX);
+        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
+        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
+        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", 64, 80);
+        let kept = std::fs::read(dir.join("a.jpg")).unwrap();
+        let made = [dir.join("a-1.jpg"), dir.join("a-2.jpg")].map(|p| image::image_dimensions(p).ok());
+        let b_exists = dir.join("b.jpg").exists();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(kept, b"keep me");
+        assert!(made.iter().all(|d| d.is_some_and(|(w, h)| w.max(h) == 64)));
+        assert!(unreadable.is_err() && !b_exists);
+    }
+
+    #[test]
+    fn selection_line() {
+        assert_eq!(selection_text(&[], None, None), "No Selection");
+        let day = 1_242_122_400; // 12 May 2009
+        let one = [("a.jpg".to_string(), day, 2 << 20)];
+        assert_eq!(selection_text(&one, Some("2009/05/12 10:00:00"), Some((3000, 2000))), "a.jpg     2009/05/12 10:00:00     3000x2000 pixels     2.0 MB");
+        let two = [("a.jpg".to_string(), day, 1 << 20), ("b.jpg".to_string(), day + 60, 1 << 20)];
+        assert_eq!(selection_text(&two, None, None), "2 pictures     May 12, 2009      2.0 MB on disk");
+        let apart = [("a.jpg".to_string(), day, 1 << 20), ("b.jpg".to_string(), day + 86_400 * 2, 1 << 20)];
+        assert_eq!(selection_text(&apart, None, None), "2 pictures     May 12, 2009 to May 14, 2009     2.0 MB on disk");
+        assert_eq!(fmt_count(999), "999");
+        assert_eq!(fmt_count(1234), "1,234");
+        assert_eq!(fmt_count(1234567), "1,234,567");
+        assert_eq!(exif_date_slashes("2009:05:12 10:00:00"), "2009/05/12 10:00:00");
     }
 }

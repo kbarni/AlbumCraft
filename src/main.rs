@@ -47,11 +47,10 @@ fn install_panic_hook() {
                 let _ = f.write_all(entry.as_bytes());
             }
         }
-        if thread == "main" {
-            if let Some(marker) = crash_marker_path() {
+        if thread == "main"
+            && let Some(marker) = crash_marker_path() {
                 let _ = std::fs::write(marker, b"");
             }
-        }
         default(info);
     }));
 }

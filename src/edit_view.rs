@@ -41,21 +41,6 @@ pub fn zoom_to_pos(z: f32, fit: f32) -> f32 {
     }
 }
 
-#[cfg(test)]
-mod zoom_tests {
-    use super::*;
-    #[test]
-    fn slider_curve() {
-        let fit = 0.25;
-        assert!((pos_to_zoom(0.0, fit) - fit).abs() < 1e-6);
-        assert!((pos_to_zoom(0.5, fit) - 1.0).abs() < 1e-6);
-        assert!((pos_to_zoom(1.0, fit) - 4.0).abs() < 1e-6);
-        for p in [0.1f32, 0.3, 0.6, 0.9] {
-            assert!((zoom_to_pos(pos_to_zoom(p, fit), fit) - p).abs() < 1e-4);
-        }
-    }
-}
-
 /// Where a picture goes inside `area` at the current zoom: fitted when `zoom` is None,
 /// otherwise `tex` pixels × `r` real pixels each × zoom, moved by `pan`.
 fn place(area: Rect, tex: [usize; 2], r: Option<f32>, zoom: Option<f32>, pan: Vec2, ppp: f32) -> Rect {
@@ -704,11 +689,10 @@ impl App {
                         }
                     });
                 });
-                if let Some(pid) = go {
-                    if pid != id {
+                if let Some(pid) = go
+                    && pid != id {
                         self.edit_go(PendingLeave::Photo(pid));
                     }
-                }
             });
     }
 
@@ -1152,23 +1136,21 @@ impl App {
                     if resp.drag_started() {
                         self.edit.drag_start = resp.interact_pointer_pos().map(to_norm);
                     }
-                    if resp.dragged() {
-                        if let (Some(a), Some(pos)) = (self.edit.drag_start, resp.interact_pointer_pos()) {
+                    if resp.dragged()
+                        && let (Some(a), Some(pos)) = (self.edit.drag_start, resp.interact_pointer_pos()) {
                             let mut b = to_norm(pos);
-                            if self.edit.tool == Tool::Crop {
-                                if let Some(ratio) = self.edit.aspect.ratio() {
+                            if self.edit.tool == Tool::Crop
+                                && let Some(ratio) = self.edit.aspect.ratio() {
                                     // keep the chosen shape, in either orientation of the picture
                                     let ratio = if img_rect.width() >= img_rect.height() { ratio } else { 1.0 / ratio };
                                     let wpx = (b.x - a.x) * img_rect.width();
                                     let hpx = wpx.abs() / ratio * (b.y - a.y).signum();
                                     b.y = (a.y + hpx / img_rect.height()).clamp(0.0, 1.0);
                                 }
-                            }
                             if (b.x - a.x).abs() > 0.01 && (b.y - a.y).abs() > 0.01 {
                                 self.edit.sel = Some([a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y)]);
                             }
                         }
-                    }
                     if let Some(s) = self.edit.sel {
                         let r = Rect::from_min_max(
                             Pos2::new(img_rect.left() + s[0] * img_rect.width(), img_rect.top() + s[1] * img_rect.height()),
@@ -1318,6 +1300,21 @@ impl App {
         });
         if stop {
             self.stop_slideshow();
+        }
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+    #[test]
+    fn slider_curve() {
+        let fit = 0.25;
+        assert!((pos_to_zoom(0.0, fit) - fit).abs() < 1e-6);
+        assert!((pos_to_zoom(0.5, fit) - 1.0).abs() < 1e-6);
+        assert!((pos_to_zoom(1.0, fit) - 4.0).abs() < 1e-6);
+        for p in [0.1f32, 0.3, 0.6, 0.9] {
+            assert!((zoom_to_pos(pos_to_zoom(p, fit), fit) - p).abs() < 1e-4);
         }
     }
 }

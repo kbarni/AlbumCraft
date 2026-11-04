@@ -72,11 +72,10 @@ fn touch(path: &Path) {
     let day = Duration::from_secs(86_400);
     let now = SystemTime::now();
     let old = std::fs::metadata(path).and_then(|m| m.modified()).is_ok_and(|t| now.duration_since(t).is_ok_and(|age| age > day));
-    if old {
-        if let Ok(f) = std::fs::File::options().write(true).open(path) {
+    if old
+        && let Ok(f) = std::fs::File::options().write(true).open(path) {
             let _ = f.set_modified(now);
         }
-    }
 }
 
 fn put_in(cache: &Path, key: &str, dim: u32, img: &RgbaImage) {

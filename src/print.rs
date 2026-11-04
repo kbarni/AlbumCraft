@@ -337,6 +337,7 @@ pub fn render_page(paper: &Paper, dpi: u32, cells: &[Cell], items: &[PageItem], 
 #[derive(Clone, Debug, Default)]
 pub struct PrinterChoice {
     pub name: String,
+    #[cfg_attr(not(windows), allow(dead_code))] // only Windows printing reads it
     pub devmode: Option<Vec<u8>>,
 }
 
@@ -544,7 +545,7 @@ mod win {
                 let (w, h) = (page.width() as i32, page.height() as i32);
                 // 32-bit top-down BGRA
                 let mut bgra = page.into_raw();
-                for px in bgra.chunks_exact_mut(4) {
+                for px in bgra.as_chunks_mut::<4>().0 {
                     px.swap(0, 2);
                 }
                 let bmi = BITMAPINFO {

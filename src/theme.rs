@@ -8,8 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Tokens {
     pub dark: bool,
-    /// Menu bar and toolbar surfaces.
-    pub menu_bg: Color32,
     pub toolbar_bg: Color32,
     /// Left folder list.
     pub left_bg: Color32,
@@ -45,7 +43,6 @@ pub struct Tokens {
 
 const LIGHT: Tokens = Tokens {
     dark: false,
-    menu_bg: Color32::from_rgb(250, 250, 252),
     toolbar_bg: Color32::from_rgb(244, 245, 248),
     left_bg: Color32::from_rgb(246, 247, 250),
     lightbox_bg: Color32::from_rgb(255, 255, 255),
@@ -74,7 +71,6 @@ const LIGHT: Tokens = Tokens {
 
 const DARK: Tokens = Tokens {
     dark: true,
-    menu_bg: Color32::from_rgb(34, 35, 39),
     toolbar_bg: Color32::from_rgb(40, 41, 46),
     left_bg: Color32::from_rgb(35, 36, 40),
     lightbox_bg: Color32::from_rgb(27, 28, 31),

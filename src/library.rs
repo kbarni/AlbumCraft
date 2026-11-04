@@ -341,8 +341,8 @@ fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut 
         let Ok(md) = entry.metadata() else { continue };
         if md.is_dir() {
             subdirs.push(path);
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) && md.len() > 0 {
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) && md.len() > 0 {
                 let modified = md
                     .modified()
                     .ok()
@@ -351,10 +351,9 @@ fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut 
                     .unwrap_or(0);
                 files.push((path.to_string_lossy().to_string(), modified, md.len()));
             }
-        }
     }
     if !files.is_empty() {
-        files.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+        files.sort_by_key(|a| a.0.to_lowercase());
         *count += files.len();
         out.push((dir.to_string_lossy().to_string(), files));
     }

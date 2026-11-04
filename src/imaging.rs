@@ -181,7 +181,7 @@ pub fn sample_image(seed: u32, w: u32, h: u32) -> RgbaImage {
     let (sky_top, sky_bot, ground) = palettes[(seed as usize / 2 + seed as usize) % palettes.len()];
     let horizon = 0.45 + rng.next() * 0.2;
     let sun = (0.15 + rng.next() * 0.7, 0.12 + rng.next() * 0.25, 0.05 + rng.next() * 0.05);
-    let water = seed % 3 == 0;
+    let water = seed.is_multiple_of(3);
     let layers: Vec<(f32, f32, f32, f32)> = (0..3)
         .map(|_| (rng.next() * 6.0, 2.0 + rng.next() * 5.0, 0.03 + rng.next() * 0.08, rng.next()))
         .collect();
@@ -612,7 +612,7 @@ fn levels(img: &mut RgbaImage, black: f32, white: f32) {
     let b0 = black * 65280.0;
     let mut table = [0u8; 256];
     for (i, t) in table.iter_mut().enumerate() {
-        let y = ((i as f32 * 0.003_921_568_9 * 65280.0 - b0) * scale).round() as i32;
+        let y = ((i as f32 * 0.003_921_569 * 65280.0 - b0) * scale).round() as i32;
         *t = (y.clamp(0, 0xff00) >> 8) as u8;
     }
     for p in img.pixels_mut() {

@@ -97,13 +97,12 @@ impl App {
             self.selection.clear();
             self.tray_set = None;
         }
-        if enter {
-            if let Some(&id) = self.selection.iter().next() {
+        if enter
+            && let Some(&id) = self.selection.iter().next() {
                 self.open_editor(id);
             }
-        }
-        if del {
-            if let Source::Album(i) = self.source {
+        if del
+            && let Source::Album(i) = self.source {
                 let keys: Vec<String> = self.selection.iter().map(|&id| self.photos[id].key.clone()).collect();
                 if let Some(a) = self.store.albums.get_mut(i) {
                     a.keys.retain(|k| !keys.contains(k));
@@ -111,7 +110,6 @@ impl App {
                 }
                 self.selection.clear();
             }
-        }
         if ctrl_r || ctrl_l {
             let t = self.tray();
             self.rotate(&t, if ctrl_r { 1 } else { -1 });
@@ -524,8 +522,8 @@ impl App {
                     self.add_to_album(i, &tray);
                 }
             });
-            if let Source::Album(ai) = self.source {
-                if ui.button("Remove from album").clicked() {
+            if let Source::Album(ai) = self.source
+                && ui.button("Remove from album").clicked() {
                     let keys: Vec<String> = tray.iter().map(|&t| self.photos[t].key.clone()).collect();
                     if let Some(a) = self.store.albums.get_mut(ai) {
                         a.keys.retain(|k| !keys.contains(k));
@@ -534,7 +532,6 @@ impl App {
                     self.selection.clear();
                     ui.close();
                 }
-            }
             if ui.button("🏷 Tags and people…").clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                 ui.close();

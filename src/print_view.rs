@@ -174,11 +174,10 @@ impl App {
                     });
                     ui.separator();
 
-                    if ui.add(egui::Button::new("Border and Text Options").selected(self.print.as_ref().is_some_and(|p| p.show_options))).clicked() {
-                        if let Some(ps) = self.print.as_mut() {
+                    if ui.add(egui::Button::new("Border and Text Options").selected(self.print.as_ref().is_some_and(|p| p.show_options))).clicked()
+                        && let Some(ps) = self.print.as_mut() {
                             ps.show_options = !ps.show_options;
                         }
-                    }
                     if self.print.as_ref().is_some_and(|p| p.show_options) {
                         egui::Frame::new().fill(t().surface).inner_margin(egui::Margin::same(8)).corner_radius(4).show(ui, |ui| {
                             ui.label(RichText::new("Border").strong());
@@ -219,11 +218,10 @@ impl App {
                     ui.add_space(6.0);
                     let choice = self.print.as_ref().map(|p| p.choice.clone()).unwrap_or_default();
                     ui.horizontal(|ui| {
-                        if ui.button("Printer Setup…").on_hover_text("Paper size, orientation and the printer's own settings").clicked() {
-                            if let Some(c) = print::setup_dialog(&choice) {
+                        if ui.button("Printer Setup…").on_hover_text("Paper size, orientation and the printer's own settings").clicked()
+                            && let Some(c) = print::setup_dialog(&choice) {
                                 self.set_printer(c);
                             }
-                        }
                     });
                     let (paper, known) = self.print.as_ref().map(|p| (p.paper, p.paper_known)).unwrap_or((Paper::a4(), false));
                     ui.label(RichText::new(if known { paper.describe() } else { "No printer answered — showing an A4 page".into() }).size(12.0).color(t().text));
