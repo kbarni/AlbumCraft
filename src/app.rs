@@ -472,6 +472,7 @@ impl App {
             }
         } else {
             app.rescan();
+            std::thread::spawn(crate::thumbcache::prune);
         }
         if let Some(text) = load_problem {
             app.dialog = Some(Dialog::Info { title: "Library".into(), text });
