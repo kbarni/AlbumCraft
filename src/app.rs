@@ -1,7 +1,7 @@
 //! Application state, shared helpers, dialogs and the frame loop.
 
 use crate::imaging::{self, EditOp};
-use crate::library::{self, Album, Done, Folder, Job, Meta, Photo, Pool, ScannedFolder, Store};
+use crate::library::{self, Album, Done, Folder, Job, Loaded, Meta, Photo, Pool, ScannedFolder, Store};
 use eframe::egui::{self, Color32, ColorImage, TextureHandle, TextureOptions};
 use image::RgbaImage;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -213,6 +213,8 @@ pub struct App {
     pub dirty: bool,
     pub last_save: f64,
     pub persist: bool,
+    /// The last error saving the library (shown once, not every retry).
+    pub save_error: Option<String>,
 
     pub photos: Vec<Photo>,
     pub folders: Vec<Folder>,
@@ -281,13 +283,34 @@ impl App {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 6);
         let pool = Pool::new(threads, tx.clone(), ctx.clone());
 
-        let persist = shot.is_none();
+        let mut persist = shot.is_none();
         let mut first_run = false;
+        let mut load_problem = None;
         let mut store = if persist {
-            Store::load().unwrap_or_else(|| {
-                first_run = true;
-                Store::default()
-            })
+            match Store::load() {
+                Loaded::Store(s) => s,
+                Loaded::Fresh => {
+                    first_run = true;
+                    Store::default()
+                }
+                Loaded::Unreadable { error, backup } => {
+                    let text = match backup {
+                        Some(b) => format!(
+                            "Your library file could not be read ({error}).\n\nIt was kept as:\n{}\n\nAlbumCraft started with an empty library. Your pictures themselves are not affected.",
+                            b.display()
+                        ),
+                        None => {
+                            // it could not be moved aside: never save over it
+                            persist = false;
+                            format!(
+                                "Your library file could not be read ({error}).\n\nAlbumCraft started with an empty library and won't save any changes this time, so that the file is not overwritten."
+                            )
+                        }
+                    };
+                    load_problem = Some(text);
+                    Store::default()
+                }
+            }
         } else {
             Store::default()
         };
@@ -305,6 +328,7 @@ impl App {
             dirty: first_run,
             last_save: 0.0,
             persist,
+            save_error: None,
             photos: vec![],
             folders: vec![],
             key_index: HashMap::new(),
@@ -441,6 +465,9 @@ impl App {
             }
         } else {
             app.rescan();
+        }
+        if let Some(text) = load_problem {
+            app.dialog = Some(Dialog::Info { title: "Library".into(), text });
         }
         app
     }
@@ -1704,9 +1731,20 @@ impl eframe::App for App {
         let now = ctx.input(|i| i.time);
         let closing = ctx.input(|i| i.viewport().close_requested());
         if self.persist && self.dirty && (closing || now - self.last_save > 3.0) {
-            self.store.save();
-            self.dirty = false;
             self.last_save = now;
+            match self.store.save() {
+                Ok(()) => {
+                    self.dirty = false;
+                    self.save_error = None;
+                }
+                Err(e) => {
+                    // stay dirty: it is tried again in a few seconds
+                    if self.save_error.as_ref() != Some(&e) {
+                        self.toast(format!("Your library could not be saved: {e}"));
+                        self.save_error = Some(e);
+                    }
+                }
+            }
         }
         if self.dirty && self.persist {
             ctx.request_repaint_after(std::time::Duration::from_secs(3));

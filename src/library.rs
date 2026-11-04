@@ -209,24 +209,79 @@ fn migrate_old_store(path: &Path) {
     let _ = std::fs::copy(&old, path);
 }
 
+/// What was found where the library is saved.
+#[derive(Debug)]
+pub enum Loaded {
+    /// No library yet (first start).
+    Fresh,
+    Store(Store),
+    /// The file exists but can't be used. `backup` is where it was moved so that a new library
+    /// can be saved without losing it; `None` means it is still in place and must not be overwritten.
+    Unreadable { error: String, backup: Option<PathBuf> },
+}
+
 impl Store {
-    pub fn load() -> Option<Store> {
-        let path = store_path()?;
+    pub fn load() -> Loaded {
+        let Some(path) = store_path() else { return Loaded::Fresh };
         migrate_old_store(&path);
-        let text = std::fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&text).ok()
+        Self::load_from(&path)
     }
 
-    pub fn save(&mut self) {
-        self.meta.retain(|_, m| !m.is_empty());
-        if let Some(p) = store_path() {
-            if let Some(dir) = p.parent() {
-                let _ = std::fs::create_dir_all(dir);
+    pub fn load_from(path: &Path) -> Loaded {
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Loaded::Fresh,
+            Err(e) => return Loaded::Unreadable { error: e.to_string(), backup: None },
+        };
+        match serde_json::from_str::<Store>(&text) {
+            Ok(mut store) => {
+                store.sanitize();
+                Loaded::Store(store)
             }
-            if let Ok(text) = serde_json::to_string_pretty(self) {
-                let _ = std::fs::write(p, text);
+            Err(e) => {
+                // Keep the unreadable file next to where it was, under a name that is never overwritten.
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let backup = path.with_file_name(format!("library.unreadable-{stamp}.json"));
+                let moved = !backup.exists() && std::fs::rename(path, &backup).is_ok();
+                Loaded::Unreadable { error: e.to_string(), backup: moved.then_some(backup) }
             }
         }
+    }
+
+    /// Bring values that a hand-edited or damaged file could hold back into range.
+    pub fn sanitize(&mut self) {
+        self.thumb_size = if self.thumb_size.is_finite() { self.thumb_size.clamp(64.0, 256.0) } else { 120.0 };
+        self.print.copies = self.print.copies.clamp(1, 99);
+    }
+
+    pub fn save(&mut self) -> Result<(), String> {
+        let path = store_path().ok_or("No folder for application data was found.")?;
+        self.save_to(&path)
+    }
+
+    /// Write to a temporary file, flush it to disk, then rename it over the library, so that a crash
+    /// or a full disk never leaves a half-written library behind.
+    pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
+        self.meta.retain(|_, m| !m.is_empty());
+        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        let write = || -> std::io::Result<()> {
+            use std::io::Write;
+            let mut f = std::fs::File::create(&tmp)?;
+            f.write_all(text.as_bytes())?;
+            f.sync_all()?;
+            std::fs::rename(&tmp, path)
+        };
+        write().map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("{}: {e}", path.display())
+        })
     }
 }
 
@@ -331,6 +386,62 @@ pub fn sample_folders() -> Vec<ScannedFolder> {
 pub fn sample_file_name(key: &str) -> String {
     let n = key.trim_start_matches(SAMPLE_PREFIX);
     format!("IMG_{:04}.JPG", 2000 + n.parse::<u32>().unwrap_or(0) * 7)
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("albumcraft-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn missing_file_is_a_first_start() {
+        let dir = temp_dir("store-missing");
+        assert!(matches!(Store::load_from(&dir.join("library.json")), Loaded::Fresh));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_and_load_round_trip() {
+        let dir = temp_dir("store-roundtrip");
+        let path = dir.join("library.json");
+        let mut store = Store::default();
+        store.meta.insert("a.jpg".into(), Meta { star: true, ..Default::default() });
+        store.meta.insert("empty.jpg".into(), Meta::default());
+        store.save_to(&path).unwrap();
+        assert!(!path.with_extension("json.tmp").exists());
+        let Loaded::Store(back) = Store::load_from(&path) else { panic!("not loaded") };
+        assert!(back.meta["a.jpg"].star);
+        assert!(!back.meta.contains_key("empty.jpg"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_library_is_kept_not_overwritten() {
+        let dir = temp_dir("store-broken");
+        let path = dir.join("library.json");
+        std::fs::write(&path, "{\"meta\": {\"a.jpg\": {\"star\": tr").unwrap();
+        let Loaded::Unreadable { backup: Some(backup), .. } = Store::load_from(&path) else { panic!("not detected") };
+        assert!(!path.exists());
+        assert!(std::fs::read_to_string(&backup).unwrap().contains("a.jpg"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn absurd_values_are_clamped() {
+        let dir = temp_dir("store-clamp");
+        let path = dir.join("library.json");
+        std::fs::write(&path, r#"{"thumb_size": 100000.0, "print": {"copies": 4000000000}}"#).unwrap();
+        let Loaded::Store(s) = Store::load_from(&path) else { panic!("not loaded") };
+        assert_eq!(s.thumb_size, 256.0);
+        assert_eq!(s.print.copies, 99);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]
