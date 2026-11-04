@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex};
+use std::panic::AssertUnwindSafe;
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 pub const EXTENSIONS: [&str; 9] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "jpe"];
 
@@ -523,6 +524,40 @@ pub enum Job {
     Zoom { id: usize, key: String, ops: Vec<EditOp> },
 }
 
+impl Job {
+    fn run(self) -> Done {
+        match self {
+            Job::Thumb { id, key } => {
+                let img = crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
+                    let img = imaging::load_source(&key, THUMB_DIM)?;
+                    crate::thumbcache::put(&key, THUMB_DIM, &img);
+                    Some(img)
+                });
+                Done::Thumb { id, key, img }
+            }
+            Job::Big { id, key } => {
+                let img = imaging::load_source(&key, BIG_DIM);
+                Done::Big { id, key, img }
+            }
+            Job::Zoom { id, key, ops } => {
+                let src = imaging::load_source(&key, ZOOM_DIM);
+                let unedited_width = src.as_ref().map(|s| s.width()).unwrap_or(0);
+                let img = src.map(|s| imaging::apply_all(&s, &ops));
+                Done::Zoom { id, key, ops, img, unedited_width }
+            }
+        }
+    }
+
+    /// The answer sent when the job failed outright.
+    fn failed(&self) -> Done {
+        match self {
+            Job::Thumb { id, key } => Done::Thumb { id: *id, key: key.clone(), img: None },
+            Job::Big { id, key } => Done::Big { id: *id, key: key.clone(), img: None },
+            Job::Zoom { id, key, ops } => Done::Zoom { id: *id, key: key.clone(), ops: ops.clone(), img: None, unedited_width: 0 },
+        }
+    }
+}
+
 pub enum Done {
     Thumb { id: usize, key: String, img: Option<RgbaImage> },
     Big { id: usize, key: String, img: Option<RgbaImage> },
@@ -561,34 +596,18 @@ impl Pool {
             std::thread::spawn(move || loop {
                 let job = {
                     let (lock, cv) = &*q;
-                    let mut g = lock.lock().unwrap();
+                    let mut g = lock.lock().unwrap_or_else(PoisonError::into_inner);
                     loop {
                         if let Some(j) = g.pop_front() {
                             break j;
                         }
-                        g = cv.wait(g).unwrap();
+                        g = cv.wait(g).unwrap_or_else(PoisonError::into_inner);
                     }
                 };
-                let done = match job {
-                    Job::Thumb { id, key } => {
-                        let img = crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
-                            let img = imaging::load_source(&key, THUMB_DIM)?;
-                            crate::thumbcache::put(&key, THUMB_DIM, &img);
-                            Some(img)
-                        });
-                        Done::Thumb { id, key, img }
-                    }
-                    Job::Big { id, key } => {
-                        let img = imaging::load_source(&key, BIG_DIM);
-                        Done::Big { id, key, img }
-                    }
-                    Job::Zoom { id, key, ops } => {
-                        let src = imaging::load_source(&key, ZOOM_DIM);
-                        let unedited_width = src.as_ref().map(|s| s.width()).unwrap_or(0);
-                        let img = src.map(|s| imaging::apply_all(&s, &ops));
-                        Done::Zoom { id, key, ops, img, unedited_width }
-                    }
-                };
+                // A picture that makes a decoder or an edit panic must not take the worker down:
+                // answer "no picture" for it and carry on.
+                let failed = job.failed();
+                let done = std::panic::catch_unwind(AssertUnwindSafe(|| job.run())).unwrap_or(failed);
                 if tx.send(done).is_err() {
                     return;
                 }
@@ -600,7 +619,7 @@ impl Pool {
 
     pub fn push(&self, job: Job, urgent: bool) {
         let (lock, cv) = &*self.queue;
-        let mut g = lock.lock().unwrap();
+        let mut g = lock.lock().unwrap_or_else(PoisonError::into_inner);
         if urgent {
             g.push_front(job);
         } else {

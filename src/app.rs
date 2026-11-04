@@ -1164,26 +1164,28 @@ impl App {
         self.toast(format!("Exporting {} picture(s)…", jobs.len()));
         std::thread::spawn(move || {
             let mut ok = 0;
+            let mut failed: Vec<String> = vec![];
             for (key, name, edits) in &jobs {
-                let Some(src) = imaging::load_source(key, max_dim) else { continue };
-                let img = imaging::apply_all(&src, edits);
                 let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-                let mut out = dir.join(format!("{stem}.jpg"));
-                let mut n = 1;
-                while out.exists() {
-                    out = dir.join(format!("{stem}-{n}.jpg"));
-                    n += 1;
-                }
-                let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
-                if let Ok(file) = std::fs::File::create(&out) {
-                    let mut w = std::io::BufWriter::new(file);
-                    let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut w, quality);
-                    if rgb.write_with_encoder(enc).is_ok() {
-                        ok += 1;
-                    }
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export_one(key, edits, &dir, stem, max_dim, quality)))
+                    .unwrap_or_else(|_| Err("unexpected error".into()));
+                match result {
+                    Ok(()) => ok += 1,
+                    Err(e) => failed.push(format!("{name}: {e}")),
                 }
             }
-            let _ = tx.send(Done::Message(format!("Exported {ok} of {} picture(s) to {}", jobs.len(), dir.display())));
+            let mut msg = format!("Exported {ok} of {} picture(s) to {}", jobs.len(), dir.display());
+            if !failed.is_empty() {
+                msg.push_str("\n\nNot exported:");
+                for f in failed.iter().take(10) {
+                    msg.push_str("\n• ");
+                    msg.push_str(f);
+                }
+                if failed.len() > 10 {
+                    msg.push_str(&format!("\n… and {} more", failed.len() - 10));
+                }
+            }
+            let _ = tx.send(Done::Message(msg));
             ctx.request_repaint();
         });
         self.arm_tray_check();
@@ -1202,15 +1204,20 @@ impl App {
         let tx = self.tx.clone();
         let ctx = self.ctx.clone();
         self.toast("Making the collage…");
+        // the picker may return a name without the extension; the picture is always PNG
+        let path = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) { path } else { path.with_extension("png") };
         std::thread::spawn(move || {
-            let pics: Vec<RgbaImage> = jobs
-                .iter()
-                .filter_map(|(k, e)| imaging::load_source(k, 900).map(|i| imaging::apply_all(&i, e)))
-                .collect();
-            let out = imaging::make_collage(&pics, 600);
-            let msg = match out.save(&path) {
-                Ok(()) => format!("Collage saved to {}", path.display()),
-                Err(e) => format!("Could not save the collage: {e}"),
+            let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let pics: Vec<RgbaImage> = jobs
+                    .iter()
+                    .filter_map(|(k, e)| imaging::load_source(k, 900).map(|i| imaging::apply_all(&i, e)))
+                    .collect();
+                imaging::make_collage(&pics, 600)
+            }));
+            let msg = match made.map(|out| out.save(&path)) {
+                Ok(Ok(())) => format!("Collage saved to {}", path.display()),
+                Ok(Err(e)) => format!("Could not save the collage: {e}"),
+                Err(_) => "Could not make the collage: unexpected error.".to_string(),
             };
             let _ = tx.send(Done::Message(msg));
             ctx.request_repaint();
@@ -1654,6 +1661,33 @@ impl App {
     }
 }
 
+/// Export one picture with its edits as `<stem>.jpg` in `dir` (or `<stem>-1.jpg`, … when taken).
+/// Never overwrites a file, and removes its own half-written file when something fails.
+fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8) -> Result<(), String> {
+    let src = imaging::load_source(key, max_dim).ok_or("the picture could not be read")?;
+    let img = imaging::apply_all(&src, edits);
+    let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
+    let mut n = 0;
+    let (file, out) = loop {
+        let out = if n == 0 { dir.join(format!("{stem}.jpg")) } else { dir.join(format!("{stem}-{n}.jpg")) };
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&out) {
+            Ok(f) => break (f, out),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 10_000 => n += 1,
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    let write = || -> Result<(), String> {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(file);
+        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut w, quality);
+        rgb.write_with_encoder(enc).map_err(|e| e.to_string())?;
+        w.flush().map_err(|e| e.to_string())
+    };
+    write().inspect_err(|_| {
+        let _ = std::fs::remove_file(&out);
+    })
+}
+
 /// "2009:05:12 10:00:00" -> "2009/05/12 10:00:00" (only the date part is
 /// changed so the time stays readable).
 pub fn exif_date_slashes(d: &str) -> String {
@@ -1705,6 +1739,25 @@ pub fn selection_text(items: &[(String, i64, u64)], one_date: Option<&str>, dims
 #[cfg(test)]
 mod tray_tests {
     use super::*;
+
+    #[test]
+    fn export_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.jpg"), b"keep me").unwrap();
+        let key = format!("{}1", imaging::SAMPLE_PREFIX);
+        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
+        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
+        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", 64, 80);
+        let kept = std::fs::read(dir.join("a.jpg")).unwrap();
+        let made = [dir.join("a-1.jpg"), dir.join("a-2.jpg")].map(|p| image::image_dimensions(p).ok());
+        let b_exists = dir.join("b.jpg").exists();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(kept, b"keep me");
+        assert!(made.iter().all(|d| d.is_some_and(|(w, h)| w.max(h) == 64)));
+        assert!(unreadable.is_err() && !b_exists);
+    }
 
     #[test]
     fn selection_line() {
