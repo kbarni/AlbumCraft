@@ -16,6 +16,8 @@ pub struct PrintState {
     pub paper: Paper,
     /// false = no printer answered; an A4 page is shown instead
     pub paper_known: bool,
+    /// Paper sizes offered for the printer (CUPS; empty on Windows).
+    pub paper_sizes: Vec<String>,
     pub page: usize,
     pub show_options: bool,
     /// pages sent so far / total, while a print job runs
@@ -48,8 +50,9 @@ impl App {
         let printers = print::printers();
         let wanted = self.store.print.printer.clone().filter(|p| printers.contains(p));
         let name = wanted.or_else(print::default_printer).or_else(|| printers.first().cloned()).unwrap_or_default();
-        let choice = PrinterChoice { name, devmode: None };
+        let choice = PrinterChoice { name, ..Default::default() };
         let paper = if choice.name.is_empty() { None } else { print::paper(&choice) };
+        let paper_sizes = print::paper_sizes(&choice.name);
         self.print = Some(PrintState {
             ids,
             from: self.view,
@@ -57,6 +60,7 @@ impl App {
             choice,
             paper_known: paper.is_some(),
             paper: paper.unwrap_or_else(Paper::a4),
+            paper_sizes,
             page: 0,
             show_options: false,
             job: None,
@@ -81,12 +85,18 @@ impl App {
 
     fn set_printer(&mut self, choice: PrinterChoice) {
         let paper = print::paper(&choice);
+        let sizes = if self.print.as_ref().is_some_and(|p| p.choice.name == choice.name) {
+            self.print.as_ref().map(|p| p.paper_sizes.clone()).unwrap_or_default()
+        } else {
+            print::paper_sizes(&choice.name)
+        };
         self.store.print.printer = Some(choice.name.clone());
         self.dirty = true;
         if let Some(ps) = self.print.as_mut() {
             ps.paper_known = paper.is_some();
             ps.paper = paper.unwrap_or_else(Paper::a4);
             ps.choice = choice;
+            ps.paper_sizes = sizes;
             ps.page = 0;
         }
     }
@@ -213,16 +223,43 @@ impl App {
                             }
                         });
                     if let Some(name) = pick {
-                        self.set_printer(PrinterChoice { name, devmode: None });
+                        self.set_printer(PrinterChoice { name, ..Default::default() });
                     }
                     ui.add_space(6.0);
                     let choice = self.print.as_ref().map(|p| p.choice.clone()).unwrap_or_default();
-                    ui.horizontal(|ui| {
-                        if ui.button("Printer Setup…").on_hover_text("Paper size, orientation and the printer's own settings").clicked()
-                            && let Some(c) = print::setup_dialog(&choice) {
+                    if cfg!(windows) {
+                        ui.horizontal(|ui| {
+                            if ui.button("Printer Setup…").on_hover_text("Paper size, orientation and the printer's own settings").clicked()
+                                && let Some(c) = print::setup_dialog(&choice)
+                            {
                                 self.set_printer(c);
                             }
-                    });
+                        });
+                    } else if !choice.name.is_empty() {
+                        // CUPS: choose the paper here (the printer's default is preselected)
+                        let sizes = self.print.as_ref().map(|p| p.paper_sizes.clone()).unwrap_or_default();
+                        if !sizes.is_empty() {
+                            let mut picked = None;
+                            ui.horizontal(|ui| {
+                                ui.label("Paper");
+                                egui::ComboBox::from_id_salt("paper_pick")
+                                    .selected_text(choice.media.clone().unwrap_or_else(|| "Printer default".into()))
+                                    .show_ui(ui, |ui| {
+                                        if ui.selectable_label(choice.media.is_none(), "Printer default").clicked() {
+                                            picked = Some(None);
+                                        }
+                                        for s in &sizes {
+                                            if ui.selectable_label(choice.media.as_deref() == Some(s.as_str()), s).clicked() {
+                                                picked = Some(Some(s.clone()));
+                                            }
+                                        }
+                                    });
+                            });
+                            if let Some(media) = picked {
+                                self.set_printer(PrinterChoice { media, ..choice.clone() });
+                            }
+                        }
+                    }
                     let (paper, known) = self.print.as_ref().map(|p| (p.paper, p.paper_known)).unwrap_or((Paper::a4(), false));
                     ui.label(RichText::new(if known { paper.describe() } else { "No printer answered — showing an A4 page".into() }).size(12.0).color(t().text));
                     ui.add_space(10.0);

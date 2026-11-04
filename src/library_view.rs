@@ -288,7 +288,7 @@ impl App {
                         self.open_gallery_dialog();
                         ui.close();
                     }
-                    if crate::print::AVAILABLE && ui.button("Print…   Ctrl+P").clicked() {
+                    if crate::print::available() && ui.button("Print…   Ctrl+P").clicked() {
                         self.open_print();
                         ui.close();
                     }
@@ -601,7 +601,7 @@ impl App {
                         if big_button(ui, "💾", "Export", "Save edited copies to a folder").clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                         }
-                        if crate::print::AVAILABLE && big_button(ui, "🖨", "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
+                        if crate::print::available() && big_button(ui, "🖨", "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
                             self.open_print();
                         }
                         if big_button(ui, "📧", "Email", "Send pictures by email").clicked() {

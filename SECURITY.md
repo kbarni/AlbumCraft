@@ -32,7 +32,7 @@ Don't attach a harmful or non-redistributable file to a public issue. First give
 - `library.json` loading and saving (corruption, data loss, absurd values);
 - the thumbnail cache (`dirs::cache_dir()/AlbumCraft/thumbs`): file naming, overwrite, symlinks;
 - folder scanning (recursion, symlinks, very large trees) and export/collage output paths (overwriting, traversal);
-- Windows printing (the only `unsafe` code, Win32 GDI in `print.rs`);
+- printing: Windows (the only `unsafe` code, Win32 GDI in `print.rs`) and CUPS on Linux/macOS (`lp`/`lpstat`/`lpoptions` run with fixed arguments, printer and paper names passed as separate arguments, the file after `--`; the temporary PDF is removed after submission);
 - panics or hangs triggered by file content (a crash loses up to a few seconds of unsaved changes);
 - the MCP server (`albumcraft --mcp`) and the window's control connection (token, localhost binding, request limits, tool parameter validation);
 - raw-file preview extraction, the web gallery output (escaping of titles and captions), movie export through `ffmpeg` (arguments, output path), slideshow music decoding;

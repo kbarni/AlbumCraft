@@ -2158,7 +2158,7 @@ impl eframe::App for App {
             View::Print => self.print_ui(ui),
         }
         // Ctrl+P opens printing from the library or the editor
-        if crate::print::AVAILABLE
+        if crate::print::available()
             && matches!(self.view, View::Library | View::Edit)
             && self.dialog.is_none()
             && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P))

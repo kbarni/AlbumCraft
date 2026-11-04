@@ -333,15 +333,29 @@ pub fn render_page(paper: &Paper, dpi: u32, cells: &[Cell], items: &[PageItem], 
 // ---------------------------------------------------------------------------------------------
 // Windows printers
 
-/// Whether this build can print (Win32 GDI only; elsewhere the print commands are hidden).
-pub const AVAILABLE: bool = cfg!(windows);
+/// Whether printing works here: always on Windows (GDI); on Linux and macOS when the CUPS print
+/// service is running. Without it the print commands are hidden.
+pub fn available() -> bool {
+    #[cfg(windows)]
+    {
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        static UP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *UP.get_or_init(cups::running)
+    }
+}
 
-/// A chosen printer and, after "Printer Setup", its settings (paper, orientation …) as raw DEVMODE bytes.
+/// A chosen printer and its settings: on Windows, after "Printer Setup", the raw DEVMODE bytes;
+/// with CUPS, the chosen paper size (None = the printer's default).
 #[derive(Clone, Debug, Default)]
 pub struct PrinterChoice {
     pub name: String,
     #[cfg_attr(not(windows), allow(dead_code))] // only Windows printing reads it
     pub devmode: Option<Vec<u8>>,
+    #[cfg_attr(windows, allow(dead_code))] // only CUPS printing reads it
+    pub media: Option<String>,
 }
 
 #[cfg(windows)]
@@ -506,7 +520,7 @@ mod win {
                         let _ = GlobalUnlock(pd.hDevMode);
                     }
                 }
-                result = Some(PrinterChoice { name, devmode });
+                result = Some(PrinterChoice { name, devmode, media: None });
             }
             for h in [pd.hDevMode, pd.hDevNames] {
                 if !h.is_invalid() {
@@ -581,27 +595,217 @@ mod win {
 #[cfg(windows)]
 pub use win::{default_printer, paper, print_pages, printers, setup_dialog};
 
+/// Paper sizes to choose from in the print screen (CUPS); empty on Windows, where the printer's
+/// own setup dialog does that.
+#[cfg(windows)]
+pub fn paper_sizes(_: &str) -> Vec<String> {
+    vec![]
+}
+
+/// Printing on Linux and macOS through CUPS's command-line tools (`lpstat`, `lpoptions`, `lp`):
+/// the pages go to the printer as a PDF of the chosen paper size.
 #[cfg(not(windows))]
-mod other {
+mod cups {
     use super::*;
+    use std::process::{Command, Stdio};
+
+    fn run(cmd: &str, args: &[&str]) -> Option<String> {
+        let out = Command::new(cmd).args(args).env("LC_ALL", "C").stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).to_string())
+    }
+
+    pub fn running() -> bool {
+        run("lpstat", &["-r"]).is_some_and(|o| o.contains("scheduler is running"))
+    }
+
     pub fn printers() -> Vec<String> {
-        vec![]
+        let mut names: Vec<String> = run("lpstat", &["-e"]).map(|o| o.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()).unwrap_or_default();
+        if names.is_empty() {
+            // older CUPS: "printer NAME is idle. ..."
+            names = run("lpstat", &["-p"])
+                .map(|o| o.lines().filter_map(|l| l.strip_prefix("printer ")?.split_whitespace().next().map(String::from)).collect())
+                .unwrap_or_default();
+        }
+        names
     }
+
     pub fn default_printer() -> Option<String> {
-        None
+        let o = run("lpstat", &["-d"])?;
+        let name = o.split_once(':')?.1.trim();
+        (!name.is_empty() && !o.contains("no system default")).then(|| name.to_string())
     }
-    pub fn paper(_: &PrinterChoice) -> Option<Paper> {
-        None
+
+    /// The printer's options from `lpoptions -l`: (choices, default) for `key`.
+    fn option(printer: &str, key: &str) -> (Vec<String>, Option<String>) {
+        let Some(o) = run("lpoptions", &["-p", printer, "-l"]) else { return (vec![], None) };
+        parse_option(&o, key)
     }
+
+    pub(super) fn parse_option(listing: &str, key: &str) -> (Vec<String>, Option<String>) {
+        for line in listing.lines() {
+            let Some((name, values)) = line.split_once(':') else { continue };
+            if name.split('/').next() != Some(key) {
+                continue;
+            }
+            let mut all = vec![];
+            let mut default = None;
+            for v in values.split_whitespace() {
+                let clean = v.trim_start_matches('*').to_string();
+                if v.starts_with('*') {
+                    default = Some(clean.clone());
+                }
+                all.push(clean);
+            }
+            return (all, default);
+        }
+        (vec![], None)
+    }
+
+    /// Width and height in millimetres of a CUPS / PPD / PWG paper name.
+    pub(super) fn size_mm(name: &str) -> Option<(f32, f32)> {
+        let known: &[(&str, f32, f32)] = &[
+            ("A3", 297.0, 420.0),
+            ("A4", 210.0, 297.0),
+            ("A5", 148.0, 210.0),
+            ("A6", 105.0, 148.0),
+            ("B5", 182.0, 257.0),
+            ("Letter", 215.9, 279.4),
+            ("Legal", 215.9, 355.6),
+            ("Executive", 184.2, 266.7),
+            ("11x17", 279.4, 431.8),
+            ("Tabloid", 279.4, 431.8),
+            ("4x6", 101.6, 152.4),
+            ("5x7", 127.0, 177.8),
+            ("8x10", 203.2, 254.0),
+        ];
+        // PPD variants like "A4.Borderless" have the size before the dot
+        let named = name.split('.').next().unwrap_or(name);
+        if let Some((_, w, h)) = known.iter().find(|(n, _, _)| n.eq_ignore_ascii_case(named)) {
+            return Some((*w, *h));
+        }
+        let base = name;
+        // "w288h432": points
+        if let Some(rest) = base.strip_prefix('w')
+            && let Some((w, h)) = rest.split_once('h')
+            && let (Ok(w), Ok(h)) = (w.parse::<f32>(), h.parse::<f32>())
+        {
+            return Some((w / 72.0 * 25.4, h / 72.0 * 25.4));
+        }
+        // PWG self-describing names: "iso_a4_210x297mm", "na_letter_8.5x11in"
+        let last = base.rsplit('_').next()?;
+        let (dims, unit) = if let Some(d) = last.strip_suffix("mm") { (d, 1.0) } else { (last.strip_suffix("in")?, 25.4) };
+        let (w, h) = dims.split_once('x')?;
+        Some((w.parse::<f32>().ok()? * unit, h.parse::<f32>().ok()? * unit))
+    }
+
+    pub fn paper_sizes(printer: &str) -> Vec<String> {
+        option(printer, "PageSize").0.into_iter().filter(|n| size_mm(n).is_some()).collect()
+    }
+
+    pub fn paper(p: &PrinterChoice) -> Option<Paper> {
+        if p.name.is_empty() {
+            return None;
+        }
+        let (sizes, default) = option(&p.name, "PageSize");
+        let name = p.media.clone().or(default).or_else(|| sizes.first().cloned()).unwrap_or_else(|| "A4".into());
+        let (w, h) = size_mm(&name)?;
+        let dpi = option(&p.name, "Resolution").1.and_then(|r| r.split(['x', 'd']).next()?.parse::<u32>().ok()).unwrap_or(300);
+        // CUPS doesn't tell the unprintable edge here; 5 mm suits nearly every printer
+        let m = 5.0;
+        Some(Paper { sheet_w: w, sheet_h: h, area_x: m, area_y: m, area_w: w - 2.0 * m, area_h: h - 2.0 * m, dpi: dpi.clamp(72, 2400) })
+    }
+
     pub fn setup_dialog(_: &PrinterChoice) -> Option<PrinterChoice> {
         None
     }
-    pub fn print_pages(_: &PrinterChoice, _: &str, _: &mut dyn Iterator<Item = RgbaImage>, _: Option<&str>) -> Result<usize, String> {
-        Err("Printing is only available on Windows.".into())
+
+    /// Print the pages (each covering the printable area), or write the PDF to `to_file`.
+    pub fn print_pages(p: &PrinterChoice, doc: &str, pages: &mut dyn Iterator<Item = RgbaImage>, to_file: Option<&str>) -> Result<usize, String> {
+        let paper = paper(p).unwrap_or_else(Paper::a4);
+        let mut jpegs = vec![];
+        for page in pages {
+            let rgb = image::DynamicImage::ImageRgba8(page).to_rgb8();
+            let mut buf = vec![];
+            rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 92)).map_err(|e| e.to_string())?;
+            jpegs.push((buf, rgb.width(), rgb.height()));
+        }
+        if jpegs.is_empty() {
+            return Err("nothing to print".into());
+        }
+        let pdf = pdf_of_pages(&jpegs, &paper);
+        let n = jpegs.len();
+        if let Some(path) = to_file {
+            std::fs::write(path, pdf).map_err(|e| format!("{path}: {e}"))?;
+            return Ok(n);
+        }
+        if p.name.is_empty() {
+            return Err("no printer chosen".into());
+        }
+        let file = std::env::temp_dir().join(format!("albumcraft-print-{}-{}.pdf", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+        std::fs::write(&file, pdf).map_err(|e| format!("{}: {e}", file.display()))?;
+        let title: String = doc.chars().filter(|c| !c.is_control()).take(100).collect();
+        let mut cmd = Command::new("lp");
+        cmd.env("LC_ALL", "C").args(["-d", &p.name, "-t", &title]);
+        if let Some(m) = &p.media {
+            cmd.args(["-o", &format!("media={m}")]);
+        }
+        // "--" so a file name can never be read as an option
+        let out = cmd.arg("--").arg(&file).stdin(Stdio::null()).output();
+        let _ = std::fs::remove_file(&file);
+        let out = out.map_err(|e| format!("lp could not be started: {e}"))?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(if err.is_empty() { "the print service refused the job".into() } else { err });
+        }
+        Ok(n)
+    }
+
+    /// A PDF with one page per JPEG, each placed on the printable area of `paper`.
+    pub(super) fn pdf_of_pages(pages: &[(Vec<u8>, u32, u32)], paper: &Paper) -> Vec<u8> {
+        let pt = |mm: f32| mm / 25.4 * 72.0;
+        let (sw, sh) = (pt(paper.sheet_w), pt(paper.sheet_h));
+        let (ax, aw, ah) = (pt(paper.area_x), pt(paper.area_w), pt(paper.area_h));
+        // PDF puts the origin at the bottom left
+        let ay = sh - pt(paper.area_y) - ah;
+        let mut out: Vec<u8> = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
+        let mut offsets: Vec<usize> = vec![];
+        let n = pages.len();
+        // objects: 1 catalog, 2 pages, then per page: page, content, image
+        let page_obj = |i: usize| 3 + i * 3;
+        let obj = |out: &mut Vec<u8>, offsets: &mut Vec<usize>, body: &[u8]| {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", offsets.len()).as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        };
+        obj(&mut out, &mut offsets, b"<< /Type /Catalog /Pages 2 0 R >>");
+        let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", page_obj(i))).collect();
+        obj(&mut out, &mut offsets, format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")).as_bytes());
+        for (i, (jpeg, w, h)) in pages.iter().enumerate() {
+            let (content, image) = (page_obj(i) + 1, page_obj(i) + 2);
+            obj(
+                &mut out,
+                &mut offsets,
+                format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {sw:.2} {sh:.2}] /Resources << /XObject << /Im0 {image} 0 R >> >> /Contents {content} 0 R >>").as_bytes(),
+            );
+            let draw = format!("q {aw:.2} 0 0 {ah:.2} {ax:.2} {ay:.2} cm /Im0 Do Q");
+            obj(&mut out, &mut offsets, format!("<< /Length {} >>\nstream\n{draw}\nendstream", draw.len()).as_bytes());
+            let mut body = format!("<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n", jpeg.len()).into_bytes();
+            body.extend_from_slice(jpeg);
+            body.extend_from_slice(b"\nendstream");
+            obj(&mut out, &mut offsets, &body);
+        }
+        let xref = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
+        for o in &offsets {
+            out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", offsets.len() + 1).as_bytes());
+        out
     }
 }
 #[cfg(not(windows))]
-pub use other::*;
+pub use cups::{default_printer, paper, paper_sizes, print_pages, printers, setup_dialog};
 
 #[cfg(test)]
 mod tests {
@@ -645,11 +849,67 @@ mod tests {
         assert_eq!(page.get_pixel(0, 0).0, [255, 255, 255, 255]);
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn cups_option_and_paper_names() {
+        let listing = "PageSize/Page Size: Custom.WIDTHxHEIGHT Letter *A4 11x17 A3 EnvDL\nResolution/Resolution: 300x300dpi *600x600dpi\n";
+        assert_eq!(cups::parse_option(listing, "PageSize").1.as_deref(), Some("A4"));
+        assert_eq!(cups::parse_option(listing, "Resolution").1.as_deref(), Some("600x600dpi"));
+        assert_eq!(cups::parse_option(listing, "Duplex"), (vec![], None));
+        assert_eq!(cups::size_mm("A4"), Some((210.0, 297.0)));
+        assert_eq!(cups::size_mm("a4"), Some((210.0, 297.0)));
+        assert_eq!(cups::size_mm("w288h432"), Some((101.6, 152.4)));
+        assert_eq!(cups::size_mm("iso_a5_148x210mm"), Some((148.0, 210.0)));
+        let l = cups::size_mm("na_letter_8.5x11in").unwrap();
+        assert!((l.0 - 215.9).abs() < 0.01 && (l.1 - 279.4).abs() < 0.01);
+        assert_eq!(cups::size_mm("EnvDL"), None);
+        assert_eq!(cups::size_mm("Custom.WIDTHxHEIGHT"), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cups_writes_a_pdf_to_a_file_without_printing() {
+        // `to_file` writes the PDF instead of sending it, so this never reaches a real printer
+        let paper = Paper::a4();
+        let page = RgbaImage::from_pixel(200, 287, Rgba([200, 30, 30, 255]));
+        let out = std::env::temp_dir().join(format!("albumcraft-cups-{}.pdf", std::process::id()));
+        let choice = PrinterChoice { name: String::new(), ..Default::default() };
+        let n = print_pages(&choice, "test", &mut vec![page.clone(), page].into_iter(), Some(&out.to_string_lossy())).unwrap();
+        let pdf = std::fs::read(&out).unwrap();
+        let _ = std::fs::remove_file(&out);
+        assert_eq!(n, 2);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(pdf.starts_with(b"%PDF-1.4") && text.contains("/Count 2") && text.trim_end().ends_with("%%EOF"));
+        assert!(text.contains("/MediaBox [0 0 595.28 841.89]"), "A4 in points");
+        // the cross-reference table points at the objects
+        let xref: usize = text.rsplit("startxref").next().unwrap().split_whitespace().next().unwrap().parse().unwrap();
+        assert!(pdf[xref..].starts_with(b"xref"));
+        let _ = paper;
+    }
+
+    /// `ALBUMCRAFT_PDF_OUT=out.pdf cargo test cups_pdf_demo -- --ignored`: a two-page sample PDF
+    /// (A4, one 10 x 15 layout page) to open in a viewer; nothing is printed.
+    #[cfg(not(windows))]
+    #[test]
+    #[ignore]
+    fn cups_pdf_demo() {
+        let out = std::env::var("ALBUMCRAFT_PDF_OUT").expect("set ALBUMCRAFT_PDF_OUT");
+        let paper = Paper::a4();
+        let cells = page_cells(&paper, PrintLayout::Cm10x15);
+        let img = crate::imaging::sample_image(4, 1200, 900);
+        let items: Vec<PageItem> = (0..cells.len()).map(|i| PageItem { image: img.clone(), caption: format!("Sample {i}") }).collect();
+        let settings = PrintSettings { caption: CaptionMode::FileName, border: BorderStyle::ThinBlack, ..Default::default() };
+        let page = render_page(&paper, 150, &cells, &items, &settings);
+        let choice = PrinterChoice::default();
+        assert_eq!(print_pages(&choice, "demo", &mut vec![page.clone(), page].into_iter(), Some(&out)).unwrap(), 2);
+    }
+
     /// Real print through "Microsoft Print to PDF" into a file (run with `cargo test -- --ignored`).
+    #[cfg(windows)]
     #[test]
     #[ignore]
     fn prints_to_pdf() {
-        let choice = PrinterChoice { name: "Microsoft Print to PDF".into(), devmode: None };
+        let choice = PrinterChoice { name: "Microsoft Print to PDF".into(), ..Default::default() };
         let paper = paper(&choice).expect("printer");
         let cells = page_cells(&paper, PrintLayout::Cm10x15);
         let img = crate::imaging::sample_image(4, 1200, 900);
