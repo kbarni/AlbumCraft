@@ -208,15 +208,21 @@ pub fn read(path: &str) -> Option<CameraInfo> {
         if f.tag == Tag::MakerNote {
             continue;
         }
-        let mut value = f.display_value().with_unit(&exif).to_string();
-        if value.len() > 120 {
-            value.truncate(117);
-            value.push('…');
-        }
+        let value = shorten(f.display_value().with_unit(&exif).to_string(), 120);
         let name = if f.ifd_num == In::THUMBNAIL { format!("{} (thumbnail)", f.tag) } else { f.tag.to_string() };
         info.all.push((name, value));
     }
     Some(info)
+}
+
+/// Cut a value to at most `max` characters (not bytes, so text in any language is safe), ending in "…".
+fn shorten(value: String, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value;
+    }
+    let mut out: String = value.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 /// Write a small JPEG with typical camera information and an embedded thumbnail (for the test and
@@ -281,6 +287,15 @@ pub fn jpeg_with_exif(jpeg: &[u8], fields: &[exif::Field], thumb: Option<&[u8]>)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_values_are_cut_on_character_boundaries() {
+        // 'é' is two bytes: cutting at a byte count would land inside one
+        let v = shorten("é".repeat(200), 120);
+        assert_eq!(v.chars().count(), 120);
+        assert!(v.ends_with('…'));
+        assert_eq!(shorten("short".into(), 120), "short");
+    }
 
     #[test]
     fn reads_camera_information_from_a_jpeg() {
