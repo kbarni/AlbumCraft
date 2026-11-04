@@ -475,6 +475,14 @@ impl App {
         }
         if let Some(text) = load_problem {
             app.dialog = Some(Dialog::Info { title: "Library".into(), text });
+        } else if persist && crate::crash_marker_path().is_some_and(|m| std::fs::remove_file(m).is_ok()) {
+            let log = crate::crash_log_path().map(|p| p.display().to_string()).unwrap_or_default();
+            app.dialog = Some(Dialog::Info {
+                title: "AlbumCraft closed unexpectedly".into(),
+                text: format!(
+                    "AlbumCraft stopped because of an error the last time it ran. Changes made in the last few seconds before that may be missing.\n\nDetails were written to:\n{log}\n\nPlease include that file when reporting the problem."
+                ),
+            });
         }
         app
     }
