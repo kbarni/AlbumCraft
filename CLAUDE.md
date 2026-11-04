@@ -46,7 +46,7 @@ Single-window eframe/egui app (edition 2024). `main.rs` parses `--screenshot` an
 - `gallery.rs` — web gallery: a new folder (never an existing one) with `images/`, `thumbs/` and a self-contained `index.html` (inline CSS + lightbox script; light grid, dark grid or masonry). Captions and titles are HTML-escaped and the lightbox data is JSON with `<` escaped. `ALBUMCRAFT_GALLERY_OUT=<dir> cargo test demo_gallery -- --ignored` writes demos.
 - `movie.rs` — movie export: frames rendered with the slideshow's timing (`at_time`), crossfade and pan-and-zoom, piped as raw RGBA to the `ffmpeg` program (H.264 if available, else MPEG-4; looped music muxed with `-shortest`). Needs FFmpeg on the PATH; the Movie dialog says so when it is missing. The test makes a real short movie when FFmpeg is installed and skips otherwise.
 - `exifinfo.rs` — EXIF/camera info and embedded thumbnails (kamadak-exif).
-- `print.rs` / `print_view.rs` — print layouts, paper/borders/captions; real printing through Win32 GDI on Windows only.
+- `print.rs` / `print_view.rs` — print layouts, paper/borders/captions; real printing through Win32 GDI on Windows only; `print::AVAILABLE` hides every print entry point (tray, menus, editor, Ctrl+P) elsewhere.
 
 Key design rules:
 - **Originals are never modified.** Edits, stars, captions, tags, people, albums are stored as `Meta` in `library.json` under the user data dir (`dirs::data_dir()/AlbumCraft/library.json`, see `library::store_path`; a library saved under the earlier working name `PhotoShelf/` is copied over on first start). Photos are keyed by file path string.

@@ -333,6 +333,9 @@ pub fn render_page(paper: &Paper, dpi: u32, cells: &[Cell], items: &[PageItem], 
 // ---------------------------------------------------------------------------------------------
 // Windows printers
 
+/// Whether this build can print (Win32 GDI only; elsewhere the print commands are hidden).
+pub const AVAILABLE: bool = cfg!(windows);
+
 /// A chosen printer and, after "Printer Setup", its settings (paper, orientation …) as raw DEVMODE bytes.
 #[derive(Clone, Debug, Default)]
 pub struct PrinterChoice {

@@ -1484,16 +1484,6 @@ impl App {
         self.arm_tray_check();
     }
 
-    pub fn service_gone(&mut self, what: &str) {
-        self.dialog = Some(Dialog::Info {
-            title: what.to_string(),
-            text: format!(
-                "\"{what}\" used an online service that no longer exists, so it isn't available in this version.\n\n\
-                 Tip: use Export to save copies of your pictures, then share them any way you like."
-            ),
-        });
-    }
-
     // ----------------------------------------------------------------- frame
 
     fn process_results(&mut self) {
@@ -2119,7 +2109,8 @@ impl eframe::App for App {
             View::Print => self.print_ui(ui),
         }
         // Ctrl+P opens printing from the library or the editor
-        if matches!(self.view, View::Library | View::Edit)
+        if crate::print::AVAILABLE
+            && matches!(self.view, View::Library | View::Edit)
             && self.dialog.is_none()
             && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P))
         {

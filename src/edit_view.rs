@@ -945,7 +945,7 @@ impl App {
                         if ui.button("💾 Export").clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                         }
-                        if ui.button("🖨 Print").on_hover_text("Print this picture (Ctrl+P)").clicked() {
+                        if crate::print::AVAILABLE && ui.button("🖨 Print").on_hover_text("Print this picture (Ctrl+P)").clicked() {
                             self.open_print();
                         }
                         let mut add = None;

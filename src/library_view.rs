@@ -288,7 +288,7 @@ impl App {
                         self.open_gallery_dialog();
                         ui.close();
                     }
-                    if ui.button("Print…   Ctrl+P").clicked() {
+                    if crate::print::AVAILABLE && ui.button("Print…   Ctrl+P").clicked() {
                         self.open_print();
                         ui.close();
                     }
@@ -592,25 +592,16 @@ impl App {
                     ui.separator();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
-                        if big_button(ui, "🌍", "Geo-Tag", "Place pictures on a map").clicked() {
-                            self.service_gone("Geo-Tag");
-                        }
                         if big_button(ui, "🎞", "Movie", "Make a movie from the tray").clicked() {
                             self.dialog = Some(Dialog::Movie { hd: false });
                         }
                         if big_button(ui, "🖼", "Collage", "Make a collage from the tray").clicked() {
                             self.dialog = Some(Dialog::Collage);
                         }
-                        if big_button(ui, "📝", "BlogThis!", "Post pictures to a blog").clicked() {
-                            self.service_gone("BlogThis!");
-                        }
-                        if big_button(ui, "🛒", "Shop", "Order prints online").clicked() {
-                            self.service_gone("Shop");
-                        }
                         if big_button(ui, "💾", "Export", "Save edited copies to a folder").clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                         }
-                        if big_button(ui, "🖨", "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
+                        if crate::print::AVAILABLE && big_button(ui, "🖨", "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
                             self.open_print();
                         }
                         if big_button(ui, "📧", "Email", "Send pictures by email").clicked() {
