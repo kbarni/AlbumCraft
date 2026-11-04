@@ -543,11 +543,67 @@ impl App {
                 self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                 ui.close();
             }
-            if !self.photos[id].is_sample() && ui.button("Show in file explorer").clicked() {
+            if !self.photos[id].is_sample() && ui.button("Show in file manager").clicked() {
                 let path = self.photos[id].key.clone();
-                let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+                if let Err(e) = reveal_in_file_manager(std::path::Path::new(&path)) {
+                    self.toast(format!("Could not open the file manager: {e}"));
+                }
                 ui.close();
             }
         });
+    }
+}
+
+/// Open the system file manager on the picture's folder, with the picture selected where the
+/// platform allows it.
+fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Command;
+    if cfg!(target_os = "windows") {
+        // explorer takes "/select," and the path as one argument
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(path);
+        Command::new("explorer").arg(arg).spawn().map(drop)
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg("-R").arg(path).spawn().map(drop)
+    } else {
+        // freedesktop: ask the file manager to select the file, else just open the folder. On a
+        // thread: D-Bus activation of a missing file manager can take a while.
+        let uri = format!("file://{}", percent_encode_path(&path.to_string_lossy()));
+        let dir = path.parent().unwrap_or(path).to_path_buf();
+        std::thread::spawn(move || {
+            let selected = Command::new("dbus-send")
+                .args(["--session", "--print-reply", "--reply-timeout=3000", "--dest=org.freedesktop.FileManager1"])
+                .arg("/org/freedesktop/FileManager1")
+                .arg("org.freedesktop.FileManager1.ShowItems")
+                .arg(format!("array:string:{uri}"))
+                .arg("string:")
+                .output()
+                .is_ok_and(|o| o.status.success());
+            if !selected {
+                let _ = Command::new("xdg-open").arg(&dir).spawn();
+            }
+        });
+        Ok(())
+    }
+}
+
+/// Percent-encode a path for a file:// URI (keeps '/' and unreserved characters).
+fn percent_encode_path(p: &str) -> String {
+    let mut out = String::with_capacity(p.len());
+    for b in p.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-_.~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod reveal_tests {
+    #[test]
+    fn file_uris_are_encoded() {
+        assert_eq!(super::percent_encode_path("/home/a b/été,1.jpg"), "/home/a%20b/%C3%A9t%C3%A9%2C1.jpg");
     }
 }
