@@ -1,0 +1,34 @@
+name: CI
+
+# Build and test on Linux, Windows and macOS for every push to main and every pull request,
+# through the suite's shared gate workflow in craft-common-actions.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a PR branch cancels its older run; every push to main runs to the end.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    # Tracks @main so suite-wide CI fixes reach every app without a PR in each repository.
+    uses: storytold/craft-common-actions/.github/workflows/gate.yml@main
+    with:
+      os: '["ubuntu-24.04", "windows-latest", "macos-latest"]'
+      command: cargo build --locked --all-targets && cargo test --locked
+      # No craft-fonts, wasm target or extra cargo tools needed (yet).
+      craft-fonts-ref: ""
+      targets: ""
+      tools: ""
+      # Keep the package's own dev profile (debug = false).
+      dev-debug: ""
+      packages: >-
+        pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev
+        libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev

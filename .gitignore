@@ -1,0 +1,9 @@
+# Build output
+target/
+
+# Local experiments and tools
+scratch/
+.tools/
+
+# Machine-specific cargo settings (e.g. local linker paths)
+.cargo/config.toml

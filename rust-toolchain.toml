@@ -1,0 +1,7 @@
+# Stable Rust on every platform. On a Windows machine without the Visual C++ linker, make the GNU
+# toolchain the default host once (`rustup set default-host x86_64-pc-windows-gnu`);
+# a local (gitignored) .cargo/config.toml can hold that machine's linker settings.
+[toolchain]
+channel = "stable"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
