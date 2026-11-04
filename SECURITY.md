@@ -34,7 +34,9 @@ Don't attach a harmful or non-redistributable file to a public issue. First give
 - folder scanning (recursion, symlinks, very large trees) and export/collage output paths (overwriting, traversal);
 - Windows printing (the only `unsafe` code, Win32 GDI in `print.rs`);
 - panics or hangs triggered by file content (a crash loses up to a few seconds of unsaved changes);
-- later: the MCP server and any control channel, raw-file parsing, face-recognition models, the HTML gallery output (escaping of captions and file names), movie export through `ffmpeg`;
+- the MCP server (`albumcraft --mcp`) and the window's control connection (token, localhost binding, request limits, tool parameter validation);
+- raw-file preview extraction, the web gallery output (escaping of titles and captions), movie export through `ffmpeg` (arguments, output path), slideshow music decoding;
+- later: face-recognition models;
 - dependencies and release artifacts.
 
 General bugs without a security impact go through normal issues.
