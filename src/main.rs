@@ -9,6 +9,7 @@ mod gallery;
 mod imaging;
 mod library;
 mod library_view;
+mod movie;
 mod looks;
 mod shell;
 mod slides;

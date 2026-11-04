@@ -122,7 +122,8 @@ pub enum Dialog {
     FolderNote { path: String, text: String },
     FolderManager,
     Collage,
-    Movie,
+    /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
+    Movie { hd: bool },
     About,
     /// "Choose Edits" when leaving A|A with two different versions.
     ChooseEdits { then: PendingLeave, dont_ask: bool },
@@ -244,6 +245,8 @@ pub struct App {
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
+    /// Whether FFmpeg (for movies) was found; looked up when the Movie window first opens.
+    pub ffmpeg: Option<bool>,
     /// Edits copied from a picture, ready to paste onto others.
     pub copied_edits: Option<Vec<EditOp>>,
     /// Bumped whenever the library or its notes may have changed: invalidates `list_cache`.
@@ -367,6 +370,7 @@ impl App {
             save_error: None,
             list_rev: 0,
             copied_edits: None,
+            ffmpeg: None,
             list_cache: Default::default(),
             photos: vec![],
             folders: vec![],
@@ -528,6 +532,10 @@ impl App {
             if shot_view == "slideshow" {
                 let list: Vec<usize> = (0..app.photos.len()).collect();
                 app.start_slideshow(list, 0);
+            }
+            if shot_view == "movie" {
+                app.selection = [0usize, 1, 2, 3].into_iter().collect();
+                app.dialog = Some(Dialog::Movie { hd: true });
             }
             if shot_view == "presets" && app.photos.len() > 3 {
                 let k = app.photos[3].key.clone();
@@ -1415,6 +1423,33 @@ impl App {
         self.arm_tray_check();
     }
 
+    pub fn make_movie(&mut self, ids: Vec<usize>, size: (u32, u32)) {
+        let Some(out) = rfd::FileDialog::new().set_title("Save the movie as…").set_file_name("Slideshow.mp4").add_filter("MP4 video", &["mp4"]).save_file() else {
+            return;
+        };
+        let out = if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4")) { out } else { out.with_extension("mp4") };
+        let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().filter_map(|&id| Some((self.photos.get(id)?.key.clone(), self.edits(id)))).collect();
+        let settings = self.store.slideshow.clone();
+        let tx = self.tx.clone();
+        let ctx = self.ctx.clone();
+        self.toast("Making the movie…");
+        std::thread::spawn(move || {
+            let progress = |f: f32| {
+                let _ = tx.send(Done::Toast(format!("Making the movie… {:.0} %", f * 100.0)));
+                ctx.request_repaint();
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::movie::make(&out, &pictures, size, &settings, &progress)))
+                .unwrap_or_else(|_| Err("unexpected error".into()));
+            let msg = match result {
+                Ok(()) => format!("The movie is ready:\n{}", out.display()),
+                Err(e) => format!("Could not make the movie: {e}"),
+            };
+            let _ = tx.send(Done::Message(msg));
+            ctx.request_repaint();
+        });
+        self.arm_tray_check();
+    }
+
     pub fn collage(&mut self, ids: Vec<usize>) {
         if ids.len() < 2 {
             self.toast("Put at least two pictures in the tray to make a collage.");
@@ -1521,6 +1556,7 @@ impl App {
                         ));
                     }
                 }
+                Done::Toast(m) => self.toast(m),
                 Done::Message(m) => {
                     // don't throw away a dialog the user is filling in
                     if self.dialog.is_none() {
@@ -1588,7 +1624,7 @@ impl App {
             Dialog::FolderNote { .. } => "Folder description".into(),
             Dialog::FolderManager => "Folder manager".into(),
             Dialog::Collage => "Make a collage".into(),
-            Dialog::Movie => "Movie".into(),
+            Dialog::Movie { .. } => "Movie".into(),
             Dialog::About => "About AlbumCraft".into(),
             Dialog::ChooseEdits { .. } => "Choose Edits".into(),
             Dialog::PrintReview { .. } => "Review".into(),
@@ -1792,14 +1828,53 @@ impl App {
                         }
                     });
                 }
-                Dialog::Movie => {
-                    ui.label("Making a movie file isn't part of this version.");
-                    ui.label("You can play the same pictures as a full-screen slideshow instead.");
+                Dialog::Movie { hd } => {
+                    let list = if targets.len() > 1 { targets.clone() } else { self.visible_flat() };
+                    let ffmpeg = *self.ffmpeg.get_or_insert_with(crate::movie::ffmpeg_available);
+                    let st = self.store.slideshow.clone();
+                    ui.label(format!(
+                        "A video of {} picture(s) as in the slideshow: {} s each{}{}.",
+                        list.len(),
+                        st.interval.round(),
+                        if st.fade { ", crossfades" } else { "" },
+                        if st.motion { ", pan and zoom" } else { "" }
+                    ));
+                    ui.label(egui::RichText::new(format!("About {:.0} s long. Change the timing and effects in the slideshow's control bar.", crate::movie::duration(list.len(), &st))).weak());
+                    ui.add_space(4.0);
+                    ui.radio_value(hd, false, "720p (1280 × 720)");
+                    ui.radio_value(hd, true, "1080p (1920 × 1080)");
+                    let s = &mut self.store.slideshow;
                     ui.horizontal(|ui| {
-                        if ui.button("▶ Play slideshow").clicked() {
-                            let list = if targets.len() > 1 { targets.clone() } else { self.visible_flat() };
+                        if s.music.is_some() {
+                            if ui.checkbox(&mut s.music_on, "Music").changed() {
+                                self.dirty = true;
+                            }
+                            let name = s.music.as_deref().and_then(|m| std::path::Path::new(m).file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            ui.label(egui::RichText::new(name).weak());
+                        }
+                        if ui.button(if s.music.is_some() { "Other music…" } else { "Add music…" }).clicked()
+                            && let Some(p) = rfd::FileDialog::new().add_filter("Music", &["mp3", "ogg", "oga", "flac", "wav", "m4a", "aac", "mp4"]).pick_file()
+                        {
+                            s.music = Some(p.to_string_lossy().to_string());
+                            s.music_on = true;
+                            self.dirty = true;
+                        }
+                    });
+                    if !ffmpeg {
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new("Making movies needs the free FFmpeg program, which wasn't found.").color(crate::theme::t().reject));
+                        ui.label("Install it from ffmpeg.org (or your system's package manager), then open this window again.");
+                        ui.hyperlink_to("ffmpeg.org/download", "https://ffmpeg.org/download.html");
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(ffmpeg && !list.is_empty(), egui::Button::new("Choose file and make…")).clicked() {
+                            let size = if *hd { (1920, 1080) } else { (1280, 720) };
+                            self.make_movie(list.clone(), size);
+                            close = true;
+                        }
+                        if ui.button("▶ Preview as slideshow").clicked() {
                             let first = list.first().copied().unwrap_or(0);
-                            self.start_slideshow(list, first);
+                            self.start_slideshow(list.clone(), first);
                             close = true;
                         }
                         if ui.button("Cancel").clicked() {

@@ -397,7 +397,7 @@ impl App {
                         ui.close();
                     }
                     if ui.button("Movie…").clicked() {
-                        self.dialog = Some(Dialog::Movie);
+                        self.dialog = Some(Dialog::Movie { hd: false });
                         ui.close();
                     }
                 });
@@ -596,7 +596,7 @@ impl App {
                             self.service_gone("Geo-Tag");
                         }
                         if big_button(ui, "🎞", "Movie", "Make a movie from the tray").clicked() {
-                            self.dialog = Some(Dialog::Movie);
+                            self.dialog = Some(Dialog::Movie { hd: false });
                         }
                         if big_button(ui, "🖼", "Collage", "Make a collage from the tray").clicked() {
                             self.dialog = Some(Dialog::Collage);

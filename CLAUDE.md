@@ -23,7 +23,7 @@ cargo run -- --screenshot out.png   # renders a frame, saves it, and exits (used
 - `rust-toolchain.toml` selects plain `stable` (plus clippy and rustfmt) on every platform. On a Windows machine without the MSVC linker, run `rustup set default-host x86_64-pc-windows-gnu` once; a local, gitignored `.cargo/config.toml` can hold that machine's GNU linker workarounds (paths to `.tools/`, used only for the `x86_64-pc-windows-gnu` target). The `windows` crate is a `[target.'cfg(windows)'.dependencies]` entry and is only used under `#[cfg(windows)]` in `print.rs`; non-Windows has a stub `mod other`. `cargo test`: 13 pass, 1 ignored (`prints_to_pdf`).
 - CI: `.github/workflows/ci.yml` calls the suite's shared gate (`storytold/craft-common-actions`, `gate.yml@main`) on Ubuntu, Windows and macOS: `cargo build --locked --all-targets && cargo test --locked`. Keep `Cargo.lock` committed and up to date (the gate fails if the build changes it).
 - Dev profile deliberately sets `debug = false`, `strip = "debuginfo"`: full debug info produced a 450 MB binary that crashed at startup.
-- `ALBUMCRAFT_TRACE=1` prints startup trace lines. `ALBUMCRAFT_THEME=light|dark` forces a theme and `ALBUMCRAFT_SHOT_VIEW=edit|presets|effects|slideshow|print|compare|props|zoom|tray` picks the view for `--screenshot`.
+- `ALBUMCRAFT_TRACE=1` prints startup trace lines. `ALBUMCRAFT_THEME=light|dark` forces a theme and `ALBUMCRAFT_SHOT_VIEW=edit|presets|effects|slideshow|movie|print|compare|props|zoom|tray` picks the view for `--screenshot`.
 - Release builds set `windows_subsystem = "windows"` (no console).
 
 ## Architecture
@@ -44,6 +44,7 @@ Single-window eframe/egui app (edition 2024). `main.rs` parses `--screenshot` an
 - `raw.rs` — camera raw files (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF…) shown through their largest embedded JPEG preview, turned by the raw file's EXIF orientation; `imaging::load_source` / `oriented_dims` route raw files here. No sensor-data developing. `ALBUMCRAFT_RAW_SAMPLE=<file> cargo test real_raw_file -- --ignored --nocapture` checks a real file.
 - `slides.rs` — slideshow settings (`Store.slideshow`: seconds per picture, crossfade, pan-and-zoom motion, music file), `ken_burns_uv` / `fade_in` (shared with the movie export) and `Music` (rodio, looping; Linux builds need the ALSA headers, `libasound2-dev`).
 - `gallery.rs` — web gallery: a new folder (never an existing one) with `images/`, `thumbs/` and a self-contained `index.html` (inline CSS + lightbox script; light grid, dark grid or masonry). Captions and titles are HTML-escaped and the lightbox data is JSON with `<` escaped. `ALBUMCRAFT_GALLERY_OUT=<dir> cargo test demo_gallery -- --ignored` writes demos.
+- `movie.rs` — movie export: frames rendered with the slideshow's timing (`at_time`), crossfade and pan-and-zoom, piped as raw RGBA to the `ffmpeg` program (H.264 if available, else MPEG-4; looped music muxed with `-shortest`). Needs FFmpeg on the PATH; the Movie dialog says so when it is missing. The test makes a real short movie when FFmpeg is installed and skips otherwise.
 - `exifinfo.rs` — EXIF/camera info and embedded thumbnails (kamadak-exif).
 - `print.rs` / `print_view.rs` — print layouts, paper/borders/captions; real printing through Win32 GDI on Windows only.
 

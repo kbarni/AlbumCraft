@@ -692,6 +692,8 @@ pub enum Done {
     /// Scanned folders, and whether the scan stopped at SCAN_LIMIT.
     Scan(Vec<ScannedFolder>, bool),
     Message(String),
+    /// A short progress note for the toast.
+    Toast(String),
 }
 
 pub const THUMB_DIM: u32 = 256;
