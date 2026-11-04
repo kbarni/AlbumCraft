@@ -215,6 +215,11 @@ pub struct App {
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
+    /// Bumped whenever the library or its notes may have changed: invalidates `list_cache`.
+    pub list_rev: u64,
+    /// `groups()` for (list_rev, source, search, only_starred).
+    #[allow(clippy::type_complexity)]
+    list_cache: std::cell::RefCell<Option<((u64, Source, String, bool), Vec<(Option<usize>, Vec<usize>)>)>>,
 
     pub photos: Vec<Photo>,
     pub folders: Vec<Folder>,
@@ -329,6 +334,8 @@ impl App {
             last_save: 0.0,
             persist,
             save_error: None,
+            list_rev: 0,
+            list_cache: Default::default(),
             photos: vec![],
             folders: vec![],
             key_index: HashMap::new(),
@@ -487,6 +494,7 @@ impl App {
     }
 
     pub fn set_library(&mut self, scanned: Vec<ScannedFolder>, samples: bool) {
+        self.list_rev += 1;
         self.photos.clear();
         self.folders.clear();
         self.key_index.clear();
@@ -628,9 +636,9 @@ impl App {
         if q.is_empty() {
             return true;
         }
-        let p = &self.photos[id];
-        let folder = &self.folders[p.folder];
-        let mut hay = format!("{} {}", p.name, folder.name).to_lowercase();
+        let Some(p) = self.photos.get(id) else { return false };
+        let folder = self.folders.get(p.folder).map(|f| f.name.as_str()).unwrap_or("");
+        let mut hay = format!("{} {}", p.name, folder).to_lowercase();
         if let Some(m) = m {
             hay.push(' ');
             hay.push_str(&m.caption.to_lowercase());
@@ -643,7 +651,22 @@ impl App {
     }
 
     /// Groups shown in the lightbox: (folder index if any, photo ids).
+    /// The visible pictures grouped by folder (or one group for an album, person, Starred).
+    /// Cached: building it walks the whole library, and it is asked for several times a frame.
     pub fn groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
+        let mut cache = self.list_cache.borrow_mut();
+        let key = (self.list_rev, self.source.clone(), self.search.clone(), self.only_starred);
+        if let Some((k, groups)) = cache.as_ref() {
+            if *k == key {
+                return groups.clone();
+            }
+        }
+        let groups = self.build_groups();
+        *cache = Some((key, groups.clone()));
+        groups
+    }
+
+    fn build_groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
         match &self.source {
             Source::Library => self
                 .folders
@@ -1804,6 +1827,10 @@ impl eframe::App for App {
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
         let closing = ctx.input(|i| i.viewport().close_requested());
+        // every change to the library's notes sets `dirty`: rebuild the cached lists after it
+        if self.dirty {
+            self.list_rev += 1;
+        }
         if self.persist && self.dirty && (closing || now - self.last_save > 3.0) {
             self.last_save = now;
             match self.store.save() {
