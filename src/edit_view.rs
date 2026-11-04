@@ -1,6 +1,7 @@
 //! The Edit view (one photo with fix-up tools) and the full-screen slideshow.
 
 use crate::app::*;
+use crate::develop::{self, Adjust};
 use crate::imaging::{self, EditOp, Effect};
 use crate::library::{fmt_bytes, fmt_date, fmt_time};
 use crate::library_view::paint_thumb;
@@ -59,31 +60,103 @@ fn clamp_pan(pan: Vec2, size: Vec2, view: Vec2) -> Vec2 {
     egui::vec2(pan.x.clamp(-max.x, max.x), pan.y.clamp(-max.y, max.y))
 }
 
+#[derive(Clone, Copy)]
+enum AutoFix {
+    Lucky,
+    Exposure,
+    WhiteBalance,
+    Straighten,
+}
+
 fn tool_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
     ui.add_sized([112.0, 46.0], egui::Button::new(RichText::new(format!("{icon}\n{label}")).size(12.5)))
 }
 
 impl App {
-    fn current_tune(&self, id: usize) -> [f32; 4] {
+    /// The Advanced settings being edited: the last edit step when it is an adjustment.
+    fn current_adjust(&self, id: usize) -> Adjust {
         match self.meta(id).and_then(|m| m.edits.last()) {
-            Some(EditOp::Tune { fill, highlights, shadows, temp }) => [*fill, *highlights, *shadows, *temp],
-            _ => [0.0; 4],
+            Some(EditOp::Adjust(a)) => *a,
+            _ => Adjust::default(),
         }
     }
 
-    fn set_tune(&mut self, id: usize, v: [f32; 4]) {
-        let op = EditOp::Tune { fill: v[0], highlights: v[1], shadows: v[2], temp: v[3] };
+    /// Change the current adjustment step (or start one). Moving sliders again right after
+    /// changes the same step, so Undo takes all of it back at once; all-neutral removes it.
+    fn set_adjust(&mut self, id: usize, a: Adjust) {
+        let a = a.clamped();
         let m = self.meta_mut(id);
-        if matches!(m.edits.last(), Some(EditOp::Tune { .. })) {
-            *m.edits.last_mut().unwrap() = op;
-        } else {
-            m.edits.push(op);
+        match m.edits.last_mut() {
+            Some(EditOp::Adjust(cur)) => *cur = a,
+            _ => m.edits.push(EditOp::Adjust(a)),
         }
-        if v == [0.0; 4] {
+        if a.is_neutral() {
             m.edits.pop();
         }
         self.edit.redo.clear();
         self.refresh_thumb(id);
+    }
+
+    /// The picture as edited so far, without the current adjustment step (what the automatic fixes
+    /// look at), from the full preview when it is loaded or else the thumbnail.
+    fn analysis_image(&self, id: usize) -> Option<image::RgbaImage> {
+        let base = self.big.get(&id).map(|b| &b.base).or_else(|| self.thumb_base.get(&id))?;
+        let mut ops = self.edits(id);
+        if matches!(ops.last(), Some(EditOp::Adjust(_))) {
+            ops.pop();
+        }
+        Some(imaging::apply_all(base, &ops))
+    }
+
+    fn auto_fix(&mut self, id: usize, what: AutoFix) {
+        let Some(img) = self.analysis_image(id) else {
+            self.toast("The picture is still loading.");
+            return;
+        };
+        let mut a = self.current_adjust(id);
+        match what {
+            AutoFix::Lucky => {
+                let l = develop::lucky(&img);
+                a = Adjust { clarity: a.clarity, sharpen: a.sharpen, noise: a.noise, ..l };
+            }
+            AutoFix::Exposure => a.exposure = develop::auto_exposure(&img),
+            AutoFix::WhiteBalance => (a.temp, a.tint) = develop::auto_white_balance(&img),
+            AutoFix::Straighten => {
+                match develop::auto_straighten(&img) {
+                    Some(angle) if angle.abs() >= 0.2 => {
+                        let angle = (angle * 10.0).round() / 10.0;
+                        self.push_edit(id, EditOp::Straighten(angle));
+                        self.toast(format!("Straightened by {angle:+.1}°."));
+                    }
+                    Some(_) => self.toast("This picture already looks level."),
+                    None => self.toast("No clear horizon or vertical lines found to straighten by."),
+                }
+                return;
+            }
+        }
+        self.set_adjust(id, a);
+    }
+
+    /// White balance from a clicked point that should be neutral gray (`pos` 0…1 on the picture).
+    fn pick_neutral(&mut self, id: usize, pos: Pos2) {
+        let Some(img) = self.analysis_image(id) else { return };
+        let (w, h) = (img.width(), img.height());
+        let (cx, cy) = (((pos.x * w as f32) as u32).min(w - 1), ((pos.y * h as f32) as u32).min(h - 1));
+        // average a small square so noise doesn't decide
+        let (mut sum, mut n) = ([0u32; 3], 0u32);
+        for y in cy.saturating_sub(2)..=(cy + 2).min(h - 1) {
+            for x in cx.saturating_sub(2)..=(cx + 2).min(w - 1) {
+                let p = img.get_pixel(x, y);
+                for c in 0..3 {
+                    sum[c] += p[c] as u32;
+                }
+                n += 1;
+            }
+        }
+        let avg = sum.map(|v| (v / n.max(1)) as u8);
+        let mut a = self.current_adjust(id);
+        (a.temp, a.tint) = develop::neutralize(avg);
+        self.set_adjust(id, a);
     }
 
     fn step_photo(&mut self, delta: i32) {
@@ -162,6 +235,21 @@ impl App {
                     }
                     let line = Color32::from_rgb(col.r(), col.g(), col.b());
                     p.add(egui::Shape::line(pts, Stroke::new(1.0, line)));
+                }
+                // clipping: the share of pixels with a channel at pure black or pure white
+                let total = h[1].iter().sum::<u32>().max(1) as f32;
+                let dark = (0..3).map(|c| h[c][0]).max().unwrap_or(0) as f32 / total * 100.0;
+                let bright = (0..3).map(|c| h[c][255]).max().unwrap_or(0) as f32 / total * 100.0;
+                if dark >= 0.5 || bright >= 0.5 {
+                    let mut parts = vec![];
+                    if dark >= 0.5 {
+                        parts.push(format!("shadows {dark:.1} %"));
+                    }
+                    if bright >= 0.5 {
+                        parts.push(format!("highlights {bright:.1} %"));
+                    }
+                    ui.label(RichText::new(format!("Clipped: {}", parts.join(", "))).size(11.0).color(t().reject))
+                        .on_hover_text("Share of the picture that is pure black or pure white in at least one colour");
                 }
                 ui.add_space(2.0);
                 draw_camera(ui);
@@ -306,7 +394,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().left_bg).inner_margin(egui::Margin::same(8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for (t, label) in [(Tab::Basic, "Basic Fixes"), (Tab::Tuning, "Tuning"), (Tab::Effects, "Effects")] {
+                    for (t, label) in [(Tab::Edit, "Edit"), (Tab::Effects, "Effects")] {
                         if ui.selectable_label(self.edit.tab == t, RichText::new(label).strong()).clicked() {
                             self.edit.tab = t;
                         }
@@ -359,16 +447,33 @@ impl App {
                 });
 
                 match self.edit.tab {
-                    Tab::Basic => self.basic_tab(ui),
-                    Tab::Tuning => self.tuning_tab(ui),
+                    Tab::Edit => self.edit_tab(ui),
                     Tab::Effects => self.effects_tab(ui),
                 }
             });
     }
 
-    fn basic_tab(&mut self, ui: &mut egui::Ui) {
+    fn edit_tab(&mut self, ui: &mut egui::Ui) {
         let id = self.edit.id;
+        if self.edit.tool == Tool::None {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.edit.advanced, false, "Basic");
+                ui.selectable_value(&mut self.edit.advanced, true, "Advanced");
+            });
+            ui.add_space(4.0);
+            if self.edit.advanced {
+                egui::ScrollArea::vertical().show(ui, |ui| self.advanced_panel(ui));
+                return;
+            }
+        }
         match self.edit.tool {
+            Tool::PickNeutral => {
+                ui.label(RichText::new("White balance").strong().size(15.0));
+                ui.label("Click something in the picture that should be neutral gray or white.");
+                if ui.button("Cancel").clicked() {
+                    self.edit.tool = Tool::None;
+                }
+            }
             Tool::Crop => {
                 ui.label(RichText::new("Crop").strong().size(15.0));
                 ui.label("Drag a box on the picture to choose what to keep.");
@@ -428,7 +533,32 @@ impl App {
                 });
             }
             Tool::None => {
-                ui.label(RichText::new("Commonly needed fixes").size(12.0).weak());
+                ui.label(RichText::new("One-click fixes").size(12.0).weak());
+                let lucky = ui
+                    .add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new("✨  I'm feeling lucky").size(14.0)))
+                    .on_hover_text("Exposure, white balance, black point and a little vibrance, all at once (then fine-tune them in Advanced)");
+                if lucky.clicked() {
+                    self.auto_fix(id, AutoFix::Lucky);
+                }
+                ui.add_space(4.0);
+                egui::Grid::new("auto").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
+                    if tool_button(ui, "☀", "Auto exposure").on_hover_text("Brighten or darken to a balanced exposure").clicked() {
+                        self.auto_fix(id, AutoFix::Exposure);
+                    }
+                    if tool_button(ui, "🎨", "Auto colour").on_hover_text("Auto white balance: remove a colour cast").clicked() {
+                        self.auto_fix(id, AutoFix::WhiteBalance);
+                    }
+                    ui.end_row();
+                    if tool_button(ui, "◐", "Auto contrast").on_hover_text("Stretch the darkest and brightest tones").clicked() {
+                        self.push_edit(id, EditOp::AutoContrast);
+                    }
+                    if tool_button(ui, "📐", "Auto straighten").on_hover_text("Level a tilted horizon or verticals").clicked() {
+                        self.auto_fix(id, AutoFix::Straighten);
+                    }
+                    ui.end_row();
+                });
+                ui.add_space(10.0);
+                ui.label(RichText::new("Tools").size(12.0).weak());
                 egui::Grid::new("basic").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
                     if tool_button(ui, "✂", "Crop").clicked() {
                         self.edit.tool = Tool::Crop;
@@ -443,15 +573,8 @@ impl App {
                         self.edit.tool = Tool::Redeye;
                         self.edit.sel = None;
                     }
-                    if tool_button(ui, "✨", "Auto Fix").on_hover_text("Fix colour and contrast in one click").clicked() {
-                        self.push_edit(id, EditOp::Lucky);
-                    }
-                    ui.end_row();
-                    if tool_button(ui, "◐", "Auto Contrast").clicked() {
-                        self.push_edit(id, EditOp::AutoContrast);
-                    }
-                    if tool_button(ui, "🎨", "Auto Color").clicked() {
-                        self.push_edit(id, EditOp::AutoColor);
+                    if tool_button(ui, "◌", "Pick neutral").on_hover_text("Click something gray to set the white balance").clicked() {
+                        self.edit.tool = Tool::PickNeutral;
                     }
                     ui.end_row();
                     if tool_button(ui, "⟲", "Rotate left").clicked() {
@@ -461,55 +584,70 @@ impl App {
                         self.rotate(&[id], 1);
                     }
                     ui.end_row();
-                    if tool_button(ui, "🩹", "Retouch").clicked() {
-                        self.dialog = Some(Dialog::Info {
-                            title: "Retouch".into(),
-                            text: "The blemish brush isn't in this version yet.".into(),
-                        });
-                    }
-                    if tool_button(ui, "🔤", "Text").clicked() {
-                        self.dialog = Some(Dialog::Info {
-                            title: "Text".into(),
-                            text: "Writing text onto pictures isn't in this version yet. Use the caption line under the picture instead.".into(),
-                        });
-                    }
-                    ui.end_row();
                 });
-                ui.add_space(8.0);
-                let mut t = self.current_tune(id);
-                ui.label("Fill Light");
-                if ui.add(egui::Slider::new(&mut t[0], 0.0..=1.0).show_value(false)).changed() {
-                    self.set_tune(id, t);
-                }
             }
         }
     }
 
-    fn tuning_tab(&mut self, ui: &mut egui::Ui) {
+    fn advanced_panel(&mut self, ui: &mut egui::Ui) {
         let id = self.edit.id;
-        let mut t = self.current_tune(id);
-        let before = t;
-        ui.label(RichText::new("Lighting and colour adjustments").size(12.0).weak());
-        ui.add_space(4.0);
-        for (i, (label, range)) in [("Fill Light", 0.0..=1.0f32), ("Highlights", 0.0..=1.0), ("Shadows", 0.0..=1.0), ("Color Temperature", -1.0..=1.0)]
-            .into_iter()
-            .enumerate()
-        {
-            ui.label(label);
-            ui.add(egui::Slider::new(&mut t[i], range).show_value(false));
-            ui.add_space(4.0);
-        }
-        if t != before {
-            self.set_tune(id, t);
-        }
+        let mut a = self.current_adjust(id);
+        let before = a;
+        let section = |ui: &mut egui::Ui, title: &str| {
+            ui.add_space(6.0);
+            ui.label(RichText::new(title).size(12.0).strong().color(t().text_weak));
+        };
+        ui.spacing_mut().slider_width = 108.0;
+        section(ui, "WHITE BALANCE");
+        let preset = develop::WB_PRESETS.iter().find(|(_, t, ti)| *t == a.temp && *ti == a.tint).map(|(n, _, _)| *n).unwrap_or("Custom");
         ui.horizontal(|ui| {
-            if ui.button("Reset sliders").clicked() {
-                self.set_tune(id, [0.0; 4]);
-            }
-            if ui.button("Auto colour").on_hover_text("Neutral colour balance").clicked() {
-                self.push_edit(id, EditOp::AutoColor);
+            egui::ComboBox::from_id_salt("wb_preset").selected_text(preset).width(120.0).show_ui(ui, |ui| {
+                for (name, t, ti) in develop::WB_PRESETS {
+                    if ui.selectable_label(preset == name, name).clicked() {
+                        (a.temp, a.tint) = (t, ti);
+                    }
+                }
+                if ui.selectable_label(false, "Auto").clicked()
+                    && let Some(img) = self.analysis_image(id)
+                {
+                    (a.temp, a.tint) = develop::auto_white_balance(&img);
+                }
+            });
+            if ui.button("◌ Pick").on_hover_text("Click something gray in the picture").clicked() {
+                self.edit.tool = Tool::PickNeutral;
             }
         });
+        let slider = |ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, tip: &str| {
+            ui.horizontal(|ui| {
+                let l = ui.add_sized([74.0, 18.0], egui::Label::new(RichText::new(label).size(12.5)).sense(Sense::click())).on_hover_text(format!("{tip}\nDouble-click to reset"));
+                if l.double_clicked() {
+                    *v = 0.0;
+                }
+                ui.add(egui::Slider::new(v, range).max_decimals(if label == "Exposure" { 2 } else { 0 }));
+            });
+        };
+        slider(ui, "Temperature", &mut a.temp, -100.0..=100.0, "Bluer (left) or warmer (right)");
+        slider(ui, "Tint", &mut a.tint, -100.0..=100.0, "Greener (left) or more magenta (right)");
+        section(ui, "LIGHT");
+        slider(ui, "Exposure", &mut a.exposure, -3.0..=3.0, "Overall brightness, in stops");
+        slider(ui, "Highlights", &mut a.highlights, -100.0..=100.0, "Bright areas: left recovers detail, right brightens");
+        slider(ui, "Shadows", &mut a.shadows, -100.0..=100.0, "Dark areas: right opens them up");
+        slider(ui, "Blacks", &mut a.blacks, -100.0..=100.0, "Black point: left deepens, right lifts");
+        slider(ui, "Contrast", &mut a.contrast, -100.0..=100.0, "Difference between dark and bright");
+        section(ui, "COLOUR");
+        slider(ui, "Saturation", &mut a.saturation, -100.0..=100.0, "All colours");
+        slider(ui, "Vibrance", &mut a.vibrance, -100.0..=100.0, "Mostly the dull colours; spares skin and already vivid ones");
+        section(ui, "DETAIL");
+        slider(ui, "Clarity", &mut a.clarity, -100.0..=100.0, "Local contrast in the midtones");
+        slider(ui, "Sharpen", &mut a.sharpen, 0.0..=100.0, "Crisper fine detail");
+        slider(ui, "Noise", &mut a.noise, 0.0..=100.0, "Noise reduction: smooths grain while keeping edges");
+        if a != before {
+            self.set_adjust(id, a);
+        }
+        ui.add_space(8.0);
+        if ui.add_enabled(!a.is_neutral(), egui::Button::new("Reset all")).clicked() {
+            self.set_adjust(id, Adjust::default());
+        }
         ui.label(RichText::new("Moving a slider again right after changes the same step, so Undo takes it back in one go.").size(11.5).weak());
     }
 
@@ -1209,6 +1347,26 @@ impl App {
                             Color32::WHITE,
                         );
                     }
+                }
+                Tool::PickNeutral => {
+                    if resp.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                    }
+                    if resp.clicked()
+                        && let Some(pos) = resp.interact_pointer_pos()
+                        && img_rect.contains(pos)
+                    {
+                        let n = Pos2::new((pos.x - img_rect.left()) / img_rect.width(), (pos.y - img_rect.top()) / img_rect.height());
+                        self.pick_neutral(id, n);
+                        self.edit.tool = Tool::None;
+                    }
+                    p.text(
+                        img_rect.center_bottom() - egui::vec2(0.0, 16.0),
+                        egui::Align2::CENTER_CENTER,
+                        "Click something that should be gray or white",
+                        egui::FontId::proportional(14.0),
+                        Color32::WHITE,
+                    );
                 }
                 Tool::None => {
                     if resp.double_clicked() {

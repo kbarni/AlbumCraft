@@ -68,8 +68,8 @@ pub enum View {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tab {
-    Basic,
-    Tuning,
+    /// One-click fixes and tools (Basic) or the adjustment sliders (Advanced).
+    Edit,
     Effects,
 }
 
@@ -79,6 +79,8 @@ pub enum Tool {
     Crop,
     Redeye,
     Straighten,
+    /// Click something that should be gray to set the white balance.
+    PickNeutral,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -139,6 +141,8 @@ pub struct EditState {
     pub id: usize,
     pub list: Vec<usize>,
     pub tab: Tab,
+    /// The Edit tab shows the sliders (Advanced) instead of the one-click fixes (Basic).
+    pub advanced: bool,
     pub tool: Tool,
     pub aspect: CropAspect,
     pub angle: f32,
@@ -389,7 +393,8 @@ impl App {
             edit: EditState {
                 id: 0,
                 list: vec![],
-                tab: Tab::Basic,
+                tab: Tab::Edit,
+                advanced: false,
                 tool: Tool::None,
                 aspect: CropAspect::Manual,
                 angle: 0.0,
@@ -458,11 +463,19 @@ impl App {
             if shot_view == "compare" && app.photos.len() > 2 {
                 let k = app.photos[0].key.clone();
                 let m = app.store.meta.entry(k).or_default();
-                m.edits.push(EditOp::Tune { fill: 0.4, highlights: 0.1, shadows: 0.05, temp: 0.4 });
-                m.edits.push(EditOp::Effect(imaging::Effect::Warmify));
+                m.edits.push(EditOp::Adjust(crate::develop::Adjust {
+                    temp: 18.0,
+                    exposure: 0.3,
+                    shadows: 30.0,
+                    contrast: 15.0,
+                    vibrance: 25.0,
+                    clarity: 20.0,
+                    ..Default::default()
+                }));
                 app.open_editor(0);
                 app.edit.compare = CompareMode::BeforeAfter;
-                app.edit.tab = Tab::Tuning;
+                app.edit.tab = Tab::Edit;
+                app.edit.advanced = true;
             }
             if shot_view == "print" && app.photos.len() > 5 {
                 app.selection = [0usize, 1, 2, 3, 5].into_iter().collect();

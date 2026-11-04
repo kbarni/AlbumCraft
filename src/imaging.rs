@@ -72,6 +72,8 @@ pub enum EditOp {
         temp: f32,
     },
     Effect(Effect),
+    /// The Advanced adjustments (white balance, exposure, tone, colour, detail) as one step.
+    Adjust(crate::develop::Adjust),
 }
 
 impl EditOp {
@@ -87,6 +89,7 @@ impl EditOp {
             EditOp::AutoColor => "Auto Color".into(),
             EditOp::Tune { .. } => "Tuning".into(),
             EditOp::Effect(e) => e.label().into(),
+            EditOp::Adjust(a) => a.label(),
         }
     }
 }
@@ -395,6 +398,10 @@ pub fn apply(mut img: RgbaImage, op: &EditOp) -> RgbaImage {
             img
         }
         EditOp::Effect(e) => apply_effect(img, *e),
+        EditOp::Adjust(a) => {
+            crate::develop::apply(&mut img, a);
+            img
+        }
     }
 }
 
