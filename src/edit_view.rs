@@ -468,7 +468,11 @@ impl App {
                     if edits.is_empty() {
                         ui.label(RichText::new("(none — this is the original)").size(12.0).weak());
                     }
-                    egui::ScrollArea::vertical().max_height(90.0).show(ui, |ui| {
+                    // a fixed height for up to six steps: inside a bottom panel, a scroll area left
+                    // to size itself can get stuck at the panel's first, tiny height (one line)
+                    let row = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(12.0))) + ui.spacing().item_spacing.y;
+                    let h = row * edits.len().clamp(0, 6) as f32;
+                    egui::ScrollArea::vertical().id_salt("edit_steps").min_scrolled_height(h).max_height(h).show(ui, |ui| {
                         for (i, e) in edits.iter().enumerate() {
                             let t = RichText::new(format!("{}. {}", i + 1, e.label())).size(12.0);
                             ui.label(if i + 1 == edits.len() { t.strong() } else { t });
@@ -691,11 +695,71 @@ impl App {
         if a != before {
             self.set_adjust(id, a);
         }
+
+        // geometry: these edit the picture's own straighten / perspective step (one of each)
+        section(ui, "GEOMETRY");
+        let (mut angle, mut persp) = self.current_geometry(id);
+        let (angle0, persp0) = (angle, persp);
+        let geo_slider = |ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, decimals: usize, suffix: &str, tip: &str| {
+            ui.horizontal(|ui| {
+                let l = ui.add_sized([74.0, 18.0], egui::Label::new(RichText::new(label).size(12.5)).sense(Sense::click())).on_hover_text(format!("{tip}\nDouble-click to reset"));
+                if l.double_clicked() {
+                    *v = 0.0;
+                }
+                ui.add(egui::Slider::new(v, range).max_decimals(decimals).suffix(suffix));
+            });
+        };
+        geo_slider(ui, "Straighten", &mut angle, -45.0..=45.0, 1, "°", "Turn the picture a little to level the horizon (zooms in to hide the corners)");
+        let (mut pv, mut ph) = (persp.0 * 100.0, persp.1 * 100.0);
+        geo_slider(ui, "Vertical", &mut pv, -100.0..=100.0, 0, "", "Perspective: right widens the top, to stand up buildings that lean back when shot from below");
+        geo_slider(ui, "Horizontal", &mut ph, -100.0..=100.0, 0, "", "Perspective: right makes the right side taller, for a wall seen at an angle");
+        persp = (pv / 100.0, ph / 100.0);
+        if angle != angle0 {
+            self.set_geometry(id, EditOp::Straighten(angle));
+        }
+        if persp != persp0 {
+            self.set_geometry(id, EditOp::Perspective { vertical: persp.0, horizontal: persp.1 });
+        }
         ui.add_space(8.0);
         if ui.add_enabled(!a.is_neutral(), egui::Button::new("Reset all")).clicked() {
             self.set_adjust(id, Adjust::default());
         }
         ui.label(RichText::new("Moving a slider again right after changes the same step, so Undo takes it back in one go.").size(11.5).weak());
+    }
+
+    /// The picture's straighten angle and perspective (vertical, horizontal): its latest steps of
+    /// those kinds, or zero.
+    fn current_geometry(&self, id: usize) -> (f32, (f32, f32)) {
+        let edits = self.meta(id).map(|m| m.edits.as_slice()).unwrap_or(&[]);
+        let angle = edits.iter().rev().find_map(|e| if let EditOp::Straighten(a) = e { Some(*a) } else { None }).unwrap_or(0.0);
+        let persp = edits
+            .iter()
+            .rev()
+            .find_map(|e| if let EditOp::Perspective { vertical, horizontal } = e { Some((*vertical, *horizontal)) } else { None })
+            .unwrap_or((0.0, 0.0));
+        (angle, persp)
+    }
+
+    /// Set the straighten or perspective step: the latest step of that kind is changed in place
+    /// (so moving the slider never stacks rotations), or one is added; back to zero removes it.
+    fn set_geometry(&mut self, id: usize, op: EditOp) {
+        let neutral = match op {
+            EditOp::Straighten(a) => a.abs() < 0.05,
+            EditOp::Perspective { vertical, horizontal } => vertical.abs() < 0.005 && horizontal.abs() < 0.005,
+            _ => return,
+        };
+        let same_kind = |e: &EditOp| std::mem::discriminant(e) == std::mem::discriminant(&op);
+        let m = self.meta_mut(id);
+        match m.edits.iter().rposition(same_kind) {
+            Some(i) if neutral => {
+                m.edits.remove(i);
+            }
+            Some(i) => m.edits[i] = op,
+            None if neutral => {}
+            None => m.edits.push(op),
+        }
+        self.edit.redo.clear();
+        self.refresh_thumb(id);
     }
 
     /// The preset look being edited: the last edit step when it is a look.

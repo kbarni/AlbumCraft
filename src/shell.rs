@@ -9,8 +9,8 @@
 
 use crate::app::*;
 use crate::library::{fmt_date, local_year};
-use crate::library::Flag;
-use crate::library_view::{paint_flag, paint_rating, paint_reject};
+use crate::library::{Flag, MAX_RATING};
+use crate::library_view::{paint_flag, paint_rating, paint_reject, paint_star};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 
 const GAP: f32 = 4.0;
@@ -442,14 +442,18 @@ impl App {
                                 let resp = ui.interact(rect, egui::Id::new(("tile", id)), Sense::click());
                                 let hovered = resp.contains_pointer();
                                 self.paint_tile(ui, rect, id, hovered);
-                                let (check, pick) = self.tile_buttons(ui, rect, id, hovered);
-                                if check {
+                                let action = self.tile_buttons(ui, rect, id, hovered);
+                                if action == TileAction::Check {
                                     let mut m = ui.input(|i| i.modifiers);
                                     m.command = true;
                                     m.shift = false;
                                     clicked = Some((id, m));
-                                } else if pick {
+                                } else if action == TileAction::Pick {
                                     self.toggle_flag(&[id], Flag::Pick);
+                                } else if action == TileAction::Reject {
+                                    self.toggle_flag(&[id], Flag::Reject);
+                                } else if let TileAction::Rate(n) = action {
+                                    self.set_rating(&[id], n);
                                 } else if resp.double_clicked() {
                                     open = Some(id);
                                 } else if resp.clicked() {
@@ -591,6 +595,18 @@ impl App {
             mesh.indices.extend([0, 1, 2, 0, 2, 3]);
             p.add(egui::Shape::mesh(mesh));
         }
+        let stars_shown = hovered && img.width() >= 110.0 && img.height() >= 80.0;
+        if stars_shown {
+            // the same shade at the bottom, behind the stars to click
+            let strip = Rect::from_min_max(Pos2::new(img.left() + 2.0, img.bottom() - 40.0), Pos2::new(img.right() - 2.0, img.bottom() - 1.0));
+            let mut mesh = egui::Mesh::default();
+            let (bottom, clear) = (Color32::from_black_alpha(90), Color32::TRANSPARENT);
+            for (pos, col) in [(strip.left_top(), clear), (strip.right_top(), clear), (strip.right_bottom(), bottom), (strip.left_bottom(), bottom)] {
+                mesh.vertices.push(egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color: col });
+            }
+            mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+            p.add(egui::Shape::mesh(mesh));
+        }
         if !selected && hovered {
             p.rect_filled(img, radius, Color32::from_white_alpha(14));
         }
@@ -611,7 +627,7 @@ impl App {
             x += 16.0;
         }
         let rating = m.map(|m| m.rating).unwrap_or(0);
-        if rating > 0 && img.width() > 70.0 {
+        if rating > 0 && img.width() > 70.0 && !stars_shown {
             paint_rating(p, Pos2::new(x - 6.0, y), rating, 5.0, Color32::from_black_alpha(140));
         }
         if m.is_some_and(|m| !m.edits.is_empty()) {
@@ -624,13 +640,14 @@ impl App {
         }
     }
 
-    /// The check circle (top left) and pick flag (top right); returns what was clicked.
-    fn tile_buttons(&self, ui: &mut egui::Ui, rect: Rect, id: usize, hovered: bool) -> (bool, bool) {
+    /// The check circle (top left), the reject and pick buttons (top right) and, on hover, five
+    /// stars (bottom left); returns what was clicked.
+    fn tile_buttons(&self, ui: &mut egui::Ui, rect: Rect, id: usize, hovered: bool) -> TileAction {
         let selected = self.selection.contains(&id);
         let inset = if selected { (rect.width().min(rect.height()) * 0.07).clamp(6.0, 14.0) } else { 0.0 };
         let img = rect.shrink(inset);
         if !(hovered || selected) || img.width() < 60.0 || img.height() < 50.0 {
-            return (false, false);
+            return TileAction::None;
         }
         let c = img.left_top() + egui::vec2(18.0, 18.0);
         let check_r = Rect::from_center_size(c, Vec2::splat(30.0));
@@ -653,6 +670,67 @@ impl App {
         let p = ui.painter();
         let r = if flag.hovered() { 9.0 } else { 8.0 };
         paint_flag(p, fc, r, if on { t().pick } else { Color32::TRANSPARENT }, Color32::WHITE);
-        (check.clicked(), flag.clicked())
+
+        // reject, just left of the pick flag
+        let mut reject = false;
+        if img.width() >= 96.0 {
+            let rc = fc - egui::vec2(30.0, 0.0);
+            let rej = ui
+                .interact(Rect::from_center_size(rc, Vec2::splat(28.0)), egui::Id::new(("reject", id)), Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Reject (X)");
+            let rejected = self.flag(id) == Flag::Reject;
+            let color = if rejected { t().reject } else { Color32::WHITE };
+            let bg = if rej.hovered() { Color32::from_black_alpha(110) } else { Color32::from_black_alpha(50) };
+            paint_reject(ui.painter(), rc, if rej.hovered() { 8.5 } else { 7.5 }, color, bg);
+            reject = rej.clicked();
+        }
+
+        // five stars along the bottom, on hover (clicking the current rating clears it)
+        let mut rate = None;
+        if hovered && img.width() >= 110.0 && img.height() >= 80.0 {
+            let current = self.rating(id);
+            let (sr, step) = (7.0, 17.0);
+            let base = Pos2::new(img.left() + 10.0 + step / 2.0, img.bottom() - 14.0);
+            let hover_n = (0..MAX_RATING).find(|&i| {
+                let cell = Rect::from_center_size(base + egui::vec2(i as f32 * step, 0.0), egui::vec2(step, 24.0));
+                ui.ctx().pointer_hover_pos().is_some_and(|p| cell.contains(p))
+            });
+            for i in 0..MAX_RATING {
+                let c = base + egui::vec2(i as f32 * step, 0.0);
+                let cell = ui
+                    .interact(Rect::from_center_size(c, egui::vec2(step, 24.0)), egui::Id::new(("star", id, i)), Sense::click())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                let n = i + 1;
+                let lit = hover_n.map_or(n <= current, |h| i <= h);
+                let fill = if lit { t().star } else { Color32::from_black_alpha(60) };
+                paint_star(ui.painter(), c, sr, fill, if lit { Color32::from_black_alpha(140) } else { Color32::WHITE });
+                if cell.clicked() {
+                    rate = Some(if current == n { 0 } else { n });
+                }
+            }
+        }
+
+        if check.clicked() {
+            TileAction::Check
+        } else if flag.clicked() {
+            TileAction::Pick
+        } else if reject {
+            TileAction::Reject
+        } else if let Some(n) = rate {
+            TileAction::Rate(n)
+        } else {
+            TileAction::None
+        }
     }
+}
+
+/// What was clicked on a tile's overlay.
+#[derive(Clone, Copy, PartialEq)]
+enum TileAction {
+    None,
+    Check,
+    Pick,
+    Reject,
+    Rate(u8),
 }

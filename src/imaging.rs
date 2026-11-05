@@ -63,6 +63,10 @@ pub enum EditOp {
     Look { look: crate::looks::Look, amount: f32 },
     /// Vignette, border, shadow, rounded corners or text (the Effects tab).
     Decor(crate::decor::Decor),
+    /// Perspective correction, each -1…1: `vertical` > 0 widens the top (buildings that lean
+    /// back when shot from below stand up straight), `horizontal` > 0 makes the right side taller.
+    /// Zoomed so no empty corners show.
+    Perspective { vertical: f32, horizontal: f32 },
 }
 
 impl EditOp {
@@ -72,6 +76,11 @@ impl EditOp {
             EditOp::Rotate(_) => "Rotate left".into(),
             EditOp::Crop(_) => "Crop".into(),
             EditOp::Straighten(a) => format!("Straighten {a:+.1}°"),
+            EditOp::Perspective { vertical, horizontal } => match (*vertical != 0.0, *horizontal != 0.0) {
+                (true, false) => format!("Perspective, vertical {:+.0}", vertical * 100.0),
+                (false, true) => format!("Perspective, horizontal {:+.0}", horizontal * 100.0),
+                _ => format!("Perspective {:+.0} / {:+.0}", vertical * 100.0, horizontal * 100.0),
+            },
             EditOp::Redeye(_) => "Redeye".into(),
             EditOp::Lucky => "Auto fix (lucky)".into(),
             EditOp::AutoContrast => "Auto Contrast".into(),
@@ -398,7 +407,38 @@ pub fn apply(mut img: RgbaImage, op: &EditOp) -> RgbaImage {
             img
         }
         EditOp::Decor(d) => d.apply(img),
+        EditOp::Perspective { vertical, horizontal } => perspective(&img, *vertical, *horizontal),
     }
+}
+
+/// How strongly the perspective sliders bend the picture: at ±1 one edge is shown 1.8 times
+/// wider than the other.
+const KEYSTONE: f32 = 0.4;
+
+/// Keystone correction: each row is scaled horizontally by an amount that changes from top to
+/// bottom (vertical), each column vertically from left to right (horizontal), then the whole is
+/// zoomed so that the picture still fills its frame.
+fn perspective(img: &RgbaImage, vertical: f32, horizontal: f32) -> RgbaImage {
+    use rayon::prelude::*;
+    let v =if vertical.is_finite() { vertical.clamp(-1.0, 1.0) } else { 0.0 };
+    let hz = if horizontal.is_finite() { horizontal.clamp(-1.0, 1.0) } else { 0.0 };
+    let (w, h) = (img.width() as f32, img.height() as f32);
+    if (v == 0.0 && hz == 0.0) || w < 2.0 || h < 2.0 {
+        return img.clone();
+    }
+    let (cx, cy) = (w / 2.0, h / 2.0);
+    // the widest sampling factor is at the edge that gets squeezed: zoom by its inverse
+    let s = 1.0 / ((1.0 + KEYSTONE * v.abs()) * (1.0 + KEYSTONE * hz.abs()));
+    let mut out = RgbaImage::new(img.width(), img.height());
+    out.par_enumerate_pixels_mut().for_each(|(x, y, p)| {
+        let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+        let (nx, ny) = (dx / cx, dy / cy);
+        // top (ny = -1) samples a narrower stretch of the source when v > 0, so it shows wider
+        let fx = 1.0 + KEYSTONE * v * ny;
+        let fy = 1.0 - KEYSTONE * hz * nx;
+        *p = bilinear(img, cx + dx * fx * s - 0.5, cy + dy * fy * s - 0.5);
+    });
+    out
 }
 
 fn auto_contrast(img: &mut RgbaImage) {
@@ -798,6 +838,28 @@ mod orientation_tests {
 #[cfg(test)]
 mod filter_tests {
     use super::*;
+
+    #[test]
+    fn perspective_widens_the_top() {
+        // white picture with a black vertical line at 3/4 of the width
+        let (w, h) = (200u32, 100u32);
+        let img = RgbaImage::from_fn(w, h, |x, _| if x == 150 { Rgba([0, 0, 0, 255]) } else { Rgba([255, 255, 255, 255]) });
+        let line_at = |out: &RgbaImage, y: u32| (0..w).min_by_key(|&x| out.get_pixel(x, y)[0]).unwrap_or(0);
+        assert_eq!(perspective(&img, 0.0, 0.0), img, "zero changes nothing");
+        let out = perspective(&img, 0.8, 0.0);
+        assert_eq!(out.dimensions(), img.dimensions());
+        // the top shows a narrower part of the picture spread wider: the line moves outwards
+        assert!(line_at(&out, 2) > line_at(&out, h - 3), "top {} bottom {}", line_at(&out, 2), line_at(&out, h - 3));
+        // no empty (black, transparent) corners
+        for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
+            assert_eq!(out.get_pixel(x, y)[3], 255);
+        }
+        // out-of-range values are bounded, never a crash
+        for (v, hz) in [(f32::NAN, 0.3), (5.0, -5.0), (-1.0, 1.0)] {
+            assert_eq!(perspective(&img, v, hz).dimensions(), img.dimensions());
+        }
+        assert_eq!(perspective(&RgbaImage::new(1, 1), 1.0, 1.0).dimensions(), (1, 1));
+    }
 
     #[test]
     fn neutral_balance_makes_picked_colour_gray() {

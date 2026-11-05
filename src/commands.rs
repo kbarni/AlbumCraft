@@ -131,6 +131,7 @@ fn keys_schema(extra: Value) -> Value {
 
 const EDIT_DOC: &str = "An edit step, as JSON. Forms: {\"Rotate\": n} (quarter turns, + = clockwise); \
 {\"Crop\": [x0, y0, x1, y1]} (fractions 0-1 of the picture at this point); {\"Straighten\": degrees}; \
+{\"Perspective\": {\"vertical\": -1..1 (> 0 widens the top: straightens buildings shot from below), \"horizontal\": -1..1 (> 0 makes the right side taller)}}; \
 \"AutoContrast\"; \"AutoColor\"; \
 {\"Adjust\": {\"temp\", \"tint\", \"highlights\", \"shadows\", \"blacks\", \"contrast\", \"saturation\", \"vibrance\", \"clarity\" (each -100..100), \
 \"exposure\" (EV -3..3), \"sharpen\", \"noise\" (0..100)}} (omitted fields are 0); \
@@ -422,6 +423,10 @@ pub fn parse_edit(v: &Value) -> Result<EditOp, String> {
         EditOp::Redeye(_) => return Err("Redeye needs four numbers".into()),
         EditOp::Adjust(a) => EditOp::Adjust(a.clamped()),
         EditOp::Look { look, amount } => EditOp::Look { look, amount: if finite(amount) { amount.clamp(0.0, 1.0) } else { 1.0 } },
+        EditOp::Perspective { vertical, horizontal } => {
+            let v = |x: f32| if finite(x) { x.clamp(-1.0, 1.0) } else { 0.0 };
+            EditOp::Perspective { vertical: v(vertical), horizontal: v(horizontal) }
+        }
         EditOp::Decor(crate::decor::Decor::Text(mut t)) => {
             t.text = t.text.chars().take(200).collect();
             t.anchor = t.anchor.min(8);

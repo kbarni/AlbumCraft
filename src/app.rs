@@ -536,6 +536,8 @@ impl App {
                 let m = app.store.meta.entry(k).or_default();
                 m.caption = "Evening by the water".into();
                 m.edits.push(EditOp::Effect(imaging::Effect::Warmify));
+                m.edits.push(EditOp::AutoContrast);
+                m.edits.push(EditOp::Look { look: crate::looks::Look::Vivid, amount: 0.6 });
                 app.open_editor(2);
                 app.edit.show_info = true;
             }
@@ -587,6 +589,14 @@ impl App {
                         app.type_map_search("bord");
                     }
                 }
+            }
+            if shot_view == "geometry" && app.photos.len() > 5 {
+                let k = app.photos[5].key.clone();
+                let m = app.store.meta.entry(k).or_default();
+                m.edits.push(EditOp::Straighten(2.5));
+                m.edits.push(EditOp::Perspective { vertical: 0.6, horizontal: 0.0 });
+                app.open_editor(5);
+                app.edit.advanced = true;
             }
             if shot_view == "maps" {
                 app.dialog = Some(Dialog::OnlineMaps);

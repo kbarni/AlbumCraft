@@ -587,20 +587,39 @@ impl App {
                         }
                     });
 
+                    // culling: pick, reject and stars for the whole tray
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
                             let picked = !tray.is_empty() && tray.iter().all(|&id| self.is_picked(id));
                             if pick_button(ui, picked, egui::vec2(36.0, 30.0)).on_hover_text("Pick / unpick (P)").clicked() {
                                 self.toggle_flag(&tray, Flag::Pick);
                             }
+                            let rejected = !tray.is_empty() && tray.iter().all(|&id| self.flag(id) == Flag::Reject);
+                            if reject_button(ui, rejected, egui::vec2(36.0, 30.0)).on_hover_text("Reject / unreject (X)").clicked() {
+                                self.toggle_flag(&tray, Flag::Reject);
+                            }
+                        });
+                        // the stars show the rating when all the tray's pictures share it
+                        let first = tray.first().map(|&id| self.rating(id)).unwrap_or(0);
+                        let shared = if tray.iter().all(|&id| self.rating(id) == first) { first } else { 0 };
+                        ui.add_enabled_ui(!tray.is_empty(), |ui| {
+                            if let Some(n) = rating_input(ui, ui.make_persistent_id("tray_stars"), shared, 6.5).filter(|_| !tray.is_empty()) {
+                                self.set_rating(&tray, n);
+                            }
+                        })
+                        .response
+                        .on_hover_text("Rating (0–5)");
+                    });
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
                             if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("⟲").size(18.0))).on_hover_text("Rotate left").clicked() {
                                 self.rotate(&tray, -1);
                             }
-                        });
-                        ui.horizontal(|ui| {
                             if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("⟳").size(18.0))).on_hover_text("Rotate right").clicked() {
                                 self.rotate(&tray, 1);
                             }
+                        });
+                        ui.horizontal(|ui| {
                             if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("🏷").size(16.0))).on_hover_text("Tags and people").clicked() {
                                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                             }
