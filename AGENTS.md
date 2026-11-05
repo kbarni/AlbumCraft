@@ -19,6 +19,10 @@ library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini impo
 thumbcache.rs    on-disk thumbnail cache (dirs::cache_dir()/AlbumCraft/thumbs)
 imaging.rs       non-destructive edit pipeline (EditOp, Effect, apply_all), load_source, sample images
 exifinfo.rs      camera information and embedded thumbnails (kamadak-exif)
+geo.rs           locations: Place in Meta, EXIF GPS read/write, GPS index, built-in city search, projection
+basemap.rs       built-in world map (Natural Earth), triangulated and drawn
+online.rs        online maps, only when the user allowed them: OpenStreetMap tiles and place search
+map_view.rs      Places map and "Set location" mode
 shell.rs         library UI (top bar, sidebar, justified grid, tray, status bar)
 library_view.rs  shared library helpers, menus, context menu, keys
 edit_view.rs     editor UI, compare modes, slideshow
@@ -42,7 +46,8 @@ People trust AlbumCraft with years of stars, captions, tags and edits. A malform
 
 ### Product rules
 
-1. **Originals are never modified.** Edits, stars, captions, tags, people and albums live in `library.json` (`Store`/`Meta`), keyed by file path. Export writes new files and never overwrites an existing one.
+1. **Originals are never modified.** Edits, stars, captions, tags, people, albums and locations live in `library.json` (`Store`/`Meta`), keyed by file path. Export writes new files and never overwrites an existing one.
+1b. **No network unless the user allowed it.** Only `online.rs` connects, and only when `Store.online_maps == Some(true)`; everything must keep working offline (built-in map and city list).
 2. **`.picasa.ini` files are read once per folder and never written** (`Store.imported_ini`).
 3. **Clean-room.** Other programs may be studied for behaviour and look only; never copy their code, assets or texts, and don't name them in the docs or user-facing text. Supported foreign file formats (such as `.picasa.ini`) are described as file formats. Third-party assets must be permissively licensed, with their license next to them; demo images are generated (`imaging::sample_image`) or public domain, never personal photos.
 4. **Keep it simple and fast.** One obvious way to do each thing; no setting that does nothing. Decoding and rendering go through the `Pool`; the UI thread never decodes pictures or blocks on slow I/O. Edits are computed on the 1400 px preview and at full size only for zoom/export. Don't walk the whole library and allocate per photo every frame: cache derived lists (groups, search results, people) and rebuild them when their inputs change. Check heavy operations on a 24 MP picture in release.

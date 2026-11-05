@@ -47,6 +47,9 @@ pub struct Meta {
     pub tags: Vec<String>,
     pub people: Vec<String>,
     pub edits: Vec<EditOp>,
+    /// Where the picture was taken, when the user set or removed it (else the file's GPS is used).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place: Option<crate::geo::Place>,
 }
 
 fn is_zero(v: &u8) -> bool {
@@ -65,14 +68,18 @@ impl Meta {
             && self.tags.is_empty()
             && self.people.is_empty()
             && self.edits.is_empty()
+            && self.place.is_none()
     }
 
-    /// Turn an old yes/no star into a pick, and keep the rating in range.
+    /// Turn an old yes/no star into a pick, keep the rating in range and drop a damaged place.
     fn upgrade(&mut self) {
         if std::mem::take(&mut self.star) && self.flag == Flag::None {
             self.flag = Flag::Pick;
         }
         self.rating = self.rating.min(MAX_RATING);
+        if self.place.as_ref().is_some_and(|p| !p.is_valid()) {
+            self.place = None;
+        }
     }
 }
 
@@ -100,6 +107,10 @@ pub struct Store {
     pub theme: String,
     /// Slideshow (and movie) settings.
     pub slideshow: crate::slides::SlideSettings,
+    /// Online maps (OpenStreetMap tiles and place search): None until the user has been asked.
+    pub online_maps: Option<bool>,
+    /// Exported copies get the picture's location in their EXIF.
+    pub export_location: bool,
 }
 
 impl Default for Store {
@@ -115,6 +126,8 @@ impl Default for Store {
             print: Default::default(),
             theme: "system".into(),
             slideshow: Default::default(),
+            online_maps: None,
+            export_location: true,
         }
     }
 }
@@ -315,13 +328,13 @@ impl Store {
     }
 
     pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
-        let bytes = self.to_bytes()?;
+        let bytes = self.snapshot()?;
         write_library(path, &bytes)
     }
 
     /// The library as compact JSON, dropping notes that became empty. Quick next to writing it:
     /// the window does this on the UI thread (a consistent snapshot) and writes on another thread.
-    pub fn to_bytes(&mut self) -> Result<Vec<u8>, String> {
+    pub fn snapshot(&mut self) -> Result<Vec<u8>, String> {
         self.meta.retain(|_, m| !m.is_empty());
         serde_json::to_vec(self).map_err(|e| e.to_string())
     }
@@ -524,6 +537,34 @@ mod store_tests {
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(!text.contains("star") && text.contains("\"flag\":\"pick\""));
+    }
+
+    #[test]
+    fn places_are_saved_and_damaged_ones_dropped() {
+        use crate::geo::Place;
+        let dir = temp_dir("store-places");
+        let path = dir.join("library.json");
+        std::fs::write(
+            &path,
+            r#"{"meta": {"a.jpg": {"place": {"set": {"lat": 44.84, "lon": -0.58, "name": "Bordeaux"}}},
+                         "b.jpg": {"place": "removed"},
+                         "c.jpg": {"place": {"set": {"lat": 123.0, "lon": 0.0}}, "caption": "kept"},
+                         "d.jpg": {"place": {"set": {"lat": 1.0, "lon": 2.0}}}}}"#,
+        )
+        .unwrap();
+        let Loaded::Store(mut s) = Store::load_from(&path) else { panic!("not loaded") };
+        assert_eq!(s.meta["a.jpg"].place, Some(Place::Set { lat: 44.84, lon: -0.58, name: "Bordeaux".into() }));
+        assert_eq!(s.meta["b.jpg"].place, Some(Place::Removed));
+        assert_eq!(s.meta["c.jpg"].place, None);
+        assert_eq!(s.meta["c.jpg"].caption, "kept");
+        assert_eq!(s.meta["d.jpg"].place, Some(Place::Set { lat: 1.0, lon: 2.0, name: String::new() }));
+        assert_eq!(s.online_maps, None);
+        assert!(s.export_location);
+        s.save_to(&path).unwrap();
+        let Loaded::Store(back) = Store::load_from(&path) else { panic!("not loaded") };
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(back.meta["a.jpg"].place, s.meta["a.jpg"].place);
+        assert_eq!(back.meta["b.jpg"].place, Some(Place::Removed));
     }
 
     #[test]

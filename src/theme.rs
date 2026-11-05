@@ -42,6 +42,10 @@ pub struct Tokens {
     pub placeholder: Color32,
     pub good: Color32,
     pub bad: Color32,
+    /// The built-in map: sea, land, lakes, country borders.
+    pub map_water: Color32,
+    pub map_land: Color32,
+    pub map_border: Color32,
 }
 
 const LIGHT: Tokens = Tokens {
@@ -72,6 +76,9 @@ const LIGHT: Tokens = Tokens {
     placeholder: Color32::from_rgb(226, 229, 235),
     good: Color32::from_rgb(30, 130, 60),
     bad: Color32::from_rgb(200, 50, 50),
+    map_water: Color32::from_rgb(196, 218, 236),
+    map_land: Color32::from_rgb(244, 241, 232),
+    map_border: Color32::from_rgb(178, 168, 190),
 };
 
 const DARK: Tokens = Tokens {
@@ -102,6 +109,9 @@ const DARK: Tokens = Tokens {
     placeholder: Color32::from_rgb(52, 54, 60),
     good: Color32::from_rgb(90, 200, 120),
     bad: Color32::from_rgb(240, 100, 100),
+    map_water: Color32::from_rgb(28, 38, 52),
+    map_land: Color32::from_rgb(58, 60, 64),
+    map_border: Color32::from_rgb(98, 96, 110),
 };
 
 static IS_DARK: AtomicBool = AtomicBool::new(false);

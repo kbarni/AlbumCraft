@@ -19,6 +19,14 @@ interface and drawn into pictures by the text effect and print captions:
 Their license texts are in the epaint_default_fonts crate (fonts/UFL.txt, fonts/Hack-Regular.txt,
 fonts/OFL.txt, fonts/emoji-icon-font-mit-license.txt).
 
+AlbumCraft builds embed map data (assets/geo/, details in assets/geo/README.md):
+
+  Land, lakes and country borders - Natural Earth (naturalearthdata.com), public domain
+  World cities (cities15000) - GeoNames (geonames.org), Creative Commons Attribution 4.0
+
+When the user turns online maps on, map pictures and place searches come from OpenStreetMap
+(© OpenStreetMap contributors, Open Database License); they are not distributed with AlbumCraft.
+
 All other dependencies are Rust crates under their own licenses (see Cargo.lock; most are MIT
 and/or Apache-2.0). Movie export runs the separately installed FFmpeg program, which is not
 distributed with AlbumCraft.

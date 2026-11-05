@@ -330,6 +330,10 @@ impl App {
                         self.start_slideshow(list, start);
                         ui.close();
                     }
+                    if ui.button("Places (map)").clicked() {
+                        self.open_places();
+                        ui.close();
+                    }
                 });
                 ui.menu_button("Folder", |ui| {
                     let current = self.selection.iter().next().map(|&id| self.photos[id].folder);
@@ -378,6 +382,10 @@ impl App {
                             self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                             ui.close();
                         }
+                        if ui.button("Set location…").clicked() {
+                            self.start_placing(tray.clone());
+                            ui.close();
+                        }
                         if ui.button("Undo all edits").clicked() {
                             for &id in &tray {
                                 self.meta_mut(id).edits.clear();
@@ -409,6 +417,16 @@ impl App {
                     if ui.button("Scan folders again").clicked() {
                         self.rescan();
                         ui.close();
+                    }
+                    ui.separator();
+                    let mut online = self.store.online_maps == Some(true);
+                    if ui
+                        .checkbox(&mut online, "Online maps (OpenStreetMap)")
+                        .on_hover_text("Detailed maps and address search from OpenStreetMap. Off: only the built-in world map and city list, no internet connections.")
+                        .changed()
+                    {
+                        self.store.online_maps = Some(online);
+                        self.dirty = true;
                     }
                 });
                 ui.menu_button("Help", |ui| {
@@ -611,6 +629,9 @@ impl App {
                         if big_button(ui, "🌐", "Web page", "Make a web gallery of these pictures").clicked() {
                             self.open_gallery_dialog();
                         }
+                        if big_button(ui, "📍", "Location", "Set where these pictures were taken, on a map").clicked() {
+                            self.start_placing(tray.clone());
+                        }
                     });
                 });
             });
@@ -681,6 +702,10 @@ impl App {
                 }
             if ui.button("🏷 Tags and people…").clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
+                ui.close();
+            }
+            if ui.button("📍 Set location…").clicked() {
+                self.start_placing(tray.clone());
                 ui.close();
             }
             if ui.button("💾 Export…").clicked() {

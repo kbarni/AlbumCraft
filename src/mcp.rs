@@ -50,7 +50,7 @@ pub fn serve(input: impl BufRead, mut output: impl Write, cfg: &Config) -> std::
                 "protocolVersion": PROTOCOL,
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "albumcraft", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "AlbumCraft photo library: search pictures, pick/reject and rate them, caption, tag and put them in albums, apply non-destructive edits (adjustments, looks, frames, text), preview the result as an image, and export pictures, web galleries or slideshow movies. Pictures are named by their key (file path) from search_photos. Original files are never changed.",
+                "instructions": "AlbumCraft photo library: search pictures, pick/reject and rate them, caption, tag and put them in albums, set where they were taken (find_place gives coordinates for a place name; search_photos filters by location), apply non-destructive edits (adjustments, looks, frames, text), preview the result as an image, and export pictures, web galleries or slideshow movies. Pictures are named by their key (file path) from search_photos. Original files are never changed.",
             })),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": commands::specs().iter().map(|s| json!({

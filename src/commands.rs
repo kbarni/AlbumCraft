@@ -8,9 +8,11 @@
 //! the caller runs off the UI thread.
 
 use crate::develop;
+use crate::geo::{self, LatLon, Place};
 use crate::imaging::{self, EditOp};
 use crate::library::{self, Album, Flag, Folder, Photo, Store, MAX_RATING};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// What a command needs from the app.
@@ -28,6 +30,40 @@ pub trait Host {
     /// Show a picture in the editor (only with a window).
     fn show(&mut self, _id: usize) -> Result<(), String> {
         Err("the AlbumCraft window isn't open".into())
+    }
+    /// The GPS positions stored in the picture files, by key (None: the file has none). Pictures
+    /// not looked at yet may be missing.
+    fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>>;
+}
+
+/// The position to use for a picture: the place set by the user, else the file's GPS.
+pub fn location_of(store: &Store, gps: &HashMap<String, Option<LatLon>>, key: &str) -> Option<LatLon> {
+    let file = match gps.get(key) {
+        Some(g) => *g,
+        None => geo::file_gps(key),
+    };
+    geo::effective(store.meta.get(key).and_then(|m| m.place.as_ref()), file)
+}
+
+/// Set (Some) or clear (None: back to the file's own GPS) the place of these pictures.
+pub fn set_place(host: &mut dyn Host, ids: &[usize], place: Option<Place>) {
+    for &id in ids {
+        if let Some(m) = meta_mut(host, id) {
+            m.place = place.clone();
+        }
+        host.changed(id);
+    }
+}
+
+/// Remove the location of these pictures: hide the file's GPS too (unless `back_to_file`).
+pub fn remove_place(host: &mut dyn Host, ids: &[usize], back_to_file: bool) {
+    for &id in ids {
+        let Some(key) = host.photos().get(id).map(|p| p.key.clone()) else { continue };
+        let has_file_gps = !back_to_file && host.file_gps().get(&key).copied().unwrap_or_else(|| geo::file_gps(&key)).is_some();
+        if let Some(m) = meta_mut(host, id) {
+            m.place = if has_file_gps { Some(Place::Removed) } else { None };
+        }
+        host.changed(id);
     }
 }
 
@@ -117,7 +153,7 @@ pub fn specs() -> Vec<Spec> {
         },
         Spec {
             name: "search_photos",
-            description: "Find pictures. All filters are optional and combine. Words in `query` must all appear in the file or folder name, caption, tags or people.",
+            description: "Find pictures. All filters are optional and combine. Words in `query` must all appear in the file or folder name, caption, tags, people or place name.",
             schema: || {
                 json!({ "type": "object", "properties": {
                     "query": { "type": "string" },
@@ -126,6 +162,10 @@ pub fn specs() -> Vec<Spec> {
                     "person": { "type": "string" },
                     "flag": { "type": "string", "enum": ["pick", "reject", "none"] },
                     "min_rating": { "type": "integer", "minimum": 0, "maximum": 5 },
+                    "has_location": { "type": "boolean", "description": "Only pictures with (true) or without (false) a location" },
+                    "near": { "type": "object", "description": "Only pictures taken within radius_km of a point",
+                        "properties": { "latitude": { "type": "number" }, "longitude": { "type": "number" }, "radius_km": { "type": "number", "minimum": 0, "default": 10 } },
+                        "required": ["latitude", "longitude"] },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
                     "offset": { "type": "integer", "minimum": 0, "default": 0 }
                 }})
@@ -236,7 +276,8 @@ pub fn specs() -> Vec<Spec> {
                 keys_schema(json!({
                     "folder": { "type": "string" },
                     "max_size": { "type": "integer", "minimum": 0, "description": "Longest side; 0 = full size", "default": 0, "required": false },
-                    "quality": { "type": "integer", "minimum": 50, "maximum": 100, "default": 90, "required": false }
+                    "quality": { "type": "integer", "minimum": 50, "maximum": 100, "default": 90, "required": false },
+                    "include_location": { "type": "boolean", "description": "Write the picture's location (GPS) into the copy; default: the setting of the Export window", "required": false }
                 }))
             },
         },
@@ -271,6 +312,33 @@ pub fn specs() -> Vec<Spec> {
             name: "show_photo",
             description: "Open a picture in the AlbumCraft window's editor (only while the window is open).",
             schema: || json!({ "type": "object", "properties": { "key": { "type": "string" } }, "required": ["key"] }),
+        },
+        Spec {
+            name: "set_location",
+            description: "Set where pictures were taken (kept in the library, overriding the GPS position in the file; the file is not changed). Exported copies get it in their EXIF. Use find_place to get coordinates from a place name.",
+            schema: || {
+                keys_schema(json!({
+                    "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+                    "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+                    "name": { "type": "string", "description": "Place name to show, e.g. \"Bordeaux, France\"", "required": false }
+                }))
+            },
+        },
+        Spec {
+            name: "remove_location",
+            description: "Remove the location of pictures, including the GPS position stored in the file (hidden, the file is not changed). With back_to_file, forget the location set in AlbumCraft and use the file's own GPS position again.",
+            schema: || keys_schema(json!({ "back_to_file": { "type": "boolean", "default": false, "required": false } })),
+        },
+        Spec {
+            name: "find_place",
+            description: "Look up a place by name (\"Bordeaux\", \"Paris, Texas\") or typed coordinates, and get its coordinates. Uses the built-in list of world cities; with online, addresses too (only if online maps are turned on in AlbumCraft).",
+            schema: || {
+                json!({ "type": "object", "properties": {
+                    "query": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+                    "online": { "type": "boolean", "default": false }
+                }, "required": ["query"] })
+            },
         },
     ]
 }
@@ -386,6 +454,15 @@ fn iso(ts: i64) -> String {
     chrono::Local.timestamp_opt(ts, 0).single().map(|d| d.format("%Y-%m-%dT%H:%M:%S%:z").to_string()).unwrap_or_default()
 }
 
+/// What exporting one picture needs: key, file name, edits, place.
+pub type ExportJob = (String, String, Vec<EditOp>, Option<Place>);
+
+pub fn export_job(host: &dyn Host, id: usize) -> ExportJob {
+    let Some(p) = host.photos().get(id) else { return Default::default() };
+    let place = host.store().meta.get(&p.key).and_then(|m| m.place.clone());
+    (p.key.clone(), p.name.clone(), edits_of(host, id), place)
+}
+
 fn edits_of(host: &dyn Host, id: usize) -> Vec<EditOp> {
     host.photos().get(id).and_then(|p| host.store().meta.get(&p.key)).map(|m| m.edits.clone()).unwrap_or_default()
 }
@@ -444,6 +521,27 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             ))
         }
         "search_photos" => {
+            let has_location = opt_bool(args, "has_location")?;
+            let near = match args.get("near") {
+                None | Some(Value::Null) => None,
+                Some(n) => {
+                    let num = |k: &str| n.get(k).and_then(|v| v.as_f64());
+                    let at = LatLon::new(num("latitude").ok_or("`near` needs latitude and longitude")?, num("longitude").ok_or("`near` needs latitude and longitude")?)
+                        .ok_or("`near`: latitude must be -90 to 90 and longitude -180 to 180")?;
+                    let r = num("radius_km").unwrap_or(10.0);
+                    if !(r.is_finite() && r >= 0.0) {
+                        return Err("`near.radius_km` must be a number ≥ 0".into());
+                    }
+                    Some((at, r))
+                }
+            };
+            // positions only when asked for (looking at every file can take a while)
+            let located: Option<Vec<Option<LatLon>>> = if has_location.is_some() || near.is_some() {
+                let gps = host.file_gps().clone();
+                Some(host.photos().iter().map(|p| location_of(host.store(), &gps, &p.key)).collect())
+            } else {
+                None
+            };
             let query = opt_str(args, "query").unwrap_or("").to_lowercase();
             let words: Vec<&str> = query.split_whitespace().collect();
             let folder = opt_str(args, "folder");
@@ -471,6 +569,17 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     if flag.is_some_and(|f| m.map(|m| m.flag).unwrap_or_default() != f) || m.map(|m| m.rating).unwrap_or(0) < min_rating {
                         return false;
                     }
+                    if let Some(loc) = &located {
+                        let at = loc.get(id).copied().flatten();
+                        if has_location.is_some_and(|want| want != at.is_some()) {
+                            return false;
+                        }
+                        if let Some((c, r)) = near
+                            && !at.is_some_and(|a| a.km_to(c) <= r)
+                        {
+                            return false;
+                        }
+                    }
                     if words.is_empty() {
                         return true;
                     }
@@ -481,6 +590,10 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                         for t in m.tags.iter().chain(&m.people) {
                             hay.push(' ');
                             hay.push_str(&t.to_lowercase());
+                        }
+                        if let Some(Place::Set { name, .. }) = &m.place {
+                            hay.push(' ');
+                            hay.push_str(&name.to_lowercase());
                         }
                     }
                     words.iter().all(|w| hay.contains(w))
@@ -508,7 +621,46 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     "focal_mm": c.focal_mm,
                 });
             }
+            let place = host.store().meta.get(&key).and_then(|m| m.place.clone());
+            let file = geo::file_gps(&key);
+            v["location"] = match geo::effective(place.as_ref(), file) {
+                Some(at) => json!({
+                    "latitude": at.lat,
+                    "longitude": at.lon,
+                    "place": geo::describe(place.as_ref(), at),
+                    "source": if place.is_some() { "set in AlbumCraft" } else { "the file's GPS" },
+                }),
+                None => Value::Null,
+            };
             now(v)
+        }
+        "set_location" => {
+            let ids = ids(host, args)?;
+            let num = |k: &str| args.get(k).and_then(|v| v.as_f64()).ok_or_else(|| format!("`{k}` (a number) is required"));
+            let at = LatLon::new(num("latitude")?, num("longitude")?).ok_or("latitude must be -90 to 90 and longitude -180 to 180")?;
+            let name = opt_str(args, "name").unwrap_or("");
+            set_place(host, &ids, Some(Place::set(at, name)));
+            now(json!({ "changed": ids.len(), "place": geo::describe(Some(&Place::set(at, name)), at) }))
+        }
+        "remove_location" => {
+            let ids = ids(host, args)?;
+            remove_place(host, &ids, opt_bool(args, "back_to_file")?.unwrap_or(false));
+            now(json!({ "changed": ids.len() }))
+        }
+        "find_place" => {
+            let query = str_arg(args, "query")?.to_string();
+            let limit = opt_u64(args, "limit")?.unwrap_or(5).clamp(1, 20) as usize;
+            let as_json = |f: &geo::Found| json!({ "name": f.name, "short_name": f.short, "latitude": f.at.lat, "longitude": f.at.lon });
+            if opt_bool(args, "online")?.unwrap_or(false) {
+                if host.store().online_maps != Some(true) {
+                    return Err("online maps are turned off in AlbumCraft (main menu › Tools › Online maps); search without `online`".into());
+                }
+                return Ok(Outcome::Later(Box::new(move || {
+                    let found = crate::online::search(&query)?;
+                    Ok(Reply::json(json!({ "places": found.iter().take(limit).map(as_json).collect::<Vec<_>>() })))
+                })));
+            }
+            now(json!({ "places": geo::search(&query, limit).iter().map(as_json).collect::<Vec<_>>() }))
         }
         "set_flag" => {
             let ids = ids(host, args)?;
@@ -743,13 +895,15 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let dir = existing_dir(str_arg(args, "folder")?)?;
             let max = opt_u64(args, "max_size")?.unwrap_or(0).min(20_000) as u32;
             let quality = opt_u64(args, "quality")?.unwrap_or(90).clamp(50, 100) as u8;
-            let jobs: Vec<(String, String, Vec<EditOp>)> = ids.iter().map(|&id| (host.photos()[id].key.clone(), host.photos()[id].name.clone(), edits_of(host, id))).collect();
+            let with_location = opt_bool(args, "include_location")?.unwrap_or(host.store().export_location);
+            let jobs: Vec<ExportJob> = ids.iter().map(|&id| export_job(host, id)).collect();
             Ok(Outcome::Later(Box::new(move || {
                 let mut done = vec![];
                 let mut failed = vec![];
-                for (key, name, edits) in &jobs {
+                for (key, name, edits, place) in &jobs {
                     let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-                    match crate::app::export_one(key, edits, &dir, stem, max, quality) {
+                    let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
+                    match crate::app::export_one(key, edits, &dir, stem, max, quality, gps) {
                         Ok(p) => done.push(p.to_string_lossy().to_string()),
                         Err(e) => failed.push(json!({ "key": key, "error": e })),
                     }
@@ -838,6 +992,9 @@ pub struct Headless {
     pub photos: Vec<Photo>,
     pub folders: Vec<Folder>,
     index: std::collections::HashMap<String, usize>,
+    /// The files' GPS positions, read on first need (and cached on disk in `gps_cache`).
+    gps: Option<HashMap<String, Option<LatLon>>>,
+    pub gps_cache: Option<PathBuf>,
 }
 
 impl Headless {
@@ -854,7 +1011,7 @@ impl Headless {
                 ))
             }
         };
-        let mut h = Headless { path, store, photos: vec![], folders: vec![], index: Default::default() };
+        let mut h = Headless { path, store, photos: vec![], folders: vec![], index: Default::default(), gps: None, gps_cache: geo::gps_cache_path() };
         h.rescan();
         Ok(h)
     }
@@ -868,6 +1025,7 @@ impl Headless {
         self.photos.clear();
         self.folders.clear();
         self.index.clear();
+        self.gps = None;
         let mut scanned = scanned;
         scanned.sort_by_key(|(_, files)| -files.iter().map(|f| f.1).max().unwrap_or(0));
         for (path, files) in scanned {
@@ -907,11 +1065,23 @@ impl Host for Headless {
         let (found, _) = library::scan_roots(&self.store.roots, library::SCAN_LIMIT);
         self.set_library(found);
     }
+    fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>> {
+        let (photos, cache) = (&self.photos, self.gps_cache.clone());
+        self.gps.get_or_insert_with(|| {
+            let files = photos.iter().map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
+            let (tx, rx) = std::sync::mpsc::channel();
+            geo::index_files(files, cache, tx, Default::default());
+            rx.try_iter().flatten().collect()
+        })
+    }
 }
 
 /// Whether a command only reads (no need to save after it).
 pub fn read_only(name: &str) -> bool {
-    matches!(name, "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo")
+    matches!(
+        name,
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "find_place"
+    )
 }
 
 #[cfg(test)]
@@ -933,8 +1103,61 @@ mod tests {
         let mut store = Store::default();
         store.roots.push(pics.to_string_lossy().to_string());
         store.save_to(&dir.join("library.json")).unwrap();
-        let h = Headless::open(dir.join("library.json")).unwrap();
+        let mut h = Headless::open(dir.join("library.json")).unwrap();
+        h.gps_cache = Some(dir.join("gps.json"));
         (dir, h, keys)
+    }
+
+    #[test]
+    fn locations() {
+        let (dir, mut h, keys) = fixture("places");
+        // beach.jpg carries a GPS position (Bordeaux) in its EXIF
+        let bordeaux = LatLon { lat: 44.8378, lon: -0.5792 };
+        let mut jpeg = vec![];
+        image::DynamicImage::ImageRgba8(crate::imaging::sample_image(1, 120, 80))
+            .to_rgb8()
+            .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+            .unwrap();
+        std::fs::write(&keys[0], crate::exifinfo::jpeg_with_exif(&jpeg, &geo::exif_gps_fields(bordeaux), None).unwrap()).unwrap();
+        h.rescan();
+        assert_eq!(call(&mut h, "search_photos", json!({ "has_location": true })).unwrap()["total"], 1);
+        assert_eq!(call(&mut h, "search_photos", json!({ "has_location": false })).unwrap()["total"], 2);
+        let p = call(&mut h, "get_photo", json!({ "key": keys[0] })).unwrap();
+        assert_eq!(p["location"]["source"], "the file's GPS");
+        assert_eq!(p["location"]["place"], "Bordeaux, France");
+
+        // set one by hand
+        call(&mut h, "set_location", json!({ "keys": [keys[1]], "latitude": 48.8566, "longitude": 2.3522, "name": "Paris" })).unwrap();
+        let near = call(&mut h, "search_photos", json!({ "near": { "latitude": 48.86, "longitude": 2.35, "radius_km": 5 } })).unwrap();
+        assert_eq!(near["total"], 1);
+        assert_eq!(near["photos"][0]["key"], keys[1]);
+        assert_eq!(call(&mut h, "search_photos", json!({ "query": "paris" })).unwrap()["total"], 1);
+        assert_eq!(call(&mut h, "get_photo", json!({ "key": keys[1] })).unwrap()["location"]["place"], "Paris");
+
+        // export writes the location into the copy, unless asked not to
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let gps_of_copy = |v: &Value| {
+            let path = v["written"][0].as_str().unwrap().to_string();
+            exif::Reader::new().read_from_container(&mut std::io::BufReader::new(std::fs::File::open(path).unwrap())).ok().and_then(|e| geo::gps_of(&e))
+        };
+        let e = call(&mut h, "export", json!({ "keys": [keys[1]], "folder": out.to_string_lossy(), "max_size": 64 })).unwrap();
+        assert!(gps_of_copy(&e).is_some_and(|g| g.km_to(LatLon { lat: 48.8566, lon: 2.3522 }) < 0.01));
+        let e = call(&mut h, "export", json!({ "keys": [keys[1]], "folder": out.to_string_lossy(), "max_size": 64, "include_location": false })).unwrap();
+        assert_eq!(gps_of_copy(&e), None);
+
+        // removing hides the file's GPS too; back_to_file brings it back
+        call(&mut h, "remove_location", json!({ "keys": [keys[0]] })).unwrap();
+        assert_eq!(call(&mut h, "get_photo", json!({ "key": keys[0] })).unwrap()["location"], Value::Null);
+        assert_eq!(call(&mut h, "search_photos", json!({ "has_location": true })).unwrap()["total"], 1);
+        call(&mut h, "remove_location", json!({ "keys": [keys[0]], "back_to_file": true })).unwrap();
+        assert_eq!(call(&mut h, "search_photos", json!({ "has_location": true })).unwrap()["total"], 2);
+
+        // place search, offline only unless online maps are on
+        let found = call(&mut h, "find_place", json!({ "query": "Bordeaux" })).unwrap();
+        assert!((found["places"][0]["latitude"].as_f64().unwrap() - 44.84).abs() < 0.05);
+        assert!(call(&mut h, "find_place", json!({ "query": "Bordeaux", "online": true })).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn call(h: &mut Headless, name: &str, args: Value) -> Result<Value, String> {
@@ -1008,6 +1231,14 @@ mod tests {
             ("make_movie", json!({ "keys": [k], "path": dir.join("library.json").to_string_lossy() })),
             ("get_photo", json!([1, 2])),
             ("show_photo", json!({ "key": k })),
+            ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),
+            ("set_location", json!({ "keys": [k], "latitude": 10 })),
+            ("set_location", json!({ "keys": [k], "latitude": "10", "longitude": 0 })),
+            ("search_photos", json!({ "near": { "latitude": 10 } })),
+            ("search_photos", json!({ "near": { "latitude": 10, "longitude": 0, "radius_km": -1 } })),
+            ("search_photos", json!({ "has_location": "yes" })),
+            ("find_place", json!({})),
+            ("remove_location", json!({ "keys": [k], "back_to_file": 1 })),
         ];
         for (name, args) in bad {
             assert!(run(&mut h, name, &args).and_then(|o| o.finish()).is_err(), "{name} {args} should fail");

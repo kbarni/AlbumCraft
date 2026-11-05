@@ -36,6 +36,7 @@ Don't attach a harmful or non-redistributable file to a public issue. First give
 - panics or hangs triggered by file content (a crash loses up to a few seconds of unsaved changes);
 - the MCP server (`albumcraft --mcp`) and the window's control connection (token, localhost binding, request limits, tool parameter validation);
 - raw-file preview extraction, the web gallery output (escaping of titles and captions), movie export through `ffmpeg` (arguments, output path), slideshow music decoding;
+- locations: EXIF GPS parsing, the GPS cache (`AlbumCraft/gps.json` in the cache folder), the built-in map and city data, and the online maps (`src/online.rs`: HTTPS only, through rustls with built-in root certificates; tile downloads limited to 4 MB and decoded as PNG; search answers limited to 2 MB and parsed as JSON; the tile cache under `AlbumCraft/tiles` with paths built only from tile numbers);
 - later: face-recognition models;
 - dependencies and release artifacts.
 
@@ -49,5 +50,6 @@ General bugs without a security impact go through normal issues.
 - A panic while decoding or editing a picture in a background worker (thumbnails, previews, zoom, export, collage) is caught: that picture fails, the others carry on. Every panic is written with a backtrace to `crash.log` in the data directory; a crash of the main thread is reported at the next start.
 - `library.json` is written atomically (temporary file, flushed, then renamed). An unreadable library is moved aside as `library.unreadable-<time>.json`, never overwritten; if it can't be moved, nothing is saved during that session. Values in it are range-checked on load.
 - File names that are not valid UTF-8 are not supported (such pictures show as unreadable).
-- Captions, tags and file names are shown as plain text in egui (no HTML or script interpretation). Exported files contain only picture data (no metadata is copied).
+- Captions, tags and file names are shown as plain text in egui (no HTML or script interpretation). Exported files contain only picture data, plus the picture's location (EXIF GPS) unless the user turned that off in the Export window; no other metadata is copied.
+- Network: none unless the user turns on online maps (asked once at the first start). Then the map downloads tiles from `tile.openstreetmap.org` and searches go to `nominatim.openstreetmap.org` (the typed text, or the coordinates of a dropped pin for its address); these servers see the user's IP address. Pictures and their locations are never sent.
 - `.picasa.ini` files are only read, never written. Original pictures are never modified.

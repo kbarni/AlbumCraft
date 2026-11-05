@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod basemap;
 mod commands;
 mod control;
 mod decor;
@@ -8,12 +9,15 @@ mod develop;
 mod edit_view;
 mod exifinfo;
 mod gallery;
+mod geo;
 mod imaging;
 mod library;
 mod library_view;
 mod mcp;
 mod movie;
+mod online;
 mod looks;
+mod map_view;
 mod shell;
 mod slides;
 mod print;

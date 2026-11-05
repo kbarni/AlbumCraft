@@ -1080,7 +1080,10 @@ impl App {
         let cam = self.camera_info(id);
         let thumb = self.exif_thumbs.get(&id).cloned();
         let m = self.meta(id).cloned().unwrap_or_default();
+        let place = self.location_label(id);
         let mut close = false;
+        let mut set_place = false;
+        let mut show_map = false;
         egui::Panel::right("props")
             .exact_size(270.0)
             .frame(egui::Frame::new().fill(t().surface).inner_margin(egui::Margin::same(0)).stroke(Stroke::new(1.0, t().border)))
@@ -1116,7 +1119,31 @@ impl App {
                         };
                         let location = if p.is_sample() { Some("Built-in sample picture".into()) } else { Some(self.folders[p.folder].path.clone()) };
                         // labels and value formats of the metadata table
-                        row(ui, "Location", location);
+                        row(ui, "Folder", location);
+                        ui.label(RichText::new("Place").strong().size(11.5).color(t().text));
+                        ui.horizontal_wrapped(|ui| {
+                            ui.add_space(6.0);
+                            match &place {
+                                Some(name) => {
+                                    ui.add(egui::Label::new(RichText::new(name).size(12.5).color(t().text)).wrap_mode(egui::TextWrapMode::Wrap));
+                                }
+                                None => {
+                                    ui.label(RichText::new("Not set").size(12.5).weak());
+                                }
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(6.0);
+                            if ui.small_button(if place.is_some() { "📍 Change…" } else { "📍 Set…" }).on_hover_text("Set where this picture was taken, on a map").clicked() {
+                                set_place = true;
+                            }
+                            if place.is_some() && ui.small_button("🗺 Show on map").clicked() {
+                                show_map = true;
+                            }
+                        });
+                        let r = ui.available_rect_before_wrap();
+                        ui.painter().hline(r.x_range(), r.top() + 2.0, Stroke::new(1.0, t().border));
+                        ui.add_space(5.0);
                         row(ui, "File Size", Some(fmt_bytes(p.bytes)));
                         row(ui, "Dimensions", dims.map(|(w, h)| format!("{w} x {h} pixels")));
                         if let Some(c) = cam.as_deref() {
@@ -1204,6 +1231,11 @@ impl App {
             });
         if close {
             self.edit.show_info = false;
+        }
+        if set_place {
+            self.start_placing(vec![id]);
+        } else if show_map {
+            self.show_on_map(id);
         }
     }
 

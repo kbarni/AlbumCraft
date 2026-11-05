@@ -275,6 +275,10 @@ impl App {
                         self.source = Source::Picks;
                         self.pick_set(TraySet::Picks);
                     }
+                    let nplaces = self.located().len();
+                    if nav_row(ui, "🗺", "Places", Some(nplaces), false).on_hover_text("Your pictures on a map").clicked() {
+                        self.open_places();
+                    }
 
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {

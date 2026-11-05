@@ -64,6 +64,8 @@ pub enum View {
     Edit,
     Slideshow,
     Print,
+    /// Places: the map of where pictures were taken (also used to set a location).
+    Map,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -131,6 +133,8 @@ pub enum Dialog {
     ClearTray { old: Vec<usize> },
     /// Print review: (picture, name, pixels per inch, grade 0 bad / 1 good / 2 best).
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
+    /// Asked once: may maps and place search use the internet?
+    OnlineMaps,
 }
 
 /// What to do after the A|A view has ended.
@@ -247,6 +251,8 @@ pub struct App {
     pub save_error: Option<String>,
     /// The library being written to disk on another thread.
     saving: Option<std::thread::JoinHandle<Result<(), String>>>,
+    /// Places: GPS index, map view and "Set location" state (map_view.rs).
+    pub geo: crate::map_view::GeoState,
     /// The control connection for the MCP server (see control.rs) and its queue of commands.
     control: Option<(crate::control::Server, Receiver<crate::control::Request>)>,
     icon_tex: Option<TextureHandle>,
@@ -374,6 +380,7 @@ impl App {
             persist,
             save_error: None,
             saving: None,
+            geo: Default::default(),
             list_rev: 0,
             copied_edits: None,
             ffmpeg: None,
@@ -551,6 +558,36 @@ impl App {
                 app.open_editor(3);
                 app.edit.tab = Tab::Presets;
             }
+            if matches!(shot_view.as_str(), "map" | "place" | "pin") {
+                // ALBUMCRAFT_SHOT_ONLINE=1: show the online map (the screenshot saves nothing)
+                if std::env::var_os("ALBUMCRAFT_SHOT_ONLINE").is_some() {
+                    app.store.online_maps = Some(true);
+                }
+                // sample pictures spread over a few places, several at each
+                let spots = [(44.8378, -0.5792), (48.8566, 2.3522), (43.2965, 5.3698), (41.9028, 12.4964), (51.5072, -0.1276), (40.4168, -3.7038), (52.52, 13.405), (45.764, 4.8357)];
+                for id in 0..app.photos.len().min(28) {
+                    let (lat, lon) = spots[id % spots.len()];
+                    let jitter = (id / spots.len()) as f64 * 0.01;
+                    let k = app.photos[id].key.clone();
+                    app.store.meta.entry(k).or_default().place = crate::geo::LatLon::new(lat + jitter, lon + jitter).map(|at| crate::geo::Place::set(at, ""));
+                }
+                if shot_view == "map" {
+                    app.open_places();
+                } else {
+                    let n = app.photos.len();
+                    app.start_placing((28..n.min(31)).collect());
+                    if shot_view == "pin" {
+                        if let Some(at) = crate::geo::LatLon::new(44.8412, -0.5695) {
+                            app.set_pin(at, None);
+                        }
+                    } else {
+                        app.type_map_search("bord");
+                    }
+                }
+            }
+            if shot_view == "maps" {
+                app.dialog = Some(Dialog::OnlineMaps);
+            }
         } else {
             app.rescan();
             std::thread::spawn(crate::thumbcache::prune);
@@ -568,6 +605,9 @@ impl App {
                     "AlbumCraft stopped because of an error the last time it ran. Changes made in the last few seconds before that may be missing.\n\nDetails were written to:\n{log}\n\nPlease include that file when reporting the problem."
                 ),
             });
+        } else if persist && app.store.online_maps.is_none() {
+            // asked once (and again at the next start if something more urgent was shown instead)
+            app.dialog = Some(Dialog::OnlineMaps);
         }
         app
     }
@@ -651,6 +691,7 @@ impl App {
             && i >= self.store.albums.len() {
                 self.source = Source::Library;
             }
+        self.geo.start_index(&self.photos);
     }
 
     /// Bring in stars, captions, tags, rotations, crops, filters, folder descriptions and albums
@@ -747,6 +788,10 @@ impl App {
             for t in m.tags.iter().chain(m.people.iter()) {
                 hay.push(' ');
                 hay.push_str(&t.to_lowercase());
+            }
+            if let Some(crate::geo::Place::Set { name, .. }) = &m.place {
+                hay.push(' ');
+                hay.push_str(&name.to_lowercase());
             }
         }
         q.split_whitespace().all(|w| hay.contains(w))
@@ -1402,18 +1447,21 @@ impl App {
             return;
         }
         let Some(dir) = rfd::FileDialog::new().set_title("Export pictures to…").pick_folder() else { return };
-        let jobs: Vec<(String, String, Vec<EditOp>)> =
-            ids.iter().map(|&id| (self.photos[id].key.clone(), self.photos[id].name.clone(), self.edits(id))).collect();
+        let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
+        let with_location = self.store.export_location;
         let tx = self.tx.clone();
         let ctx = self.ctx.clone();
         self.toast(format!("Exporting {} picture(s)…", jobs.len()));
         std::thread::spawn(move || {
             let mut ok = 0;
             let mut failed: Vec<String> = vec![];
-            for (key, name, edits) in &jobs {
+            for (key, name, edits, place) in &jobs {
                 let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| export_one(key, edits, &dir, stem, max_dim, quality)))
-                    .unwrap_or_else(|_| Err("unexpected error".into()));
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let gps = if with_location { crate::geo::effective(place.as_ref(), crate::geo::file_gps(key)) } else { None };
+                    export_one(key, edits, &dir, stem, max_dim, quality, gps)
+                }))
+                .unwrap_or_else(|_| Err("unexpected error".into()));
                 match result {
                     Ok(_) => ok += 1,
                     Err(e) => failed.push(format!("{name}: {e}")),
@@ -1640,7 +1688,8 @@ impl App {
         }
         let loaded = self.thumb_req.iter().all(|id| self.thumbs.contains_key(id) || self.thumb_failed.contains(id))
             && self.edit.zoom_req.is_none()
-            && self.big_req.is_empty();
+            && self.big_req.is_empty()
+            && !self.geo.tiles_pending();
         if !self.shot_requested && self.frames >= 120 && (loaded || self.frames > 900) {
             self.shot_requested = true;
             let slot = self.shot_slot.clone();
@@ -1676,6 +1725,7 @@ impl App {
             Dialog::Collage => "Make a collage".into(),
             Dialog::Movie { .. } => "Movie".into(),
             Dialog::About => "About AlbumCraft".into(),
+            Dialog::OnlineMaps => "Maps".into(),
             Dialog::ChooseEdits { .. } => "Choose Edits".into(),
             Dialog::PrintReview { .. } => "Review".into(),
             Dialog::ClearTray { .. } => "Photo tray".into(),
@@ -1779,6 +1829,13 @@ impl App {
                     ui.radio_value(max_dim, 1600, "Large (1600 pixels)");
                     ui.radio_value(max_dim, 800, "Small, for email (800 pixels)");
                     ui.add(egui::Slider::new(quality, 50..=100).text("JPEG quality"));
+                    if ui
+                        .checkbox(&mut self.store.export_location, "Include where the pictures were taken (GPS)")
+                        .on_hover_text("Turn off before sharing pictures if you don't want others to see the location.")
+                        .changed()
+                    {
+                        self.dirty = true;
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Choose folder and export…").clicked() {
                             let (m, q) = (*max_dim, *quality);
@@ -2013,9 +2070,35 @@ impl App {
                     ui.heading("AlbumCraft");
                     ui.label("A desktop photo organizer: browse your picture folders, make albums, pick, reject and rate pictures, fix and touch up photos, and play slideshows.");
                     ui.label("Edits never change your original files; they are applied when you look at or export a picture.");
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new("Built-in map: Natural Earth (public domain). City list: GeoNames (CC BY 4.0). Online maps: © OpenStreetMap contributors (ODbL).").size(11.5).weak());
                     if ui.button("OK").clicked() {
                         close = true;
                     }
+                }
+                Dialog::OnlineMaps => {
+                    ui.label(egui::RichText::new("Show detailed maps from the internet?").strong().size(15.0));
+                    ui.add_space(4.0);
+                    ui.label("AlbumCraft can show where your pictures were taken. With online maps, it downloads street maps from OpenStreetMap and can look up addresses when you set a location.");
+                    ui.add_space(4.0);
+                    ui.label("Your pictures and their locations are never sent. The map servers see your internet address, the areas you look at and the places you search for.");
+                    ui.add_space(4.0);
+                    ui.label("Without online maps, AlbumCraft uses its built-in world map and list of cities, and makes no internet connections.");
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("You can change this later on the map, or in the main menu: Tools › Online maps.").size(12.0).weak());
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::Button::new(egui::RichText::new("Use online maps").color(Color32::WHITE).strong()).fill(t().accent)).clicked() {
+                            self.store.online_maps = Some(true);
+                            self.dirty = true;
+                            close = true;
+                        }
+                        if ui.button("Built-in map only").clicked() {
+                            self.store.online_maps = Some(false);
+                            self.dirty = true;
+                            close = true;
+                        }
+                    });
                 }
             });
         if open && !close {
@@ -2055,10 +2138,17 @@ pub fn copyable_edits(edits: &[EditOp]) -> Vec<EditOp> {
 
 /// Export one picture with its edits as `<stem>.jpg` in `dir` (or `<stem>-1.jpg`, … when taken).
 /// Never overwrites a file, and removes its own half-written file when something fails.
-pub fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8) -> Result<PathBuf, String> {
+/// Save an edited copy as a new JPEG in `dir` (never overwriting a file), with `gps` in its EXIF.
+pub fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8, gps: Option<crate::geo::LatLon>) -> Result<PathBuf, String> {
     let src = imaging::load_source(key, max_dim).ok_or("the picture could not be read")?;
     let img = imaging::apply_all(&src, edits);
     let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
+    // encoded before the file is made, so that a failure leaves nothing behind
+    let mut jpeg = vec![];
+    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality)).map_err(|e| e.to_string())?;
+    if let Some(at) = gps {
+        jpeg = crate::exifinfo::jpeg_with_exif(&jpeg, &crate::geo::exif_gps_fields(at), None).map_err(|e| e.to_string())?;
+    }
     let mut n = 0;
     let (file, out) = loop {
         let out = if n == 0 { dir.join(format!("{stem}.jpg")) } else { dir.join(format!("{stem}-{n}.jpg")) };
@@ -2070,10 +2160,9 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str
     };
     let write = || -> Result<(), String> {
         use std::io::Write;
-        let mut w = std::io::BufWriter::new(file);
-        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut w, quality);
-        rgb.write_with_encoder(enc).map_err(|e| e.to_string())?;
-        w.flush().map_err(|e| e.to_string())
+        let mut f = file;
+        f.write_all(&jpeg).map_err(|e| e.to_string())?;
+        f.flush().map_err(|e| e.to_string())
     };
     match write() {
         Ok(()) => Ok(out),
@@ -2152,6 +2241,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::theme::apply(ctx, crate::theme::Mode::from_name(&self.store.theme), false);
         self.process_results();
+        self.geo_tick();
         self.run_control_requests();
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
@@ -2174,7 +2264,7 @@ impl eframe::App for App {
             self.dirty = false;
             let job = crate::library::store_path()
                 .ok_or_else(|| "No folder for application data was found.".to_string())
-                .and_then(|path| Ok((path, self.store.to_bytes()?)));
+                .and_then(|path| Ok((path, self.store.snapshot()?)));
             match job {
                 // the window closes after this frame: write now
                 Ok((path, bytes)) if closing => self.save_finished(crate::library::write_library(&path, &bytes)),
@@ -2198,6 +2288,7 @@ impl eframe::App for App {
             View::Edit => self.edit_ui(ui),
             View::Slideshow => self.slideshow_ui(ui),
             View::Print => self.print_ui(ui),
+            View::Map => self.map_ui(ui),
         }
         // Ctrl+P opens printing from the library or the editor
         if crate::print::available()
@@ -2244,6 +2335,9 @@ impl crate::commands::Host for App {
         self.open_editor(id);
         Ok(())
     }
+    fn file_gps(&mut self) -> &std::collections::HashMap<String, Option<crate::geo::LatLon>> {
+        &self.geo.file_gps
+    }
 }
 
 #[cfg(test)]
@@ -2265,9 +2359,9 @@ mod tray_tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.jpg"), b"keep me").unwrap();
         let key = format!("{}1", imaging::SAMPLE_PREFIX);
-        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
-        export_one(&key, &[], &dir, "a", 64, 80).unwrap();
-        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", 64, 80);
+        export_one(&key, &[], &dir, "a", 64, 80, None).unwrap();
+        export_one(&key, &[], &dir, "a", 64, 80, None).unwrap();
+        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", 64, 80, None);
         let kept = std::fs::read(dir.join("a.jpg")).unwrap();
         let made = [dir.join("a-1.jpg"), dir.join("a-2.jpg")].map(|p| image::image_dimensions(p).ok());
         let b_exists = dir.join("b.jpg").exists();
