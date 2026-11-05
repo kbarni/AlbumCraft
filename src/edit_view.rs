@@ -973,7 +973,7 @@ impl App {
                         ui.label(RichText::new(format!("{:.0} %", z_now * 100.0)).size(12.0)).on_hover_text("Zoom (100 % = the photo's real pixels)");
                         ui.spacing_mut().slider_width = 120.0;
                         let s = ui.add(egui::Slider::new(&mut p, 0.0..=1.0).show_value(false));
-                        if s.on_hover_text("Zoom: left = fit, middle = 1:1, right = 400 % (mouse wheel works too; drag the picture to move it)").changed() {
+                        if s.on_hover_text("Zoom: left = fit, middle = 1:1, right = 400 % (mouse wheel works too; drag the picture to zoom to 100 % and move it)").changed() {
                             self.edit.zoom_anim = None;
                             if p <= 0.001 {
                                 self.edit.zoom = None;
@@ -988,7 +988,7 @@ impl App {
                             .on_hover_text("Original size (100 %): one photo pixel per screen pixel")
                             .clicked()
                         {
-                            self.edit.zoom_anim = Some(ZoomAnim { from: z_now, to: Some(1.0), t0: now, pan_from: self.edit.pan });
+                            self.edit.zoom_anim = Some(ZoomAnim { from: z_now, to: Some(1.0), t0: now, pan_from: self.edit.pan, focus: None });
                         }
                         if ui
                             .add(egui::Button::new(RichText::new("Fit").size(12.5)).selected(self.edit.zoom.is_none()))
@@ -996,7 +996,7 @@ impl App {
                             .clicked()
                             && self.edit.zoom.is_some()
                         {
-                            self.edit.zoom_anim = Some(ZoomAnim { from: z_now, to: None, t0: now, pan_from: self.edit.pan });
+                            self.edit.zoom_anim = Some(ZoomAnim { from: z_now, to: None, t0: now, pan_from: self.edit.pan, focus: None });
                         }
                     });
                 });
@@ -1372,6 +1372,18 @@ impl App {
         let t = ((ctx.input(|i| i.time) - a.t0) / ZOOM_ANIM_SECS).clamp(0.0, 1.0) as f32;
         let e = t * t * (3.0 - 2.0 * t);
         let target = a.to.unwrap_or(fit);
+        if let Some(f) = a.focus {
+            // zooming in from "fit" (no pan) around `f`, plus what the mouse moved meanwhile
+            let z = a.from + (target - a.from) * e;
+            self.edit.zoom = Some(z);
+            self.edit.pan = f - f * (z / a.from.max(1e-6)) + a.pan_from;
+            if t >= 1.0 {
+                self.edit.zoom_anim = None;
+            } else {
+                ctx.request_repaint();
+            }
+            return;
+        }
         if t >= 1.0 {
             self.edit.zoom = a.to;
             self.edit.pan = Vec2::ZERO;
@@ -1386,14 +1398,18 @@ impl App {
     fn start_zoom_anim(&mut self, ctx: &egui::Context, to: Option<f32>) {
         let from = self.edit.zoom.unwrap_or(self.edit.fit_zoom);
         let t0 = ctx.input(|i| i.time);
-        self.edit.zoom_anim = Some(ZoomAnim { from, to, t0, pan_from: self.edit.pan });
+        self.edit.zoom_anim = Some(ZoomAnim { from, to, t0, pan_from: self.edit.pan, focus: None });
     }
 
     /// Mouse wheel and dragging over a zoomed view: zoom around the pointer, move the picture.
     fn zoom_input(&mut self, ui: &egui::Ui, resp: &egui::Response, view: Rect) {
         let Some(z) = self.edit.zoom else { return };
         if resp.dragged() {
-            self.edit.pan += resp.drag_delta();
+            match &mut self.edit.zoom_anim {
+                // zooming in around the grabbed point: the animation adds the movement
+                Some(a) if a.focus.is_some() => a.pan_from += resp.drag_delta(),
+                _ => self.edit.pan += resp.drag_delta(),
+            }
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -1432,7 +1448,7 @@ impl App {
             Some((zid, zops, t, r)) if magnified && *zid == id && *zops == ops => (t.clone(), *r),
             _ => (preview.clone(), r_prev),
         };
-        let resp = ui.allocate_rect(canvas, Sense::click_and_drag());
+        let resp = ui.interact(canvas, ui.scope_id().with("edit_canvas"), Sense::click_and_drag());
         self.zoom_input(ui, &resp, canvas);
         let z = self.edit.zoom.unwrap_or(z);
         let size = egui::vec2(tex.size()[0] as f32, tex.size()[1] as f32) * (r * z / ppp);
@@ -1509,7 +1525,27 @@ impl App {
                 return;
             }
             let img_rect = fit_rect(area, tex.size());
-            let resp = ui.allocate_rect(canvas, Sense::click_and_drag());
+            // same id as the zoomed view's, so that a drag started here carries on there
+            let resp = ui.interact(canvas, ui.scope_id().with("edit_canvas"), Sense::click_and_drag());
+            // click and drag on the picture: zoom to 100 % around that point and move it with the mouse
+            if self.edit.tool == Tool::None
+                && r_prev.is_some()
+                && resp.drag_started()
+                && let Some(pos) = resp.interact_pointer_pos().filter(|p| img_rect.contains(*p))
+            {
+                let fit = self.edit.fit_zoom;
+                // a small picture already shown at 100 % or more is doubled instead
+                let nz = if fit < 1.0 { 1.0 } else { (fit * 2.0).min(ZOOM_MAX.max(fit)) };
+                let rel = pos - canvas.center();
+                // starts at "fit" and grows smoothly, the grabbed point staying under the mouse
+                let t0 = ui.input(|i| i.time);
+                self.edit.zoom_anim = Some(ZoomAnim { from: fit, to: Some(nz), t0, pan_from: Vec2::ZERO, focus: Some(rel) });
+                self.edit.pan = Vec2::ZERO;
+                self.edit.zoom = Some(fit);
+                ui.ctx().request_repaint();
+            } else if self.edit.tool == Tool::None && r_prev.is_some() && resp.hover_pos().is_some_and(|p| img_rect.contains(p)) {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
+            }
             if self.edit.tool == Tool::None && r_prev.is_some() && resp.hovered() {
                 let s = ui.input(|i| i.smooth_scroll_delta.y);
                 if s > 0.0 {

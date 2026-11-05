@@ -194,6 +194,9 @@ pub struct ZoomAnim {
     pub to: Option<f32>,
     pub t0: f64,
     pub pan_from: egui::Vec2,
+    /// Zoom around this point (from the view's centre) and keep it in place, instead of ending
+    /// centred. Used when a drag on the picture zooms in; the drag's movement is added to `pan_from`.
+    pub focus: Option<egui::Vec2>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
