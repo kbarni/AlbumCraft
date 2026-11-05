@@ -245,6 +245,8 @@ pub struct App {
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
+    /// The library being written to disk on another thread.
+    saving: Option<std::thread::JoinHandle<Result<(), String>>>,
     /// The control connection for the MCP server (see control.rs) and its queue of commands.
     control: Option<(crate::control::Server, Receiver<crate::control::Request>)>,
     icon_tex: Option<TextureHandle>,
@@ -371,6 +373,7 @@ impl App {
             last_save: 0.0,
             persist,
             save_error: None,
+            saving: None,
             list_rev: 0,
             copied_edits: None,
             ffmpeg: None,
@@ -2129,6 +2132,22 @@ pub fn selection_text(items: &[(String, i64, u64)], one_date: Option<&str>, dims
     }
 }
 
+impl App {
+    fn save_finished(&mut self, result: Result<(), String>) {
+        match result {
+            Ok(()) => self.save_error = None,
+            Err(e) => {
+                // stay dirty: it is tried again in a few seconds
+                self.dirty = true;
+                if self.save_error.as_ref() != Some(&e) {
+                    self.toast(format!("Your library could not be saved: {e}"));
+                    self.save_error = Some(e);
+                }
+            }
+        }
+    }
+}
+
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::theme::apply(ctx, crate::theme::Mode::from_name(&self.store.theme), false);
@@ -2141,23 +2160,33 @@ impl eframe::App for App {
         if self.dirty {
             self.list_rev += 1;
         }
-        if self.persist && self.dirty && (closing || now - self.last_save > 3.0) {
+        // collect a finished background save (when closing, wait for it)
+        if self.saving.as_ref().is_some_and(|h| closing || h.is_finished())
+            && let Some(h) = self.saving.take()
+        {
+            let result = h.join().unwrap_or_else(|_| Err("the save stopped unexpectedly".into()));
+            self.save_finished(result);
+        }
+        // one save at a time: they share the temporary file
+        if self.persist && self.dirty && self.saving.is_none() && (closing || now - self.last_save > 3.0) {
             self.last_save = now;
-            match self.store.save() {
-                Ok(()) => {
-                    self.dirty = false;
-                    self.save_error = None;
+            // changes made from here on set `dirty` again and are saved next time
+            self.dirty = false;
+            let job = crate::library::store_path()
+                .ok_or_else(|| "No folder for application data was found.".to_string())
+                .and_then(|path| Ok((path, self.store.to_bytes()?)));
+            match job {
+                // the window closes after this frame: write now
+                Ok((path, bytes)) if closing => self.save_finished(crate::library::write_library(&path, &bytes)),
+                Ok((path, bytes)) => {
+                    self.saving = Some(std::thread::spawn(move || crate::library::write_library(&path, &bytes)));
                 }
-                Err(e) => {
-                    // stay dirty: it is tried again in a few seconds
-                    if self.save_error.as_ref() != Some(&e) {
-                        self.toast(format!("Your library could not be saved: {e}"));
-                        self.save_error = Some(e);
-                    }
-                }
+                Err(e) => self.save_finished(Err(e)),
             }
         }
-        if self.dirty && self.persist {
+        if self.saving.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        } else if self.dirty && self.persist {
             ctx.request_repaint_after(std::time::Duration::from_secs(3));
         }
     }

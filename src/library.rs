@@ -314,32 +314,37 @@ impl Store {
         }
     }
 
-    pub fn save(&mut self) -> Result<(), String> {
-        let path = store_path().ok_or("No folder for application data was found.")?;
-        self.save_to(&path)
+    pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
+        let bytes = self.to_bytes()?;
+        write_library(path, &bytes)
     }
 
-    /// Write to a temporary file, flush it to disk, then rename it over the library, so that a crash
-    /// or a full disk never leaves a half-written library behind.
-    pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
+    /// The library as compact JSON, dropping notes that became empty. Quick next to writing it:
+    /// the window does this on the UI thread (a consistent snapshot) and writes on another thread.
+    pub fn to_bytes(&mut self) -> Result<Vec<u8>, String> {
         self.meta.retain(|_, m| !m.is_empty());
-        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        let tmp = path.with_extension("json.tmp");
-        let write = || -> std::io::Result<()> {
-            use std::io::Write;
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(text.as_bytes())?;
-            f.sync_all()?;
-            std::fs::rename(&tmp, path)
-        };
-        write().map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            format!("{}: {e}", path.display())
-        })
+        serde_json::to_vec(self).map_err(|e| e.to_string())
     }
+}
+
+/// Write to a temporary file, flush it to disk, then rename it over the library, so that a crash
+/// or a full disk never leaves a half-written library behind.
+pub fn write_library(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let write = || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    };
+    write().map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{}: {e}", path.display())
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -518,7 +523,7 @@ mod store_tests {
         s.save_to(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(!text.contains("star") && text.contains("\"flag\": \"pick\""));
+        assert!(!text.contains("star") && text.contains("\"flag\":\"pick\""));
     }
 
     #[test]

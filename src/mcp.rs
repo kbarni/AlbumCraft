@@ -178,6 +178,6 @@ mod tests {
         assert_eq!(replies[5]["result"]["content"][1]["type"], "image");
         assert_eq!(replies[6]["result"]["isError"], true);
         assert_eq!(replies[7]["error"]["code"], -32601);
-        assert!(saved.contains("\"rating\": 5"), "the change was saved");
+        assert!(saved.contains("\"rating\":5"), "the change was saved");
     }
 }
