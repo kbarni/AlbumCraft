@@ -612,10 +612,10 @@ impl App {
                     });
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("⟲").size(18.0))).on_hover_text("Rotate left").clicked() {
+                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("↺").size(18.0))).on_hover_text("Rotate left").clicked() {
                                 self.rotate(&tray, -1);
                             }
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("⟳").size(18.0))).on_hover_text("Rotate right").clicked() {
+                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("↻").size(18.0))).on_hover_text("Rotate right").clicked() {
                                 self.rotate(&tray, 1);
                             }
                         });
@@ -677,11 +677,11 @@ impl App {
             ui.separator();
             self.edit_clipboard_menu(ui, &tray);
             ui.separator();
-            if ui.button("⟲ Rotate left").clicked() {
+            if ui.button("↺ Rotate left").clicked() {
                 self.rotate(&tray, -1);
                 ui.close();
             }
-            if ui.button("⟳ Rotate right").clicked() {
+            if ui.button("↻ Rotate right").clicked() {
                 self.rotate(&tray, 1);
                 ui.close();
             }

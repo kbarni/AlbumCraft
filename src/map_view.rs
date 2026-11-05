@@ -570,7 +570,7 @@ impl App {
                             self.geo.map.online_results.clear();
                         }
                         if placing.is_none()
-                            && ui.add(egui::Button::new("⤢  Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture").clicked()
+                            && ui.add(egui::Button::new("Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture").clicked()
                         {
                             self.geo.map.fit_next = true;
                         }
@@ -610,7 +610,7 @@ impl App {
                         m.results_open = true;
                     }
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if !m.search.is_empty() && ui.add(egui::Label::new(RichText::new("✕").color(t().text_weak)).sense(Sense::click())).clicked() {
+                    if !m.search.is_empty() && ui.add(egui::Label::new(RichText::new("×").size(16.0).color(t().text_weak)).sense(Sense::click())).clicked() {
                         m.search.clear();
                         m.results.clear();
                         m.online_results.clear();

@@ -333,6 +333,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, shot: Option<PathBuf>) -> Self {
         let ctx = cc.egui_ctx.clone();
         crate::theme::apply(&ctx, crate::theme::Mode::System, true);
+        crate::theme::set_fonts(&ctx);
         let (tx, rx) = std::sync::mpsc::channel();
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 6);
         let pool = Pool::new(threads, tx.clone(), ctx.clone());
@@ -1928,7 +1929,7 @@ impl App {
                         if ui.button("➕ Add folder…").clicked() {
                             self.import_folder();
                         }
-                        if ui.button("⟳ Scan again").clicked() {
+                        if ui.button("↻ Scan again").clicked() {
                             self.rescan();
                         }
                         if ui.button("Close").clicked() {

@@ -164,6 +164,7 @@ dependencies = [
  "rodio",
  "serde",
  "serde_json",
+ "unicode-properties",
  "ureq",
  "windows",
 ]

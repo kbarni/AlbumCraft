@@ -246,3 +246,70 @@ fn setup_style(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(13.5));
     });
 }
+
+/// egui's fonts, with the bundled monospace font (Hack) as a fallback for ordinary text too: it
+/// has the symbols used as icons (≡ ↺ ↻ ◌ …) that the main font lacks. Colour emoji still come
+/// from the system's emoji font.
+pub fn set_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional)
+        && !family.iter().any(|f| f == "Hack")
+    {
+        family.push("Hack".to_owned());
+    }
+    ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod glyph_tests {
+    use ab_glyph::{Font, FontRef};
+    use unicode_properties::UnicodeEmoji;
+
+    /// Every character in the user interface's text must be in one of the fonts egui ships with
+    /// (see `set_fonts`), or be an emoji (drawn from the system's colour emoji font, which has
+    /// them all on Windows, macOS and Linux). Anything else shows as an empty box on some
+    /// systems, as ☰ and ＋ did on Windows. Scans the string literals of the sources, up to each
+    /// file's tests.
+    #[test]
+    fn every_ui_character_is_in_the_fonts() {
+        // the fonts egui 0.37 bundles; colour emoji come from the system's emoji font instead
+        let fonts: Vec<FontRef> = [epaint_default_fonts::UBUNTU_LIGHT, epaint_default_fonts::HACK_REGULAR, epaint_default_fonts::EGUI_ICONS]
+            .iter()
+            .filter_map(|b| FontRef::try_from_slice(b).ok())
+            .collect();
+        assert_eq!(fonts.len(), 3);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut missing: Vec<(String, char)> = vec![];
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            for line in code.lines() {
+                let line = line.trim_start();
+                if line.starts_with("//") {
+                    continue;
+                }
+                // characters inside "…" on this line
+                let mut inside = false;
+                let mut prev = ' ';
+                for c in line.chars() {
+                    if c == '"' && prev != '\\' {
+                        inside = !inside;
+                    } else if inside && !c.is_ascii() && !c.is_whitespace() {
+                        let found = fonts.iter().any(|f| f.glyph_id(c).0 != 0) || c.is_emoji_char();
+                        if !found && !missing.iter().any(|(_, m)| *m == c) {
+                            missing.push((name.clone(), c));
+                        }
+                    }
+                    prev = c;
+                }
+            }
+        }
+        let list: Vec<String> = missing.iter().map(|(f, c)| format!("{c} (U+{:04X}) in {f}", *c as u32)).collect();
+        assert!(missing.is_empty(), "characters the fonts don't have:\n{}", list.join("\n"));
+    }
+}

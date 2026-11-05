@@ -54,9 +54,17 @@ fn pill(ui: &mut egui::Ui, label: &str, primary: bool) -> egui::Response {
 
 /// A toggle chip (filters).
 fn chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
+    chip_with_flag(ui, label, on, false)
+}
+
+/// A toggle chip, optionally with a pick flag drawn before its label (no font has a flag
+/// symbol that looks the same everywhere).
+fn chip_with_flag(ui: &mut egui::Ui, label: &str, on: bool, flag: bool) -> egui::Response {
     let color = if on { t().accent } else { t().text };
     let galley = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(13.0), color);
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 24.0, 30.0), Sense::click());
+    let icon = if flag { if label.is_empty() { 14.0 } else { 20.0 } } else { 0.0 };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 24.0 + icon, 30.0), Sense::click());
+    let rect_text = Rect::from_min_max(Pos2::new(rect.left() + icon, rect.top()), rect.max);
     let fill = if on {
         t().select_bg
     } else if resp.hovered() {
@@ -66,7 +74,12 @@ fn chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
     };
     ui.painter().rect_filled(rect, 15, fill);
     ui.painter().rect_stroke(rect, 15, Stroke::new(1.0, if on { t().accent } else { t().border }), StrokeKind::Inside);
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
+    if flag {
+        // drawn after the fill so that it stays visible
+        let c = Pos2::new(rect.left() + 12.0 + 7.0, rect.center().y);
+        paint_flag(ui.painter(), c, 6.5, if on { t().pick } else { Color32::TRANSPARENT }, color);
+    }
+    ui.painter().galley(rect_text.center() - galley.size() / 2.0, galley, color);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -168,7 +181,7 @@ impl App {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if pill(ui, "＋  Import", true).on_hover_text("Add a folder of pictures to the library").clicked() {
+                        if pill(ui, "+  Import", true).on_hover_text("Add a folder of pictures to the library").clicked() {
                             self.import_folder();
                         }
                         use crate::theme::Mode;
@@ -188,10 +201,10 @@ impl App {
                         // rating / rejects filter (a small menu), then the Picks toggle
                         let f = self.filter.clone();
                         let label = match (f.min_rating, f.hide_rejects) {
-                            (0, false) => "★  Any".to_string(),
-                            (0, true) => "★  Any, no rejects".to_string(),
-                            (n, false) => format!("★  {n}+"),
-                            (n, true) => format!("★  {n}+, no rejects"),
+                            (0, false) => "⭐  Any".to_string(),
+                            (0, true) => "⭐  Any, no rejects".to_string(),
+                            (n, false) => format!("⭐  {n}+"),
+                            (n, true) => format!("⭐  {n}+, no rejects"),
                         };
                         let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text("Filter by rating; hide rejected pictures");
                         egui::Popup::menu(&resp).show(|ui| {
@@ -205,7 +218,7 @@ impl App {
                             ui.checkbox(&mut self.filter.hide_rejects, "Hide rejected pictures");
                         });
                         let on = self.filter.picks;
-                        if chip(ui, if wide > 800.0 { "⚑  Picks" } else { "⚑" }, on).on_hover_text("Show only picks").clicked() {
+                        if chip_with_flag(ui, if wide > 800.0 { "Picks" } else { "" }, on, true).on_hover_text("Show only picks").clicked() {
                             self.filter.picks = !on;
                         }
                         ui.add_space(4.0);
@@ -227,7 +240,7 @@ impl App {
                                     if r.changed() {
                                         self.selection.clear();
                                     }
-                                    if !self.search.is_empty() && ui.add(egui::Label::new(RichText::new("✕").color(t().text_weak)).sense(Sense::click())).clicked() {
+                                    if !self.search.is_empty() && ui.add(egui::Label::new(RichText::new("×").size(16.0).color(t().text_weak)).sense(Sense::click())).clicked() {
                                         self.search.clear();
                                     }
                                 });
@@ -251,7 +264,7 @@ impl App {
                     ui.painter().image(icon.id(), r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                     ui.label(RichText::new("AlbumCraft").size(16.0).strong().color(t().text_strong));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.menu_button(RichText::new("☰").size(17.0), |ui| {
+                        ui.menu_button(RichText::new("≡").size(17.0), |ui| {
                             ui.set_min_width(190.0);
                             self.app_menu_items(ui);
                         });
@@ -284,7 +297,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("ALBUMS").size(11.0).strong().color(t().text_weak));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_btn(ui, "＋", "New album").clicked() {
+                            if icon_btn(ui, "+", "New album").clicked() {
                                 self.dialog = Some(Dialog::NewAlbum { name: String::new() });
                             }
                         });
@@ -519,7 +532,7 @@ impl App {
                 match self.source {
                     Source::Album(_) => ("📚", "This album is empty. Select pictures and add them from the selection bar."),
                     Source::Person(_) => ("👤", "Nobody tagged yet."),
-                    Source::Picks => ("⚑", "No picks yet. Hover a picture and click its flag, or press P."),
+                    Source::Picks => ("🚩", "No picks yet. Hover a picture and click its flag, or press P."),
                     Source::Library => ("🖼", "Your library is empty. Import a folder to get started."),
                 }
             };
@@ -528,7 +541,7 @@ impl App {
             ui.label(RichText::new(msg).size(15.0).color(t().text_weak));
             if matches!(self.source, Source::Library) && self.search.is_empty() && !self.scanning {
                 ui.add_space(12.0);
-                if pill(ui, "＋  Import a folder", true).clicked() {
+                if pill(ui, "+  Import a folder", true).clicked() {
                     self.import_folder();
                 }
             }

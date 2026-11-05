@@ -26,6 +26,10 @@ serde_json = "1.0.154"
 # online maps (only when the user turned them on): HTTPS with rustls, no system TLS library needed
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[dev-dependencies]
+# the test that every UI character can be drawn tells real emoji (from the system's emoji font) apart
+unicode-properties = { version = "0.1.5", default-features = false, features = ["emoji"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Printing", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs", "Win32_System_Memory"] }
 

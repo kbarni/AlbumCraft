@@ -628,10 +628,10 @@ impl App {
                         self.edit.tool = Tool::PickNeutral;
                     }
                     ui.end_row();
-                    if tool_button(ui, "⟲", "Rotate left").clicked() {
+                    if tool_button(ui, "↺", "Rotate left").clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if tool_button(ui, "⟳", "Rotate right").clicked() {
+                    if tool_button(ui, "↻", "Rotate right").clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.end_row();
@@ -993,10 +993,10 @@ impl App {
                         self.set_rating(&[id], n);
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("⟲").size(17.0))).on_hover_text("Rotate left").clicked() {
+                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("↺").size(17.0))).on_hover_text("Rotate left").clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("⟳").size(17.0))).on_hover_text("Rotate right").clicked() {
+                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("↻").size(17.0))).on_hover_text("Rotate right").clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.separator();
