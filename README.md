@@ -5,7 +5,7 @@
 <p align="center">A fast, simple photo organizer with a non-destructive editor.<br>
 Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.</p>
 
-> **Alpha.** This is the first public version: expect rough edges and missing pieces.
+> **Early version.** Expect rough edges and missing pieces.
 > Your original pictures are never modified, so trying it is safe.
 
 ![The library](docs/screenshots/library.jpg)
@@ -56,7 +56,7 @@ window (changes show at once); otherwise they change the library file directly.
 
 Download the build for your system from the
 [releases](https://github.com/kbarni/AlbumCraft/releases), unpack it and run `albumcraft`
-(on macOS, `AlbumCraft.app`). The alpha builds are not signed: on macOS, right-click the app and
+(on macOS, `AlbumCraft.app`). The builds are not signed: on macOS, right-click the app and
 choose *Open* the first time; on Windows, choose *More info* → *Run anyway*.
 
 Optional: [FFmpeg](https://ffmpeg.org/download.html) on the `PATH` for movie export.
