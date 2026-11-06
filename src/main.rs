@@ -2,29 +2,21 @@
 
 mod app;
 mod basemap;
-mod commands;
-mod control;
-mod decor;
-mod develop;
 mod edit_view;
-mod exifinfo;
-mod gallery;
-mod geo;
-mod imaging;
-mod library;
 mod library_view;
-mod mcp;
-mod movie;
-mod online;
-mod looks;
 mod map_view;
-mod shell;
-mod slides;
+mod online;
 mod print;
 mod print_view;
-mod raw;
+mod shell;
+mod slides;
 mod theme;
-mod thumbcache;
+
+// Everything without a window lives in the albumcraft-core and albumcraft-edit crates. Their
+// modules are used here under the same names (`crate::library`, `crate::imaging`, …).
+// `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
+// music) to the core modules of the same name.
+pub use albumcraft_core::{commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, library, looks, mcp, movie, raw, thumbcache};
 
 use std::path::PathBuf;
 

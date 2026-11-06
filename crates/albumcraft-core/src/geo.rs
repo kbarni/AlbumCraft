@@ -368,7 +368,7 @@ pub fn index_files(files: Vec<FileStamp>, cache: Option<std::path::PathBuf>, tx:
 // ---------------------------------------------------------------------------------------------
 // built-in list of world cities (GeoNames, places of 15,000 people or more)
 
-static CITIES_DATA: &[u8] = include_bytes!("../assets/geo/cities.bin");
+static CITIES_DATA: &[u8] = include_bytes!("../../../assets/geo/cities.bin");
 
 pub struct City {
     pub name: String,
@@ -808,7 +808,7 @@ mod tests {
             n += 1;
         }
         let packed = miniz_oxide::deflate::compress_to_vec(out.as_bytes(), 10);
-        let dest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/geo/cities.bin");
+        let dest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/geo/cities.bin");
         std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
         std::fs::write(&dest, &packed).unwrap();
         eprintln!("{n} cities, {} countries: {} bytes -> {} bytes", countries.len(), out.len(), packed.len());

@@ -146,7 +146,7 @@ impl App {
     /// "Copy edits" (from a single picture) and "Paste edits" (onto `ids`).
     pub fn edit_clipboard_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
         let one = if let [one] = ids { Some(*one) } else { None };
-        let has = one.is_some_and(|id| !crate::app::copyable_edits(&self.edits(id)).is_empty());
+        let has = one.is_some_and(|id| !crate::imaging::copyable_edits(&self.edits(id)).is_empty());
         if ui.add_enabled(has, egui::Button::new("Copy edits          Ctrl+Shift+C")).clicked() {
             if let Some(id) = one {
                 self.copy_edits(id);

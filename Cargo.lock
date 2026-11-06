@@ -150,23 +150,51 @@ name = "albumcraft"
 version = "0.1.0-alpha.1"
 dependencies = [
  "ab_glyph",
+ "albumcraft-core",
  "chrono",
  "dirs",
  "earcut",
  "eframe",
+ "epaint_default_fonts",
+ "image",
+ "miniz_oxide 0.9.1",
+ "rfd",
+ "rodio",
+ "serde_json",
+ "unicode-properties",
+ "ureq",
+ "windows",
+]
+
+[[package]]
+name = "albumcraft-core"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ab_glyph",
+ "albumcraft-edit",
+ "chrono",
+ "dirs",
  "epaint_default_fonts",
  "getrandom 0.4.3",
  "image",
  "kamadak-exif",
  "miniz_oxide 0.9.1",
  "rayon",
- "rfd",
- "rodio",
  "serde",
  "serde_json",
- "unicode-properties",
  "ureq",
- "windows",
+]
+
+[[package]]
+name = "albumcraft-edit"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "ab_glyph",
+ "epaint_default_fonts",
+ "image",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

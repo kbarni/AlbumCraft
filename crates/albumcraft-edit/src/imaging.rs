@@ -1,6 +1,7 @@
-//! Image loading, sample pictures and the non-destructive edit pipeline.
+//! The non-destructive edit pipeline (`EditOp`, `apply_all`) and the built-in sample pictures.
+//! Works on pictures already in memory: reading files is `albumcraft_core::imaging`.
 
-use image::{imageops, ImageDecoder, Rgba, RgbaImage};
+use image::{imageops, Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,55 +100,18 @@ impl EditOp {
 
 pub const SAMPLE_PREFIX: &str = "sample://";
 
-/// Load a picture (a file path or a built-in sample) scaled so its longest side is at most `max_dim`
-/// (0 = keep the original size).
-pub fn load_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
-    let img = if let Some(seed) = key.strip_prefix(SAMPLE_PREFIX) {
-        let seed: u32 = seed.parse().ok()?;
-        let (w, h) = sample_size(seed);
-        sample_image(seed, w, h)
-    } else {
-        if crate::raw::is_raw(key) {
-            let img = crate::raw::preview(key)?;
-            let img = if max_dim > 0 && (img.width() > max_dim || img.height() > max_dim) { img.thumbnail(max_dim, max_dim) } else { img };
-            return Some(img.to_rgba8());
-        }
-        let mut decoder = open_decoder(key)?;
-        // the camera's "this way up" (EXIF orientation), applied after scaling down (cheaper)
-        let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
-        let mut dynimg = image::DynamicImage::from_decoder(decoder).ok()?;
-        if max_dim > 0 && (dynimg.width() > max_dim || dynimg.height() > max_dim) {
-            dynimg = dynimg.thumbnail(max_dim, max_dim);
-        }
-        dynimg.apply_orientation(orientation);
-        return Some(dynimg.to_rgba8());
-    };
+/// A built-in sample picture (key `sample://<seed>`) scaled so its longest side is at most
+/// `max_dim` (0 = full size). None for any other key.
+pub fn sample_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
+    let seed: u32 = key.strip_prefix(SAMPLE_PREFIX)?.parse().ok()?;
+    let (w, h) = sample_size(seed);
+    let img = sample_image(seed, w, h);
     if max_dim > 0 && (img.width() > max_dim || img.height() > max_dim) {
         let (w, h) = fit(img.width(), img.height(), max_dim);
         Some(imageops::resize(&img, w, h, imageops::FilterType::Triangle))
     } else {
         Some(img)
     }
-}
-
-fn open_decoder(path: &str) -> Option<impl image::ImageDecoder> {
-    image::ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_decoder().ok()
-}
-
-/// The picture's size as shown, i.e. with width and height swapped when the camera recorded it
-/// turned a quarter (EXIF orientation 5–8). Reads only the file header.
-pub fn oriented_dims(path: &str) -> Option<(u32, u32)> {
-    use image::metadata::Orientation as O;
-    if crate::raw::is_raw(path) {
-        return crate::raw::preview_dims(path);
-    }
-    let mut decoder = open_decoder(path)?;
-    let (w, h) = decoder.dimensions();
-    let turned = matches!(
-        decoder.orientation().unwrap_or(O::NoTransforms),
-        O::Rotate90 | O::Rotate270 | O::Rotate90FlipH | O::Rotate270FlipH
-    );
-    Some(if turned { (h, w) } else { (w, h) })
 }
 
 pub fn fit(w: u32, h: u32, max_dim: u32) -> (u32, u32) {
@@ -315,6 +279,12 @@ fn bilinear(img: &RgbaImage, x: f32, y: f32) -> Rgba<u8> {
         out[i] = (top * (1.0 - fy) + bot * fy + 0.5) as u8;
     }
     Rgba(out)
+}
+
+/// The edits worth copying to other pictures: everything except red-eye fixes (they mark this
+/// picture's eyes).
+pub fn copyable_edits(edits: &[EditOp]) -> Vec<EditOp> {
+    edits.iter().filter(|op| !matches!(op, EditOp::Redeye(_))).cloned().collect()
 }
 
 pub fn apply_all(src: &RgbaImage, ops: &[EditOp]) -> RgbaImage {
@@ -807,37 +777,34 @@ pub fn apply_effect(mut img: RgbaImage, e: Effect) -> RgbaImage {
     img
 }
 
-#[cfg(test)]
-mod orientation_tests {
-    use super::*;
-
-    #[test]
-    fn camera_orientation_is_applied() {
-        // 40 x 20, left half red, right half blue; EXIF orientation 6 = turn 90° clockwise to view
-        let img = RgbaImage::from_fn(40, 20, |x, _| if x < 20 { Rgba([255, 0, 0, 255]) } else { Rgba([0, 0, 255, 255]) });
-        let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
-        let mut jpeg = Vec::new();
-        rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95)).unwrap();
-        let field = exif::Field { tag: exif::Tag::Orientation, ifd_num: exif::In::PRIMARY, value: exif::Value::Short(vec![6]) };
-        let file = crate::exifinfo::jpeg_with_exif(&jpeg, &[field], None).unwrap();
-        let path = std::env::temp_dir().join(format!("albumcraft-orient-{}.jpg", std::process::id()));
-        std::fs::write(&path, file).unwrap();
-        let key = path.to_string_lossy().to_string();
-        let loaded = load_source(&key, 0).unwrap();
-        let dims = oriented_dims(&key);
-        let small = load_source(&key, 10).unwrap();
-        let _ = std::fs::remove_file(&path);
-        assert_eq!((loaded.width(), loaded.height()), (20, 40));
-        assert_eq!(dims, Some((20, 40)));
-        assert_eq!((small.width(), small.height()), (5, 10));
-        // turned clockwise: the left (red) half is now on top
-        assert!(loaded.get_pixel(10, 5)[0] > 200 && loaded.get_pixel(10, 35)[2] > 200);
+/// Lay out pictures in a grid on a light background.
+pub fn make_collage(pics: &[RgbaImage], cell: u32) -> RgbaImage {
+    let n = pics.len().max(1) as u32;
+    let cols = (n as f32).sqrt().ceil() as u32;
+    let rows = n.div_ceil(cols);
+    let gap = cell / 20;
+    let mut out = RgbaImage::from_pixel(cols * (cell + gap) + gap, rows * (cell + gap) + gap, Rgba([245, 245, 240, 255]));
+    for (i, p) in pics.iter().enumerate() {
+        let (w, h) = fit(p.width(), p.height(), cell);
+        let small = imageops::resize(p, w, h, imageops::FilterType::Triangle);
+        let cx = (i as u32 % cols) * (cell + gap) + gap + (cell - w) / 2;
+        let cy = (i as u32 / cols) * (cell + gap) + gap + (cell - h) / 2;
+        imageops::overlay(&mut out, &small, cx as i64, cy as i64);
     }
+    out
 }
 
 #[cfg(test)]
 mod filter_tests {
     use super::*;
+
+    #[test]
+    fn redeye_fixes_are_not_copied() {
+        let edits = [EditOp::Rotate(1), EditOp::Redeye([0.1, 0.1, 0.2, 0.2]), EditOp::AutoColor];
+        let copied = copyable_edits(&edits);
+        assert_eq!(copied.len(), 2);
+        assert!(copied.iter().all(|op| !matches!(op, EditOp::Redeye(_))));
+    }
 
     #[test]
     fn perspective_widens_the_top() {
@@ -903,21 +870,4 @@ mod filter_tests {
         fill_light(&mut dark, 0.5);
         assert!(dark.get_pixel(0, 0)[0] > 20);
     }
-}
-
-/// Lay out pictures in a grid on a light background.
-pub fn make_collage(pics: &[RgbaImage], cell: u32) -> RgbaImage {
-    let n = pics.len().max(1) as u32;
-    let cols = (n as f32).sqrt().ceil() as u32;
-    let rows = n.div_ceil(cols);
-    let gap = cell / 20;
-    let mut out = RgbaImage::from_pixel(cols * (cell + gap) + gap, rows * (cell + gap) + gap, Rgba([245, 245, 240, 255]));
-    for (i, p) in pics.iter().enumerate() {
-        let (w, h) = fit(p.width(), p.height(), cell);
-        let small = imageops::resize(p, w, h, imageops::FilterType::Triangle);
-        let cx = (i as u32 % cols) * (cell + gap) + gap + (cell - w) / 2;
-        let cy = (i as u32 / cols) * (cell + gap) + gap + (cell - h) / 2;
-        imageops::overlay(&mut out, &small, cx as i64, cy as i64);
-    }
-    out
 }

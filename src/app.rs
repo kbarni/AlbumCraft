@@ -336,7 +336,8 @@ impl App {
         crate::theme::set_fonts(&ctx);
         let (tx, rx) = std::sync::mpsc::channel();
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 6);
-        let pool = Pool::new(threads, tx.clone(), ctx.clone());
+        let wake_ctx = ctx.clone();
+        let pool = Pool::new(threads, tx.clone(), Arc::new(move || wake_ctx.request_repaint()));
 
         let mut persist = shot.is_none();
         let mut first_run = false;
@@ -990,7 +991,7 @@ impl App {
 
     /// Copy a picture's edits (all but red-eye fixes, which belong to that picture's eyes).
     pub fn copy_edits(&mut self, id: usize) {
-        let ops = copyable_edits(&self.edits(id));
+        let ops = imaging::copyable_edits(&self.edits(id));
         if ops.is_empty() {
             self.toast("This picture has no edits to copy.");
             return;
@@ -1473,7 +1474,7 @@ impl App {
                 let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let gps = if with_location { crate::geo::effective(place.as_ref(), crate::geo::file_gps(key)) } else { None };
-                    export_one(key, edits, &dir, stem, max_dim, quality, gps)
+                    crate::export::export_one(key, edits, &dir, stem, max_dim, quality, gps)
                 }))
                 .unwrap_or_else(|_| Err("unexpected error".into()));
                 match result {
@@ -2144,49 +2145,6 @@ impl App {
     }
 }
 
-/// The edits worth copying to other pictures: everything except red-eye fixes (they mark this
-/// picture's eyes).
-pub fn copyable_edits(edits: &[EditOp]) -> Vec<EditOp> {
-    edits.iter().filter(|op| !matches!(op, EditOp::Redeye(_))).cloned().collect()
-}
-
-/// Export one picture with its edits as `<stem>.jpg` in `dir` (or `<stem>-1.jpg`, … when taken).
-/// Never overwrites a file, and removes its own half-written file when something fails.
-/// Save an edited copy as a new JPEG in `dir` (never overwriting a file), with `gps` in its EXIF.
-pub fn export_one(key: &str, edits: &[EditOp], dir: &std::path::Path, stem: &str, max_dim: u32, quality: u8, gps: Option<crate::geo::LatLon>) -> Result<PathBuf, String> {
-    let src = imaging::load_source(key, max_dim).ok_or("the picture could not be read")?;
-    let img = imaging::apply_all(&src, edits);
-    let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
-    // encoded before the file is made, so that a failure leaves nothing behind
-    let mut jpeg = vec![];
-    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality)).map_err(|e| e.to_string())?;
-    if let Some(at) = gps {
-        jpeg = crate::exifinfo::jpeg_with_exif(&jpeg, &crate::geo::exif_gps_fields(at), None).map_err(|e| e.to_string())?;
-    }
-    let mut n = 0;
-    let (file, out) = loop {
-        let out = if n == 0 { dir.join(format!("{stem}.jpg")) } else { dir.join(format!("{stem}-{n}.jpg")) };
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&out) {
-            Ok(f) => break (f, out),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 10_000 => n += 1,
-            Err(e) => return Err(e.to_string()),
-        }
-    };
-    let write = || -> Result<(), String> {
-        use std::io::Write;
-        let mut f = file;
-        f.write_all(&jpeg).map_err(|e| e.to_string())?;
-        f.flush().map_err(|e| e.to_string())
-    };
-    match write() {
-        Ok(()) => Ok(out),
-        Err(e) => {
-            let _ = std::fs::remove_file(&out);
-            Err(e)
-        }
-    }
-}
-
 /// "2009:05:12 10:00:00" -> "2009/05/12 10:00:00" (only the date part is
 /// changed so the time stays readable).
 pub fn exif_date_slashes(d: &str) -> String {
@@ -2357,33 +2315,6 @@ impl crate::commands::Host for App {
 #[cfg(test)]
 mod tray_tests {
     use super::*;
-
-    #[test]
-    fn redeye_fixes_are_not_copied() {
-        let edits = [EditOp::Rotate(1), EditOp::Redeye([0.1, 0.1, 0.2, 0.2]), EditOp::AutoColor];
-        let copied = copyable_edits(&edits);
-        assert_eq!(copied.len(), 2);
-        assert!(copied.iter().all(|op| !matches!(op, EditOp::Redeye(_))));
-    }
-
-    #[test]
-    fn export_never_overwrites() {
-        let dir = std::env::temp_dir().join(format!("albumcraft-export-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.jpg"), b"keep me").unwrap();
-        let key = format!("{}1", imaging::SAMPLE_PREFIX);
-        export_one(&key, &[], &dir, "a", 64, 80, None).unwrap();
-        export_one(&key, &[], &dir, "a", 64, 80, None).unwrap();
-        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", 64, 80, None);
-        let kept = std::fs::read(dir.join("a.jpg")).unwrap();
-        let made = [dir.join("a-1.jpg"), dir.join("a-2.jpg")].map(|p| image::image_dimensions(p).ok());
-        let b_exists = dir.join("b.jpg").exists();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(kept, b"keep me");
-        assert!(made.iter().all(|d| d.is_some_and(|(w, h)| w.max(h) == 64)));
-        assert!(unreadable.is_err() && !b_exists);
-    }
 
     #[test]
     fn selection_line() {

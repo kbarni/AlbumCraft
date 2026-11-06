@@ -862,7 +862,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
         }
         "copy_edits" => {
             let from = one(host, str_arg(args, "from")?)?;
-            let ops = crate::app::copyable_edits(&edits_of(host, from));
+            let ops = crate::imaging::copyable_edits(&edits_of(host, from));
             if ops.is_empty() {
                 return Err("that picture has no edits to copy".into());
             }
@@ -908,7 +908,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 for (key, name, edits, place) in &jobs {
                     let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
                     let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
-                    match crate::app::export_one(key, edits, &dir, stem, max, quality, gps) {
+                    match crate::export::export_one(key, edits, &dir, stem, max, quality, gps) {
                         Ok(p) => done.push(p.to_string_lossy().to_string()),
                         Err(e) => failed.push(json!({ "key": key, "error": e })),
                     }

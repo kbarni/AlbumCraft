@@ -756,18 +756,21 @@ pub fn source_dims(key: &str) -> Option<(u32, u32)> {
     imaging::oriented_dims(key)
 }
 
+/// Called after each finished job so the window draws the result (e.g. `ctx.request_repaint`).
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
 #[derive(Clone)]
 pub struct Pool {
     queue: Arc<(Mutex<VecDeque<Job>>, Condvar)>,
 }
 
 impl Pool {
-    pub fn new(threads: usize, tx: Sender<Done>, ctx: eframe::egui::Context) -> Self {
+    pub fn new(threads: usize, tx: Sender<Done>, wake: Wake) -> Self {
         let queue: Arc<(Mutex<VecDeque<Job>>, Condvar)> = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
         for _ in 0..threads {
             let q = queue.clone();
             let tx = tx.clone();
-            let ctx = ctx.clone();
+            let wake = wake.clone();
             std::thread::spawn(move || loop {
                 let job = {
                     let (lock, cv) = &*q;
@@ -786,7 +789,7 @@ impl Pool {
                 if tx.send(done).is_err() {
                     return;
                 }
-                ctx.request_repaint();
+                wake();
             });
         }
         Self { queue }

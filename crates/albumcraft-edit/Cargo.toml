@@ -1,0 +1,18 @@
+[package]
+name = "albumcraft-edit"
+description = "AlbumCraft's non-destructive edit pipeline: no file access, builds for WebAssembly too"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ab_glyph.workspace = true
+epaint_default_fonts.workspace = true
+image = { workspace = true, features = ["rayon"] }
+rayon.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

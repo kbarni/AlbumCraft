@@ -1,32 +1,56 @@
-[package]
-name = "albumcraft"
+[workspace]
+# The desktop app (this package) and the libraries it is built from; see "Code layout" in CLAUDE.md.
+members = [".", "crates/albumcraft-edit", "crates/albumcraft-core"]
+# plain `cargo build` / `cargo test` (as CI runs them) cover every crate
+default-members = [".", "crates/albumcraft-edit", "crates/albumcraft-core"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0-alpha.1"
 edition = "2024"
-description = "A fast, simple photo organizer with a non-destructive editor"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kbarni/AlbumCraft"
-readme = "README.md"
 
-[dependencies]
+[workspace.dependencies]
+albumcraft-core = { path = "crates/albumcraft-core" }
+albumcraft-edit = { path = "crates/albumcraft-edit" }
 ab_glyph = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "7.0.0"
-earcut = "0.4"
-eframe = "0.37.0"
 epaint_default_fonts = "0.37.0"
-image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp", "tiff", "rayon"] }
-kamadak-exif = "0.6.1"
-getrandom = "0.4"
+image = { version = "0.25.10", default-features = false }
 miniz_oxide = "0.9"
 rayon = "1"
-rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "flac", "vorbis", "wav", "mp4"] }
-rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # online maps (only when the user turned them on): HTTPS with rustls, no system TLS library needed
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[package]
+name = "albumcraft"
+description = "A fast, simple photo organizer with a non-destructive editor"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+albumcraft-core.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+earcut = "0.4"
+eframe = "0.37.0"
+epaint_default_fonts.workspace = true
+image = { workspace = true, features = ["png"] }
+miniz_oxide.workspace = true
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "flac", "vorbis", "wav", "mp4"] }
+rfd = "0.17.2"
+serde_json.workspace = true
+ureq.workspace = true
+
 [dev-dependencies]
+ab_glyph.workspace = true
 # the test that every UI character can be drawn tells real emoji (from the system's emoji font) apart
 unicode-properties = { version = "0.1.5", default-features = false, features = ["emoji"] }
 
