@@ -21,7 +21,7 @@ pub use albumcraft_core::{commands, control, decor, develop, exifinfo, export, g
 
 use std::path::PathBuf;
 
-/// The gecko app icon (original artwork, `assets/app-icon/albumcraft.svg`), as PNGs.
+/// The gecko app icon (original artwork, `assets/app-icon/albumcraft-1024.png`), as PNGs.
 pub const ICON_64: &[u8] = include_bytes!("../assets/app-icon/hicolor/64x64/apps/albumcraft.png");
 const ICON_256: &[u8] = include_bytes!("../assets/app-icon/hicolor/256x256/apps/albumcraft.png");
 
