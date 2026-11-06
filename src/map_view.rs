@@ -222,7 +222,7 @@ pub struct GeoState {
 
 impl GeoState {
     /// Look for GPS positions in these pictures (in the background; cached on disk).
-    pub fn start_index(&mut self, photos: &[Photo]) {
+    pub fn start_index(&mut self, photos: &[Photo], lib: &dyn crate::backend::Library) {
         if let Some((_, stop)) = self.index.take() {
             stop.store(true, Ordering::Relaxed);
         }
@@ -232,11 +232,8 @@ impl GeoState {
         if files.is_empty() {
             return;
         }
-        let (tx, rx) = std::sync::mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
-        let s = stop.clone();
-        let cache = geo::gps_cache_path();
-        std::thread::spawn(move || geo::index_files(files, cache, tx, s));
+        let rx = lib.index_gps(files, stop.clone());
         self.index = Some((rx, stop));
     }
 
@@ -317,7 +314,7 @@ impl App {
         let place = self.store.meta.get(&p.key).and_then(|m| m.place.as_ref());
         let file = match self.geo.file_gps.get(&p.key) {
             Some(g) => *g,
-            None if place.is_none() => geo::file_gps(&p.key),
+            None if place.is_none() => self.lib.file_gps(&p.key),
             None => None,
         };
         geo::effective(place, file)

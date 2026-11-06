@@ -1,7 +1,8 @@
 //! Application state, shared helpers, dialogs and the frame loop.
 
 use crate::imaging::{self, EditOp};
-use crate::library::{self, Album, Done, Flag, Folder, Job, Loaded, Meta, Photo, Pool, ScannedFolder, Store};
+use crate::backend::{Library, LocalLibrary};
+use crate::library::{self, Album, Done, Flag, Folder, Job, Loaded, Meta, Photo, ScannedFolder, Store};
 use eframe::egui::{self, Color32, ColorImage, TextureHandle, TextureOptions};
 use image::RgbaImage;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -252,8 +253,6 @@ pub struct App {
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
-    /// The library being written to disk on another thread.
-    saving: Option<std::thread::JoinHandle<Result<(), String>>>,
     /// Places: GPS index, map view and "Set location" state (map_view.rs).
     pub geo: crate::map_view::GeoState,
     /// The control connection for the MCP server (see control.rs) and its queue of commands.
@@ -285,7 +284,8 @@ pub struct App {
     /// Small previews of every preset look for (picture, edits they start from).
     pub look_previews: Option<(usize, Vec<EditOp>, Vec<TextureHandle>)>,
 
-    pub pool: Pool,
+    /// Where the pictures and notes are read and saved (see backend.rs).
+    pub lib: Box<dyn Library>,
     pub tx: Sender<Done>,
     pub rx: Receiver<Done>,
 
@@ -335,15 +335,14 @@ impl App {
         crate::theme::apply(&ctx, crate::theme::Mode::System, true);
         crate::theme::set_fonts(&ctx);
         let (tx, rx) = std::sync::mpsc::channel();
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 6);
         let wake_ctx = ctx.clone();
-        let pool = Pool::new(threads, tx.clone(), Arc::new(move || wake_ctx.request_repaint()));
+        let mut lib: Box<dyn Library> = Box::new(LocalLibrary::new(tx.clone(), Arc::new(move || wake_ctx.request_repaint())));
 
         let mut persist = shot.is_none();
         let mut first_run = false;
         let mut load_problem = None;
         let mut store = if persist {
-            match Store::load() {
+            match lib.load() {
                 Loaded::Store(s) => *s,
                 Loaded::Fresh => {
                     first_run = true;
@@ -384,7 +383,6 @@ impl App {
             last_save: 0.0,
             persist,
             save_error: None,
-            saving: None,
             geo: Default::default(),
             list_rev: 0,
             copied_edits: None,
@@ -405,7 +403,7 @@ impl App {
             big_order: VecDeque::new(),
             big_req: HashSet::new(),
             look_previews: None,
-            pool,
+            lib,
             tx,
             rx,
             view: View::Library,
@@ -605,7 +603,7 @@ impl App {
             }
         } else {
             app.rescan();
-            std::thread::spawn(crate::thumbcache::prune);
+            app.lib.tidy();
             if persist {
                 app.start_control();
             }
@@ -630,15 +628,8 @@ impl App {
     // ----------------------------------------------------------------- library
 
     pub fn rescan(&mut self) {
-        let roots = self.store.roots.clone();
-        let tx = self.tx.clone();
-        let ctx = self.ctx.clone();
         self.scanning = true;
-        std::thread::spawn(move || {
-            let (found, truncated) = library::scan_roots(&roots, library::SCAN_LIMIT);
-            let _ = tx.send(Done::Scan(found, truncated));
-            ctx.request_repaint();
-        });
+        self.lib.scan(self.store.roots.clone());
     }
 
     pub fn set_library(&mut self, scanned: Vec<ScannedFolder>, samples: bool) {
@@ -706,7 +697,7 @@ impl App {
             && i >= self.store.albums.len() {
                 self.source = Source::Library;
             }
-        self.geo.start_index(&self.photos);
+        self.geo.start_index(&self.photos, &*self.lib);
     }
 
     /// Bring in stars, captions, tags, rotations, crops, filters, folder descriptions and albums
@@ -719,7 +710,7 @@ impl App {
             if self.store.imported_ini.contains(&path) {
                 continue;
             }
-            let Some(ini) = library::read_picasa_ini(std::path::Path::new(&path)) else { continue };
+            let Some(ini) = self.lib.folder_ini(&path) else { continue };
             self.store.imported_ini.push(path.clone());
             self.dirty = true;
             imported += 1;
@@ -1092,14 +1083,14 @@ impl App {
     pub fn request_thumb(&mut self, id: usize) {
         if !self.thumb_req.contains(&id) {
             self.thumb_req.insert(id);
-            self.pool.push(Job::Thumb { id, key: self.photos[id].key.clone() }, false);
+            self.lib.request(Job::Thumb { id, key: self.photos[id].key.clone() }, false);
         }
     }
 
     pub fn request_big(&mut self, id: usize, urgent: bool) {
         if id < self.photos.len() && !self.big.contains_key(&id) && !self.big_req.contains(&id) {
             self.big_req.insert(id);
-            self.pool.push(Job::Big { id, key: self.photos[id].key.clone() }, urgent);
+            self.lib.request(Job::Big { id, key: self.photos[id].key.clone() }, urgent);
         }
     }
 
@@ -1250,7 +1241,7 @@ impl App {
     /// The photo's real size in pixels, read once from the file header.
     pub fn real_dims_of(&mut self, id: usize) -> Option<(u32, u32)> {
         if !self.real_dims.contains_key(&id) {
-            let d = library::source_dims(&self.photos.get(id)?.key)?;
+            let d = self.lib.source_dims(&self.photos.get(id)?.key)?;
             self.real_dims.insert(id, d);
         }
         self.real_dims.get(&id).copied()
@@ -1260,7 +1251,7 @@ impl App {
     pub fn camera_info(&mut self, id: usize) -> Option<Arc<crate::exifinfo::CameraInfo>> {
         if !self.exif_cache.contains_key(&id) {
             let p = self.photos.get(id)?;
-            let info = if p.is_sample() { None } else { crate::exifinfo::read(&p.key).map(Arc::new) };
+            let info = self.lib.camera_info(&p.key).map(Arc::new);
             if let Some(t) = info.as_ref().and_then(|i| i.thumbnail.as_ref()) {
                 let tex = self.ctx.load_texture(format!("exifthumb{id}"), to_color_image(t), TextureOptions::LINEAR);
                 self.exif_thumbs.insert(id, tex);
@@ -1280,7 +1271,7 @@ impl App {
             return;
         }
         self.edit.zoom_req = Some((id, ops.to_vec()));
-        self.pool.push(Job::Zoom { id, key: self.photos[id].key.clone(), ops: ops.to_vec() }, true);
+        self.lib.request(Job::Zoom { id, key: self.photos[id].key.clone(), ops: ops.to_vec() }, true);
     }
 
     /// The picture shown next to the edited one in "A|B" view.
@@ -1463,39 +1454,8 @@ impl App {
         }
         let Some(dir) = rfd::FileDialog::new().set_title("Export pictures to…").pick_folder() else { return };
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
-        let with_location = self.store.export_location;
-        let tx = self.tx.clone();
-        let ctx = self.ctx.clone();
         self.toast(format!("Exporting {} picture(s)…", jobs.len()));
-        std::thread::spawn(move || {
-            let mut ok = 0;
-            let mut failed: Vec<String> = vec![];
-            for (key, name, edits, place) in &jobs {
-                let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let gps = if with_location { crate::geo::effective(place.as_ref(), crate::geo::file_gps(key)) } else { None };
-                    crate::export::export_one(key, edits, &dir, stem, max_dim, quality, gps)
-                }))
-                .unwrap_or_else(|_| Err("unexpected error".into()));
-                match result {
-                    Ok(_) => ok += 1,
-                    Err(e) => failed.push(format!("{name}: {e}")),
-                }
-            }
-            let mut msg = format!("Exported {ok} of {} picture(s) to {}", jobs.len(), dir.display());
-            if !failed.is_empty() {
-                msg.push_str("\n\nNot exported:");
-                for f in failed.iter().take(10) {
-                    msg.push_str("\n• ");
-                    msg.push_str(f);
-                }
-                if failed.len() > 10 {
-                    msg.push_str(&format!("\n… and {} more", failed.len() - 10));
-                }
-            }
-            let _ = tx.send(Done::Message(msg));
-            ctx.request_repaint();
-        });
+        self.lib.export(jobs, dir, max_dim, quality, self.store.export_location);
         self.arm_tray_check();
     }
 
@@ -1524,25 +1484,8 @@ impl App {
                 Some((p.key.clone(), p.name.clone(), self.edits(id), caption))
             })
             .collect();
-        let tx = self.tx.clone();
-        let ctx = self.ctx.clone();
         self.toast(format!("Making the web gallery of {} picture(s)…", items.len()));
-        std::thread::spawn(move || {
-            let msg = match crate::gallery::write(&parent, &items, &opts) {
-                Ok((dir, failed)) => {
-                    let index = dir.join("index.html");
-                    let _ = crate::library_view::open_with_system(&index);
-                    let mut m = format!("The web gallery is ready:\n{}", index.display());
-                    if failed > 0 {
-                        m.push_str(&format!("\n\n{failed} picture(s) could not be read and were left out."));
-                    }
-                    m
-                }
-                Err(e) => format!("Could not make the web gallery: {e}"),
-            };
-            let _ = tx.send(Done::Message(msg));
-            ctx.request_repaint();
-        });
+        self.lib.make_gallery(items, parent, opts);
         self.arm_tray_check();
     }
 
@@ -1552,24 +1495,8 @@ impl App {
         };
         let out = if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4")) { out } else { out.with_extension("mp4") };
         let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().filter_map(|&id| Some((self.photos.get(id)?.key.clone(), self.edits(id)))).collect();
-        let settings = self.store.slideshow.clone();
-        let tx = self.tx.clone();
-        let ctx = self.ctx.clone();
         self.toast("Making the movie…");
-        std::thread::spawn(move || {
-            let progress = |f: f32| {
-                let _ = tx.send(Done::Toast(format!("Making the movie… {:.0} %", f * 100.0)));
-                ctx.request_repaint();
-            };
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::movie::make(&out, &pictures, size, &settings, &progress)))
-                .unwrap_or_else(|_| Err("unexpected error".into()));
-            let msg = match result {
-                Ok(()) => format!("The movie is ready:\n{}", out.display()),
-                Err(e) => format!("Could not make the movie: {e}"),
-            };
-            let _ = tx.send(Done::Message(msg));
-            ctx.request_repaint();
-        });
+        self.lib.make_movie(pictures, out, size, self.store.slideshow.clone());
         self.arm_tray_check();
     }
 
@@ -1583,27 +1510,10 @@ impl App {
             return;
         };
         let jobs: Vec<(String, Vec<EditOp>)> = ids.iter().map(|&id| (self.photos[id].key.clone(), self.edits(id))).collect();
-        let tx = self.tx.clone();
-        let ctx = self.ctx.clone();
         self.toast("Making the collage…");
         // the picker may return a name without the extension; the picture is always PNG
         let path = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) { path } else { path.with_extension("png") };
-        std::thread::spawn(move || {
-            let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let pics: Vec<RgbaImage> = jobs
-                    .iter()
-                    .filter_map(|(k, e)| imaging::load_source(k, 900).map(|i| imaging::apply_all(&i, e)))
-                    .collect();
-                imaging::make_collage(&pics, 600)
-            }));
-            let msg = match made.map(|out| out.save(&path)) {
-                Ok(Ok(())) => format!("Collage saved to {}", path.display()),
-                Ok(Err(e)) => format!("Could not save the collage: {e}"),
-                Err(_) => "Could not make the collage: unexpected error.".to_string(),
-            };
-            let _ = tx.send(Done::Message(msg));
-            ctx.request_repaint();
-        });
+        self.lib.make_collage(jobs, path);
         self.arm_tray_check();
     }
 
@@ -1649,7 +1559,7 @@ impl App {
                     self.edit.zoom_req = None;
                     if self.photos.get(id).is_some_and(|p| p.key == key) && id == self.edit.id
                         && let Some(img) = img {
-                            let real_w = library::source_dims(&key).map(|d| d.0).unwrap_or(unedited_width);
+                            let real_w = self.lib.source_dims(&key).map(|d| d.0).unwrap_or(unedited_width);
                             let r = real_w.max(1) as f32 / unedited_width.max(1) as f32;
                             let tex = self.ctx.load_texture(format!("zoom{id}"), to_color_image(&img), TextureOptions::LINEAR);
                             self.edit.zoom_tex = Some((id, ops, tex, r));
@@ -2223,30 +2133,21 @@ impl eframe::App for App {
             self.list_rev += 1;
         }
         // collect a finished background save (when closing, wait for it)
-        if self.saving.as_ref().is_some_and(|h| closing || h.is_finished())
-            && let Some(h) = self.saving.take()
-        {
-            let result = h.join().unwrap_or_else(|_| Err("the save stopped unexpectedly".into()));
+        if let Some(result) = self.lib.take_saved(closing) {
             self.save_finished(result);
         }
         // one save at a time: they share the temporary file
-        if self.persist && self.dirty && self.saving.is_none() && (closing || now - self.last_save > 3.0) {
+        if self.persist && self.dirty && !self.lib.saving() && (closing || now - self.last_save > 3.0) {
             self.last_save = now;
             // changes made from here on set `dirty` again and are saved next time
             self.dirty = false;
-            let job = crate::library::store_path()
-                .ok_or_else(|| "No folder for application data was found.".to_string())
-                .and_then(|path| Ok((path, self.store.snapshot()?)));
-            match job {
-                // the window closes after this frame: write now
-                Ok((path, bytes)) if closing => self.save_finished(crate::library::write_library(&path, &bytes)),
-                Ok((path, bytes)) => {
-                    self.saving = Some(std::thread::spawn(move || crate::library::write_library(&path, &bytes)));
-                }
-                Err(e) => self.save_finished(Err(e)),
+            // the window closes after this frame: write now
+            self.lib.save(&mut self.store, closing);
+            if let Some(result) = self.lib.take_saved(closing) {
+                self.save_finished(result);
             }
         }
-        if self.saving.is_some() {
+        if self.lib.saving() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else if self.dirty && self.persist {
             ctx.request_repaint_after(std::time::Duration::from_secs(3));

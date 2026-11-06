@@ -10,25 +10,38 @@ AlbumCraft is a native photo organizer with a simple non-destructive editor, wri
 | `new_features.md` | Feature ideas, feasibility, phases and current status: the work list |
 | `docs/screenshots/` | Screenshots used by the README |
 
-## 2. Code map (`src/`)
+## 2. Code map
+
+A Cargo workspace. The browser and a server can't use the window's code, so it is split by what
+each part needs:
 
 ```text
-main.rs          entry point, --screenshot
-app.rs           App state + eframe update loop, dialogs, export/collage, screenshot capture
-library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool
-thumbcache.rs    on-disk thumbnail cache (dirs::cache_dir()/AlbumCraft/thumbs)
-imaging.rs       non-destructive edit pipeline (EditOp, Effect, apply_all), load_source, sample images
-exifinfo.rs      camera information and embedded thumbnails (kamadak-exif)
-geo.rs           locations: Place in Meta, EXIF GPS read/write, GPS index, built-in city search, projection
-basemap.rs       built-in world map (Natural Earth), triangulated and drawn
-online.rs        online maps, only when the user allowed them: OpenStreetMap tiles and place search
-map_view.rs      Places map and "Set location" mode
-shell.rs         library UI (top bar, sidebar, justified grid, tray, status bar)
-library_view.rs  shared library helpers, menus, context menu, keys
-edit_view.rs     editor UI, compare modes, slideshow
-print.rs         print layouts; Win32 GDI printing (the only `unsafe`, Windows only)
-print_view.rs    print UI
-theme.rs         light/dark tokens and egui style
+crates/albumcraft-edit/src/   the edit pipeline only: no files, no threads of its own; builds for wasm32
+  imaging.rs       EditOp, Effect, apply_all, sample pictures, copyable_edits, make_collage
+  develop.rs       Adjust sliders and the analysis behind the one-click fixes
+  looks.rs         preset looks
+  decor.rs         Effects tab: vignette, borders, shadow, text
+crates/albumcraft-core/src/   everything without a window (native: desktop app, later the server)
+  library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool
+  imaging.rs       reading picture files (load_source, oriented_dims) on top of the edit pipeline
+  commands.rs      the command layer (Host, Headless); mcp.rs and control.rs: the MCP server and the window's control connection
+  export.rs        export_one (edited JPEG copies, never overwriting)
+  exifinfo.rs raw.rs geo.rs thumbcache.rs gallery.rs movie.rs
+  online.rs        online map services (tiles on disk, place search), only when allowed
+  print.rs         print layouts and page rendering; slides.rs: slideshow settings and motion
+src/                          the egui app (binary `albumcraft`)
+  main.rs          entry point, --screenshot, --mcp; uses the core modules under their old names (crate::library, …)
+  app.rs           App state + eframe update loop, dialogs, screenshot capture
+  backend.rs       the Library interface: how App reads pictures and saves notes (LocalLibrary today)
+  shell.rs         library UI (top bar, sidebar, justified grid, tray, status bar)
+  library_view.rs  shared library helpers, menus, context menu, keys
+  edit_view.rs     editor UI, compare modes, slideshow
+  map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
+  online.rs        map tiles as textures (adds to core's online.rs)
+  print.rs         printers: Win32 GDI (the only `unsafe`, Windows only) and CUPS (adds to core's print.rs)
+  print_view.rs    print UI
+  slides.rs        slideshow music (adds to core's slides.rs)
+  theme.rs         light/dark tokens and egui style
 ```
 
 ## 3. Golden rules
@@ -56,6 +69,7 @@ People trust AlbumCraft with years of stars, captions, tags and edits. A malform
 7. **Verify UI changes visually.** `cargo run -- --screenshot out.png` renders one frame offscreen and exits; `ALBUMCRAFT_SHOT_VIEW=edit|presets|effects|slideshow|movie|print|compare|props|zoom|tray` and `ALBUMCRAFT_THEME=light|dark` pick what is shown. Look at the PNG.
 8. **Everything is a command.** New user-visible actions get a command in `src/commands.rs` (name, description, JSON schema, `run` arm working on `Host`, test), so agents can use them through the MCP server (`albumcraft --mcp`). Commands take pictures by key, validate every parameter and return `Err` for bad input; slow work goes in `Outcome::Later`. Prefer having the UI call the same code. (Many older UI actions still change state directly; move them over when touching them.)
 9. **Platform code is isolated.** `unsafe` exists only in `print.rs` under `#[cfg(windows)]`; every block keeps its invariants obvious and gets a `SAFETY:` comment when touched. Don't add `unsafe` elsewhere. Platform-specific behaviour (file manager, printing) needs a working or clearly reported fallback on Linux and macOS.
+10. **The window reads pictures and notes only through its `Library`** (`src/backend.rs`): scans, thumbnails and previews, picture sizes, EXIF, GPS, `.picasa.ini`, saving the notes, export / gallery / movie / collage. Don't call `load_source`, `std::fs` or `Store::load` from `App` or the views; add a method to `Library` (implemented in `LocalLibrary`) instead, so a library on a server can stand in later. Code that must also run in a browser (the edit pipeline) goes in `albumcraft-edit`, which must keep building with `cargo build -p albumcraft-edit --target wasm32-unknown-unknown`.
 
 ## 4. Picking work
 

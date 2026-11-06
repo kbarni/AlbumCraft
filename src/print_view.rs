@@ -411,6 +411,7 @@ impl App {
         }
         let tx = self.tx.clone();
         let ctx = self.ctx.clone();
+        let pictures = self.lib.pictures();
         std::thread::spawn(move || {
             // pages are drawn at the printer's resolution, but at most 300 dpi
             let dpi = paper.dpi.clamp(72, 300);
@@ -421,7 +422,7 @@ impl App {
                 let items: Vec<print::PageItem> = jobs[p * per_page..((p + 1) * per_page).min(jobs.len())]
                     .iter()
                     .map(|(key, edits, caption)| {
-                        let img = crate::imaging::load_source(key, load_dim).map(|i| crate::imaging::apply_all(&i, edits)).unwrap_or_else(|| image::RgbaImage::from_pixel(4, 3, image::Rgba([230, 230, 230, 255])));
+                        let img = pictures(key, load_dim).map(|i| crate::imaging::apply_all(&i, edits)).unwrap_or_else(|| image::RgbaImage::from_pixel(4, 3, image::Rgba([230, 230, 230, 255])));
                         print::PageItem { image: img, caption: caption.clone() }
                     })
                     .collect();
