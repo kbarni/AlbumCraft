@@ -164,6 +164,7 @@ dependencies = [
  "unicode-properties",
  "ureq",
  "windows",
+ "winit",
  "winresource",
 ]
 

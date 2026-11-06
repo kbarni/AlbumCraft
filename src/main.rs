@@ -3,6 +3,7 @@
 mod app;
 mod backend;
 mod basemap;
+mod display;
 mod edit_view;
 mod library_view;
 mod map_view;
@@ -116,7 +117,7 @@ fn main() -> eframe::Result<()> {
         }
     }
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("AlbumCraft")
             // Wayland and X11 match the window to io.github.kbarni.albumcraft.desktop (its icon)
@@ -126,6 +127,7 @@ fn main() -> eframe::Result<()> {
             .with_icon(window_icon()),
         ..Default::default()
     };
+    display::use_x11_if_wayland_is_gone(&mut options, trace);
     eframe::run_native(
         "AlbumCraft",
         options,
