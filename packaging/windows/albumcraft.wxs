@@ -46,12 +46,11 @@
         <!-- Lets Win+R start `albumcraft`. -->
         <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\albumcraft.exe" Value="[#AlbumCraftExe]" Type="string" />
       </Component>
-      <Component Id="AlbumCraftDocs">
-        <File Id="Readme" Source="$(var.StageDir)\README.md" KeyPath="yes" />
-        <File Id="LicenseMit" Source="$(var.StageDir)\LICENSE-MIT" />
-        <File Id="LicenseApache" Source="$(var.StageDir)\LICENSE-APACHE" />
-        <File Id="Notice" Source="$(var.StageDir)\NOTICE" />
-      </Component>
+      <!-- One file per component, so WiX can generate their GUIDs. -->
+      <Component><File Id="Readme" Source="$(var.StageDir)\README.md" /></Component>
+      <Component><File Id="LicenseMit" Source="$(var.StageDir)\LICENSE-MIT" /></Component>
+      <Component><File Id="LicenseApache" Source="$(var.StageDir)\LICENSE-APACHE" /></Component>
+      <Component><File Id="Notice" Source="$(var.StageDir)\NOTICE" /></Component>
     </ComponentGroup>
   </Fragment>
 </Wix>
