@@ -1,0 +1,46 @@
+# Flatpak manifest for the single-file bundle attached to each release
+# (albumcraft-<version>-linux-<arch>.flatpak). Build it with packaging/linux/flatpak-bundle.sh.
+#
+# It repackages the release's own .deb (built on Ubuntu 22.04 by package.sh) instead of compiling
+# Rust inside flatpak-builder: no network or vendored crates during the build, and the same binary
+# as the .deb and the AppImage. The script unpacks the .deb into `stage/` next to a copy of this
+# file. The binary needs glibc >= 2.35 and loads X11, Wayland, xkbcommon, Vulkan and ALSA at
+# runtime; the freedesktop runtime has all of them, and the GPU driver comes from its GL extension.
+id: io.github.kbarni.albumcraft
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: albumcraft
+finish-args:
+  # Display: Wayland first; X11 only when no Wayland compositor is running.
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared memory (MIT-SHM); without it the X11 fallback is slow.
+  - --share=ipc
+  # GPU for the wgpu renderer.
+  - --device=dri
+  # Slideshow music (ALSA, routed to PulseAudio/PipeWire by the runtime).
+  - --socket=pulseaudio
+  # The library keeps the real paths of the picture folders and scans them again on every start,
+  # so they must be readable where they are: the home folder and removable drives. Pictures are
+  # only read; the notes live in the app's own data folder.
+  - --filesystem=home
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=/mnt
+  # Online maps (only after the user agrees) and the localhost connection of `albumcraft --mcp`.
+  - --share=network
+  # Printing through CUPS.
+  - --socket=cups
+modules:
+  - name: albumcraft
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 usr/bin/albumcraft /app/bin/albumcraft
+      - install -Dm644 usr/share/applications/io.github.kbarni.albumcraft.desktop /app/share/applications/io.github.kbarni.albumcraft.desktop
+      # Already has the release's version and date filled in by package.sh.
+      - install -Dm644 usr/share/metainfo/io.github.kbarni.albumcraft.metainfo.xml /app/share/metainfo/io.github.kbarni.albumcraft.metainfo.xml
+      - mkdir -p /app/share/icons /app/share/doc && cp -R usr/share/icons/hicolor /app/share/icons/ && cp -R usr/share/doc/albumcraft /app/share/doc/
+    sources:
+      - type: dir
+        path: stage

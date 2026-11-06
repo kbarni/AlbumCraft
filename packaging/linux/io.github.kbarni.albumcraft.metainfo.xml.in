@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata (software centres, Flathub). package.sh fills in @VERSION@ and @DATE@. -->
+<component type="desktop-application">
+  <id>io.github.kbarni.albumcraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>AlbumCraft</name>
+  <summary>Organize, edit and share your pictures</summary>
+  <developer id="io.github.kbarni">
+    <name>Keresztes Barna</name>
+  </developer>
+  <description>
+    <p>
+      AlbumCraft is a fast, simple photo organizer with a non-destructive editor. Point it at your
+      picture folders and it shows every picture, newest first; pick, reject and rate them, add
+      captions, tags and people, sort them into albums and see where they were taken on a map.
+    </p>
+    <p>
+      The editor has one-click fixes, sliders for light and colour, preset looks and effects. Your
+      original pictures are never modified: edits are applied when a picture is shown or exported.
+    </p>
+    <p>
+      Share pictures as exported copies, collages, prints, slideshows with music, web galleries and
+      slideshow movies.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.kbarni.albumcraft.desktop</launchable>
+  <icon type="stock">io.github.kbarni.albumcraft</icon>
+  <url type="homepage">https://github.com/kbarni/AlbumCraft</url>
+  <url type="bugtracker">https://github.com/kbarni/AlbumCraft/issues</url>
+  <categories>
+    <category>Graphics</category>
+    <category>Photography</category>
+  </categories>
+  <keywords>
+    <keyword>photo</keyword>
+    <keyword>picture</keyword>
+    <keyword>album</keyword>
+    <keyword>raw</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The library</caption>
+      <image type="source">https://raw.githubusercontent.com/kbarni/AlbumCraft/main/docs/screenshots/library.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Editing with the Advanced sliders</caption>
+      <image type="source">https://raw.githubusercontent.com/kbarni/AlbumCraft/main/docs/screenshots/compare.jpg</image>
+    </screenshot>
+  </screenshots>
+  <requires>
+    <display_length compare="ge">900</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <provides>
+    <binary>albumcraft</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

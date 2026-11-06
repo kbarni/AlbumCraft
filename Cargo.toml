@@ -54,6 +54,10 @@ ab_glyph.workspace = true
 # the test that every UI character can be drawn tells real emoji (from the system's emoji font) apart
 unicode-properties = { version = "0.1.5", default-features = false, features = ["emoji"] }
 
+# embeds the app icon and version in albumcraft.exe (build.rs)
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.34", default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Printing", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs", "Win32_System_Memory"] }
 

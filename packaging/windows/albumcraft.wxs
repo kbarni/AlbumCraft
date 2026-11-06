@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Windows installer (WiX v5), built by package.ps1. Installs for all users in
+     Program Files\AlbumCraft with a Start menu shortcut; a newer version replaces an older one.
+     The UpgradeCode never changes: Windows uses it to find the installed AlbumCraft. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="AlbumCraft" Manufacturer="Keresztes Barna" Version="$(var.Version)"
+           UpgradeCode="DA19F813-83C2-4E07-8B57-599EA2AFAB25" Scope="perMachine" Compressed="yes" Language="1033">
+    <SummaryInformation Description="AlbumCraft photo organizer" Manufacturer="Keresztes Barna" />
+    <!-- MSI versions are numeric, so 0.3.0-rc.1 and 0.3.0-rc.2 are both 0.3.0: allow same-version
+         upgrades so successive pre-releases replace each other. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of AlbumCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AlbumCraft.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="AlbumCraft.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/kbarni/AlbumCraft" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/kbarni/AlbumCraft/issues" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="AlbumCraft" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="AlbumCraft" Level="1">
+      <ComponentGroupRef Id="AlbumCraftFiles" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <!-- Skip the licence page: Welcome goes straight to the folder choice. -->
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="NOT Installed" />
+    </UI>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AlbumCraftFiles" Directory="INSTALLFOLDER">
+      <Component Id="AlbumCraftApp" Guid="C0D98E6F-D3E2-4833-A863-A7F8CBF40200">
+        <File Id="AlbumCraftExe" Source="$(var.StageDir)\albumcraft.exe" KeyPath="yes">
+          <!-- Not advertised and no Icon: the shortcut points at the exe and shows the icon embedded
+               in it (build.rs). An MSI Icon lives in a per-version cache that an upgrade deletes,
+               which would leave taskbar pins (copies of this shortcut) without an icon. -->
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="AlbumCraft"
+                    Description="Organize, edit and share your pictures" WorkingDirectory="INSTALLFOLDER" Advertise="no" />
+        </File>
+        <!-- Lets Win+R start `albumcraft`. -->
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\albumcraft.exe" Value="[#AlbumCraftExe]" Type="string" />
+      </Component>
+      <Component Id="AlbumCraftDocs">
+        <File Id="Readme" Source="$(var.StageDir)\README.md" KeyPath="yes" />
+        <File Id="LicenseMit" Source="$(var.StageDir)\LICENSE-MIT" />
+        <File Id="LicenseApache" Source="$(var.StageDir)\LICENSE-APACHE" />
+        <File Id="Notice" Source="$(var.StageDir)\NOTICE" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

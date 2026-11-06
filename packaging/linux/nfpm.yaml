@@ -1,0 +1,61 @@
+# The .deb package (nfpm: https://nfpm.goreleaser.com). package.sh stages the file tree, puts its
+# path in place of ${STAGE} (nfpm doesn't expand variables in `src`) and exports VERSION and
+# NFPM_ARCH.
+name: albumcraft
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+# semver: 0.3.0-rc.1 becomes 0.3.0~rc.1, so a pre-release sorts before its release.
+version_schema: semver
+release: 1
+section: graphics
+priority: optional
+maintainer: Keresztes Barna <kbarna@gmail.com>
+homepage: https://github.com/kbarni/AlbumCraft
+license: MIT OR Apache-2.0
+description: |-
+  Fast, simple photo organizer with a non-destructive editor.
+  Folders of pictures (JPEG, PNG, TIFF, WebP, GIF, BMP and camera raw files) in
+  a justified grid; picks, rejects, stars, captions, tags, people, albums and a
+  map of places. One-click fixes, sliders, preset looks and effects that never
+  modify the originals. Export, collage, printing, slideshows, web galleries
+  and slideshow movies. Includes an MCP server (albumcraft --mcp).
+
+# The binary links only glibc, libgcc_s and ALSA directly. Windowing (X11, Wayland, xkbcommon)
+# and the GPU (Vulkan, or EGL/GL) are loaded at runtime, so they are listed here rather than in
+# the ELF file.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libasound2 | libasound2t64
+      - libxkbcommon0
+      - libvulkan1 | libegl1
+    recommends:
+      - libwayland-client0
+      - libx11-6
+      - libx11-xcb1
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - mesa-vulkan-drivers
+      # file dialogs go through the desktop portal
+      - xdg-desktop-portal
+    suggests:
+      # movie export
+      - ffmpeg
+      # printing
+      - cups-client
+
+contents:
+  - src: ${STAGE}/usr/bin/albumcraft
+    dst: /usr/bin/albumcraft
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/share/
+    dst: /usr/share/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/postinst.sh
+  postremove: packaging/linux/postinst.sh
