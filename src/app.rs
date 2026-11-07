@@ -106,26 +106,37 @@ pub enum Tool {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum CropAspect {
     Manual,
+    /// The picture's own shape.
+    Original,
     Square,
     FourThree,
     ThreeTwo,
+    SixteenNine,
 }
 
 impl CropAspect {
-    pub fn ratio(&self) -> Option<f32> {
+    pub const ALL: [CropAspect; 6] =
+        [CropAspect::Manual, CropAspect::Original, CropAspect::Square, CropAspect::FourThree, CropAspect::ThreeTwo, CropAspect::SixteenNine];
+
+    /// Width / height of the long side over the short side; `picture` is the picture's own.
+    pub fn ratio(&self, picture: f32) -> Option<f32> {
         match self {
             CropAspect::Manual => None,
+            CropAspect::Original => Some(if picture >= 1.0 { picture } else { 1.0 / picture.max(0.01) }),
             CropAspect::Square => Some(1.0),
             CropAspect::FourThree => Some(4.0 / 3.0),
             CropAspect::ThreeTwo => Some(1.5),
+            CropAspect::SixteenNine => Some(16.0 / 9.0),
         }
     }
     pub fn label(&self) -> &'static str {
         match self {
-            CropAspect::Manual => "Manual",
+            CropAspect::Manual => "Free",
+            CropAspect::Original => "Original shape",
             CropAspect::Square => "Square",
-            CropAspect::FourThree => "4 x 3",
-            CropAspect::ThreeTwo => "3 x 2 (4x6 print)",
+            CropAspect::FourThree => "4 × 3",
+            CropAspect::ThreeTwo => "3 × 2 (10 × 15 print)",
+            CropAspect::SixteenNine => "16 × 9 (wide screen)",
         }
     }
 }
@@ -173,6 +184,14 @@ pub struct EditState {
     pub angle: f32,
     pub drag_start: Option<egui::Pos2>,
     pub sel: Option<[f32; 4]>,
+    /// Moving the crop box: where it was when the drag started.
+    pub sel_moving: Option<[f32; 4]>,
+    /// The crop box is upright (taller than wide) for shapes other than square.
+    pub crop_portrait: bool,
+    /// Draw the largest box of the chosen shape, centred, at the next frame.
+    pub crop_autofit: bool,
+    /// Show the alignment grid on the picture until this time (geometry sliders in use).
+    pub grid_until: f64,
     pub redo: Vec<EditOp>,
     pub tag_buf: String,
     pub person_buf: String,
@@ -474,6 +493,10 @@ impl App {
                 advanced: false,
                 tool: Tool::None,
                 aspect: CropAspect::Manual,
+                sel_moving: None,
+                crop_portrait: false,
+                crop_autofit: false,
+                grid_until: 0.0,
                 angle: 0.0,
                 drag_start: None,
                 sel: None,
@@ -674,6 +697,13 @@ impl App {
                 m.edits.push(EditOp::Perspective { vertical: 0.6, horizontal: 0.0 });
                 app.open_editor(5);
                 app.edit.advanced = true;
+                // the grid shown while the geometry sliders move
+                app.edit.grid_until = f64::MAX;
+            }
+            if shot_view == "crop" && app.photos.len() > 5 {
+                app.open_editor(5);
+                app.edit.aspect = CropAspect::ThreeTwo;
+                app.start_crop();
             }
             if shot_view == "maps" {
                 app.dialog = Some(Dialog::OnlineMaps);

@@ -114,6 +114,34 @@ enum AutoFix {
     Straighten,
 }
 
+/// The alignment grid: square cells (about fifteen across the long side), so straight horizontal
+/// and vertical lines in the picture are easy to check against it.
+fn paint_grid(p: &egui::Painter, r: Rect) {
+    let cell = (r.width().max(r.height()) / 15.0).max(12.0);
+    let stroke = Stroke::new(1.0, Color32::from_white_alpha(120));
+    let shadow = Stroke::new(1.0, Color32::from_black_alpha(60));
+    let mut x = r.center().x - (r.width() / 2.0 / cell).floor() * cell;
+    while x <= r.right() + 0.5 {
+        p.line_segment([Pos2::new(x + 1.0, r.top()), Pos2::new(x + 1.0, r.bottom())], shadow);
+        p.line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], stroke);
+        x += cell;
+    }
+    let mut y = r.center().y - (r.height() / 2.0 / cell).floor() * cell;
+    while y <= r.bottom() + 0.5 {
+        p.line_segment([Pos2::new(r.left(), y + 1.0), Pos2::new(r.right(), y + 1.0)], shadow);
+        p.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], stroke);
+        y += cell;
+    }
+}
+
+/// The largest box of `ratio` (width / height, in screen pixels) inside a `w` × `h` picture,
+/// centred, as fractions of the picture.
+fn largest_box(ratio: f32, w: f32, h: f32) -> [f32; 4] {
+    let (bw, bh) = if w / h.max(1.0) > ratio { (h * ratio, h) } else { (w, w / ratio.max(0.01)) };
+    let (fx, fy) = ((bw / w.max(1.0)).min(1.0), (bh / h.max(1.0)).min(1.0));
+    [(1.0 - fx) / 2.0, (1.0 - fy) / 2.0, (1.0 + fx) / 2.0, (1.0 + fy) / 2.0]
+}
+
 fn tool_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
     ui.add_sized([112.0, 46.0], egui::Button::new(RichText::new(format!("{icon}\n{label}")).size(12.5)))
 }
@@ -536,13 +564,33 @@ impl App {
             }
             Tool::Crop => {
                 ui.label(RichText::new("Crop").strong().size(15.0));
-                ui.label("Drag a box on the picture to choose what to keep.");
+                ui.label("Drag on the picture to draw what to keep; drag inside the box to move it.");
                 ui.add_space(4.0);
-                for a in [CropAspect::Manual, CropAspect::Square, CropAspect::FourThree, CropAspect::ThreeTwo] {
-                    if ui.radio_value(&mut self.edit.aspect, a, a.label()).changed() {
-                        self.edit.sel = None;
+                ui.label(RichText::new("Shape").size(12.5).color(t().text_weak));
+                let before = self.edit.aspect;
+                egui::ComboBox::from_id_salt("crop_shape").selected_text(before.label()).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
+                    for a in CropAspect::ALL {
+                        ui.selectable_value(&mut self.edit.aspect, a, a.label());
                     }
+                });
+                if self.edit.aspect != before {
+                    self.edit.sel = None;
+                    self.edit.crop_autofit = self.edit.aspect != CropAspect::Manual;
                 }
+                let shaped = !matches!(self.edit.aspect, CropAspect::Manual | CropAspect::Square);
+                ui.add_space(4.0);
+                ui.add_enabled_ui(shaped, |ui| {
+                    ui.label(RichText::new("Orientation").size(12.5).color(t().text_weak));
+                    ui.horizontal(|ui| {
+                        let before = self.edit.crop_portrait;
+                        ui.selectable_value(&mut self.edit.crop_portrait, false, "Landscape").on_hover_text("Wider than tall");
+                        ui.selectable_value(&mut self.edit.crop_portrait, true, "Portrait").on_hover_text("Taller than wide");
+                        if self.edit.crop_portrait != before {
+                            self.edit.sel = None;
+                            self.edit.crop_autofit = true;
+                        }
+                    });
+                });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
@@ -621,8 +669,7 @@ impl App {
                 ui.label(RichText::new("Tools").size(12.0).weak());
                 egui::Grid::new("basic").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
                     if tool_button(ui, icons::CROP, "Crop").clicked() {
-                        self.edit.tool = Tool::Crop;
-                        self.edit.sel = None;
+                        self.start_crop();
                     }
                     if tool_button(ui, icons::STRAIGHTEN, "Straighten").clicked() {
                         self.edit.tool = Tool::Straighten;
@@ -658,6 +705,7 @@ impl App {
             ui.label(RichText::new(title).size(12.0).strong().color(t().text_weak));
         };
         ui.spacing_mut().slider_width = 108.0;
+        self.geometry_section(ui, id);
         section(ui, "WHITE BALANCE");
         let preset = develop::WB_PRESETS.iter().find(|(_, t, ti)| *t == a.temp && *ti == a.tint).map(|(n, _, _)| *n).unwrap_or("Custom");
         ui.horizontal(|ui| {
@@ -705,17 +753,44 @@ impl App {
             self.set_adjust(id, a);
         }
 
-        // geometry: these edit the picture's own straighten / perspective step (one of each)
-        section(ui, "GEOMETRY");
+        ui.add_space(8.0);
+        if ui.add_enabled(!a.is_neutral(), egui::Button::new("Reset all")).clicked() {
+            self.set_adjust(id, Adjust::default());
+        }
+        ui.label(RichText::new("Moving a slider again right after changes the same step, so Undo takes it back in one go.").size(11.5).weak());
+    }
+
+    /// Crop, straighten and perspective, at the top of the Advanced tab (the most used fixes). The
+    /// sliders edit the picture's own straighten / perspective step (one of each) and show the
+    /// alignment grid on the picture while they move.
+    fn geometry_section(&mut self, ui: &mut egui::Ui, id: usize) {
+        ui.add_space(6.0);
+        ui.label(RichText::new("GEOMETRY").size(12.0).strong().color(t().text_weak));
+        let has_crop = self.meta(id).is_some_and(|m| m.edits.iter().any(|e| matches!(e, EditOp::Crop(_))));
+        ui.horizontal(|ui| {
+            if ui.button(format!("{}  Crop…", icons::CROP)).on_hover_text("Choose what part of the picture to keep").clicked() {
+                self.start_crop();
+            }
+            if has_crop && ui.button("Remove crop").on_hover_text("Show the whole picture again").clicked() {
+                let m = self.meta_mut(id);
+                if let Some(i) = m.edits.iter().rposition(|e| matches!(e, EditOp::Crop(_))) {
+                    m.edits.remove(i);
+                }
+                self.edit.redo.clear();
+                self.refresh_thumb(id);
+            }
+        });
         let (mut angle, mut persp) = self.current_geometry(id);
         let (angle0, persp0) = (angle, persp);
-        let geo_slider = |ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, decimals: usize, suffix: &str, tip: &str| {
+        let mut in_use = false;
+        let mut geo_slider = |ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, decimals: usize, suffix: &str, tip: &str| {
             ui.horizontal(|ui| {
                 let l = ui.add_sized([74.0, 18.0], egui::Label::new(RichText::new(label).size(12.5)).sense(Sense::click())).on_hover_text(format!("{tip}\nDouble-click to reset"));
                 if l.double_clicked() {
                     *v = 0.0;
                 }
-                ui.add(egui::Slider::new(v, range).max_decimals(decimals).suffix(suffix));
+                let r = ui.add(egui::Slider::new(v, range).max_decimals(decimals).suffix(suffix));
+                in_use |= r.dragged() || r.changed() || r.has_focus();
             });
         };
         geo_slider(ui, "Straighten", &mut angle, -45.0..=45.0, 1, "°", "Turn the picture a little to level the horizon (zooms in to hide the corners)");
@@ -729,11 +804,23 @@ impl App {
         if persp != persp0 {
             self.set_geometry(id, EditOp::Perspective { vertical: persp.0, horizontal: persp.1 });
         }
-        ui.add_space(8.0);
-        if ui.add_enabled(!a.is_neutral(), egui::Button::new("Reset all")).clicked() {
-            self.set_adjust(id, Adjust::default());
+        if in_use {
+            // the grid stays a moment after the slider is let go
+            let now = ui.input(|i| i.time);
+            self.edit.grid_until = now + 1.2;
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(1250));
         }
-        ui.label(RichText::new("Moving a slider again right after changes the same step, so Undo takes it back in one go.").size(11.5).weak());
+    }
+
+    /// Start the crop tool; the box is wide or tall like the picture.
+    pub fn start_crop(&mut self) {
+        let id = self.edit.id;
+        let tall = self.thumbs.get(&id).map(|t| t.size()).is_some_and(|[w, h]| h > w);
+        self.edit.tool = Tool::Crop;
+        self.edit.sel = None;
+        self.edit.sel_moving = None;
+        self.edit.crop_portrait = tall;
+        self.edit.crop_autofit = self.edit.aspect != CropAspect::Manual;
     }
 
     /// The picture's straighten angle and perspective (vertical, horizontal): its latest steps of
@@ -1343,6 +1430,9 @@ impl App {
         let img = Rect::from_center_size(canvas.center() + self.edit.pan, size);
         let p = ui.painter_at(canvas);
         p.image(tex.id(), img, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+        if ui.input(|i| i.time) < self.edit.grid_until {
+            paint_grid(&p, img.intersect(canvas));
+        }
         if resp.double_clicked() && self.edit.zoom_anim.is_none() {
             self.start_zoom_anim(ui.ctx(), None);
         }
@@ -1451,17 +1541,12 @@ impl App {
             if !self.big.contains_key(&id) {
                 p.text(img_rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, "Loading full picture…", egui::FontId::proportional(13.0), Color32::WHITE);
             }
+            if self.edit.tool == Tool::None && ui.input(|i| i.time) < self.edit.grid_until {
+                paint_grid(p, img_rect);
+            }
 
             match self.edit.tool {
-                Tool::Straighten => {
-                    let stroke = Stroke::new(1.0, Color32::from_white_alpha(110));
-                    for i in 1..8 {
-                        let x = img_rect.left() + img_rect.width() * i as f32 / 8.0;
-                        p.line_segment([Pos2::new(x, img_rect.top()), Pos2::new(x, img_rect.bottom())], stroke);
-                        let y = img_rect.top() + img_rect.height() * i as f32 / 8.0;
-                        p.line_segment([Pos2::new(img_rect.left(), y), Pos2::new(img_rect.right(), y)], stroke);
-                    }
-                }
+                Tool::Straighten => paint_grid(p, img_rect),
                 Tool::Crop | Tool::Redeye => {
                     let to_norm = |pos: Pos2| -> Pos2 {
                         Pos2::new(
@@ -1469,24 +1554,56 @@ impl App {
                             ((pos.y - img_rect.top()) / img_rect.height()).clamp(0.0, 1.0),
                         )
                     };
+                    // the crop box's shape (width / height on screen), None = free
+                    let crop = self.edit.tool == Tool::Crop;
+                    let box_ratio = self
+                        .edit
+                        .aspect
+                        .ratio(img_rect.width() / img_rect.height().max(1.0))
+                        .filter(|_| crop)
+                        .map(|r| if self.edit.crop_portrait { 1.0 / r } else { r });
+                    if crop && self.edit.crop_autofit {
+                        self.edit.crop_autofit = false;
+                        self.edit.sel = box_ratio.map(|r| largest_box(r, img_rect.width(), img_rect.height()));
+                    }
                     if resp.drag_started() {
-                        self.edit.drag_start = resp.interact_pointer_pos().map(to_norm);
+                        let start = resp.interact_pointer_pos().map(to_norm);
+                        self.edit.drag_start = start;
+                        // dragging inside the crop box moves it
+                        self.edit.sel_moving = match (crop, self.edit.sel, start) {
+                            (true, Some(s), Some(a)) if a.x > s[0] && a.x < s[2] && a.y > s[1] && a.y < s[3] => Some(s),
+                            _ => None,
+                        };
+                    }
+                    if resp.drag_stopped() {
+                        self.edit.sel_moving = None;
                     }
                     if resp.dragged()
                         && let (Some(a), Some(pos)) = (self.edit.drag_start, resp.interact_pointer_pos()) {
                             let mut b = to_norm(pos);
-                            if self.edit.tool == Tool::Crop
-                                && let Some(ratio) = self.edit.aspect.ratio() {
-                                    // keep the chosen shape, in either orientation of the picture
-                                    let ratio = if img_rect.width() >= img_rect.height() { ratio } else { 1.0 / ratio };
+                            if let Some(s) = self.edit.sel_moving {
+                                let (w, h) = (s[2] - s[0], s[3] - s[1]);
+                                let x = (s[0] + b.x - a.x).clamp(0.0, 1.0 - w);
+                                let y = (s[1] + b.y - a.y).clamp(0.0, 1.0 - h);
+                                self.edit.sel = Some([x, y, x + w, y + h]);
+                            } else {
+                                if let Some(ratio) = box_ratio {
+                                    // keep the chosen shape
                                     let wpx = (b.x - a.x) * img_rect.width();
                                     let hpx = wpx.abs() / ratio * (b.y - a.y).signum();
                                     b.y = (a.y + hpx / img_rect.height()).clamp(0.0, 1.0);
                                 }
-                            if (b.x - a.x).abs() > 0.01 && (b.y - a.y).abs() > 0.01 {
-                                self.edit.sel = Some([a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y)]);
+                                if (b.x - a.x).abs() > 0.01 && (b.y - a.y).abs() > 0.01 {
+                                    self.edit.sel = Some([a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y)]);
+                                }
                             }
                         }
+                    if crop
+                        && let (Some(s), Some(h)) = (self.edit.sel, resp.hover_pos().map(to_norm))
+                        && h.x > s[0] && h.x < s[2] && h.y > s[1] && h.y < s[3]
+                    {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
                     if let Some(s) = self.edit.sel {
                         let r = Rect::from_min_max(
                             Pos2::new(img_rect.left() + s[0] * img_rect.width(), img_rect.top() + s[1] * img_rect.height()),
@@ -1499,6 +1616,14 @@ impl App {
                             p.rect_filled(Rect::from_min_max(Pos2::new(img_rect.left(), r.top()), Pos2::new(r.left(), r.bottom())), 0, dim);
                             p.rect_filled(Rect::from_min_max(Pos2::new(r.right(), r.top()), Pos2::new(img_rect.right(), r.bottom())), 0, dim);
                             p.rect_stroke(r, 0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Outside);
+                            // thirds, to place what matters
+                            let thin = Stroke::new(1.0, Color32::from_white_alpha(90));
+                            for k in [1.0 / 3.0, 2.0 / 3.0] {
+                                let x = r.left() + r.width() * k;
+                                let y = r.top() + r.height() * k;
+                                p.line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], thin);
+                                p.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], thin);
+                            }
                         } else {
                             p.rect_stroke(r, 0, Stroke::new(2.0, Color32::from_rgb(255, 80, 80)), StrokeKind::Outside);
                         }
@@ -1735,5 +1860,25 @@ mod zoom_tests {
         for p in [0.1f32, 0.3, 0.6, 0.9] {
             assert!((zoom_to_pos(pos_to_zoom(p, fit), fit) - p).abs() < 1e-4);
         }
+    }
+}
+
+#[cfg(test)]
+mod geometry_tests {
+    use super::largest_box;
+
+    #[test]
+    fn largest_centred_box() {
+        // a square in a 300 × 200 picture: full height, centred
+        let b = largest_box(1.0, 300.0, 200.0);
+        assert!((b[1] - 0.0).abs() < 1e-6 && (b[3] - 1.0).abs() < 1e-6);
+        assert!(((b[2] - b[0]) * 300.0 - 200.0).abs() < 1e-3);
+        assert!(((b[0] + b[2]) / 2.0 - 0.5).abs() < 1e-6);
+        // a wide box in a tall picture: full width
+        let b = largest_box(16.0 / 9.0, 200.0, 300.0);
+        assert!((b[0] - 0.0).abs() < 1e-6 && (b[2] - 1.0).abs() < 1e-6);
+        assert!(((b[3] - b[1]) * 300.0 - 200.0 * 9.0 / 16.0).abs() < 1e-3);
+        // the picture's own shape: all of it
+        assert_eq!(largest_box(1.5, 300.0, 200.0), [0.0, 0.0, 1.0, 1.0]);
     }
 }
