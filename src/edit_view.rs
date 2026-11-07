@@ -566,22 +566,31 @@ impl App {
                 ui.label(RichText::new("Crop").strong().size(15.0));
                 ui.label("Drag on the picture to draw what to keep; drag inside the box to move it.");
                 ui.add_space(4.0);
-                for a in CropAspect::ALL {
-                    if ui.radio_value(&mut self.edit.aspect, a, a.label()).changed() {
-                        self.edit.sel = None;
-                        self.edit.crop_autofit = a != CropAspect::Manual;
+                ui.label(RichText::new("Shape").size(12.5).color(t().text_weak));
+                let before = self.edit.aspect;
+                egui::ComboBox::from_id_salt("crop_shape").selected_text(before.label()).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
+                    for a in CropAspect::ALL {
+                        ui.selectable_value(&mut self.edit.aspect, a, a.label());
                     }
+                });
+                if self.edit.aspect != before {
+                    self.edit.sel = None;
+                    self.edit.crop_autofit = self.edit.aspect != CropAspect::Manual;
                 }
                 let shaped = !matches!(self.edit.aspect, CropAspect::Manual | CropAspect::Square);
-                if ui
-                    .add_enabled(shaped, egui::Button::new(format!("{}  {}", icons::ROTATE_RIGHT, if self.edit.crop_portrait { "Make it wide" } else { "Make it tall" })))
-                    .on_hover_text("Turn the box between wide and tall")
-                    .clicked()
-                {
-                    self.edit.crop_portrait = !self.edit.crop_portrait;
-                    self.edit.sel = None;
-                    self.edit.crop_autofit = true;
-                }
+                ui.add_space(4.0);
+                ui.add_enabled_ui(shaped, |ui| {
+                    ui.label(RichText::new("Orientation").size(12.5).color(t().text_weak));
+                    ui.horizontal(|ui| {
+                        let before = self.edit.crop_portrait;
+                        ui.selectable_value(&mut self.edit.crop_portrait, false, "Landscape").on_hover_text("Wider than tall");
+                        ui.selectable_value(&mut self.edit.crop_portrait, true, "Portrait").on_hover_text("Taller than wide");
+                        if self.edit.crop_portrait != before {
+                            self.edit.sel = None;
+                            self.edit.crop_autofit = true;
+                        }
+                    });
+                });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
