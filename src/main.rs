@@ -7,6 +7,7 @@ mod display;
 mod edit_view;
 mod icons;
 mod import_view;
+mod info_panel;
 mod library_view;
 mod map_view;
 mod online;

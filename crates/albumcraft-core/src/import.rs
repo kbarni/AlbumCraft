@@ -76,7 +76,8 @@ fn date_taken(path: &str) -> Option<i64> {
     parse_exif_date(&text)
 }
 
-fn parse_exif_date(text: &str) -> Option<i64> {
+/// An EXIF date ("2006:08:18 10:34:25", the camera's local time) as Unix seconds.
+pub fn parse_exif_date(text: &str) -> Option<i64> {
     use chrono::TimeZone;
     let naive = chrono::NaiveDateTime::parse_from_str(text.trim().trim_end_matches('\0'), "%Y:%m:%d %H:%M:%S").ok()?;
     chrono::Local.from_local_datetime(&naive).earliest().map(|d| d.timestamp())

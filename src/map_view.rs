@@ -336,6 +336,42 @@ impl App {
         }
     }
 
+    /// A small map around `at` with a pin on it (the editor's info panel). Click: the Places map.
+    pub fn mini_map(&mut self, ui: &mut egui::Ui, at: LatLon, height: f32) -> egui::Response {
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::click());
+        if !ui.is_rect_visible(rect) {
+            return resp;
+        }
+        let ctx = ui.ctx().clone();
+        let online = self.online_maps();
+        if online && self.geo.tiles.is_none() {
+            self.geo.tiles = Some(Tiles::new(&ctx));
+        }
+        // the built-in map has country-level detail; online tiles show the streets around
+        // the place sits a little below the middle, so the pin above it looks centred
+        let drop = egui::vec2(0.0, 14.0);
+        let view = Viewport { rect: rect.translate(drop), center: geo::to_world(at), zoom: if online { 12.0 } else { 5.0 } };
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0, t().map_water);
+        if let Some(b) = crate::basemap::get(&ctx) {
+            b.paint(&painter, &view);
+        }
+        if online && let Some(tiles) = &mut self.geo.tiles {
+            tiles.begin_frame(&ctx);
+            paint_tiles(&painter, &view, tiles);
+            painter.text(
+                rect.right_bottom() - egui::vec2(4.0, 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                "© OpenStreetMap",
+                egui::FontId::proportional(9.5),
+                Color32::from_gray(60),
+            );
+        }
+        paint_pin(&painter, rect.center() + drop, false);
+        painter.rect_stroke(rect, 4, Stroke::new(1.0, t().border), StrokeKind::Inside);
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Show on the map")
+    }
+
     /// Open the Places map.
     pub fn open_places(&mut self) {
         if self.view != View::Map {

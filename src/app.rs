@@ -161,7 +161,6 @@ pub struct EditState {
     pub drag_start: Option<egui::Pos2>,
     pub sel: Option<[f32; 4]>,
     pub redo: Vec<EditOp>,
-    pub show_info: bool,
     pub tag_buf: String,
     pub person_buf: String,
     /// "A", "A|B" or "A|A" view: the three buttons at the top of the editor.
@@ -284,6 +283,8 @@ pub struct App {
     pub thumb_seen: HashMap<usize, f64>,
     /// Width / height of thumbnails that were forgotten (keeps the grid's layout steady).
     pub thumb_aspect: HashMap<usize, f32>,
+    /// Every tag of the library, sorted, and the `list_rev` it was made at (info panel).
+    pub tag_cache: Option<(u64, Arc<Vec<String>>)>,
     pub thumb_failed: HashSet<usize>,
     pub big: HashMap<usize, BigEntry>,
     pub big_order: VecDeque<usize>,
@@ -416,6 +417,7 @@ impl App {
             thumb_req: HashSet::new(),
             thumb_seen: HashMap::new(),
             thumb_aspect: HashMap::new(),
+            tag_cache: None,
             thumb_failed: HashSet::new(),
             big: HashMap::new(),
             big_order: VecDeque::new(),
@@ -451,7 +453,6 @@ impl App {
                 drag_start: None,
                 sel: None,
                 redo: vec![],
-                show_info: false,
                 compare: CompareMode::Single,
                 vertical: false,
                 alt_edits: vec![],
@@ -547,8 +548,14 @@ impl App {
                     let (found, _) = library::scan_roots(&[dir.to_string_lossy().to_string()], 10);
                     app.set_library(found, false);
                     if !app.photos.is_empty() {
+                        // a place and tags, and every section open, to show the whole panel
+                        let key = app.photos[0].key.clone();
+                        let m = app.store.meta.entry(key).or_default();
+                        m.place = Some(crate::geo::Place::Set { lat: 46.0717, lon: 24.7928, name: "Sighișoara".into() });
+                        m.tags = vec!["Travel".into(), "Old town".into()];
                         app.open_editor(0);
-                        app.edit.show_info = true;
+                        app.store.info_open = true;
+                        app.edit.tag_buf = "o".into();
                     }
                 }
             }
@@ -564,7 +571,7 @@ impl App {
                 m.edits.push(EditOp::AutoContrast);
                 m.edits.push(EditOp::Look { look: crate::looks::Look::Vivid, amount: 0.6 });
                 app.open_editor(2);
-                app.edit.show_info = true;
+                app.store.info_open = true;
             }
             if shot_view == "effects" && app.photos.len() > 4 {
                 let k = app.photos[4].key.clone();
