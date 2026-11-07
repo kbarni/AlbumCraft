@@ -31,6 +31,10 @@ pub trait Host {
     fn show(&mut self, _id: usize) -> Result<(), String> {
         Err("the AlbumCraft window isn't open".into())
     }
+    /// Open the Places map with only these pictures on it, titled `title` (only with a window).
+    fn show_map(&mut self, _ids: &[usize], _title: String) -> Result<(), String> {
+        Err("the AlbumCraft window isn't open".into())
+    }
     /// The GPS positions stored in the picture files, by key (None: the file has none). Pictures
     /// not looked at yet may be missing.
     fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>>;
@@ -334,6 +338,11 @@ Call `rescan` afterwards to see the new pictures in the library.",
             name: "show_photo",
             description: "Open a picture in the AlbumCraft window's editor (only while the window is open).",
             schema: || json!({ "type": "object", "properties": { "key": { "type": "string" } }, "required": ["key"] }),
+        },
+        Spec {
+            name: "show_on_map",
+            description: "Open the Places map in the AlbumCraft window with only these pictures on it (only while the window is open). Pictures without a location are left out; at least one needs one.",
+            schema: || keys_schema(json!({ "title": { "type": "string", "description": "Shown above the map, e.g. the folder's name", "required": false } })),
         },
         Spec {
             name: "set_location",
@@ -1066,6 +1075,13 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             host.show(id)?;
             now(json!({ "shown": true }))
         }
+        "show_on_map" => {
+            let ids = ids(host, args)?;
+            let title = opt_str(args, "title").map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+            let title = title.unwrap_or_else(|| format!("{} picture{}", ids.len(), if ids.len() == 1 { "" } else { "s" }));
+            host.show_map(&ids, title)?;
+            now(json!({ "shown": true }))
+        }
         _ => Err(format!("unknown command {name:?}")),
     }
 }
@@ -1165,7 +1181,7 @@ impl Host for Headless {
 pub fn read_only(name: &str) -> bool {
     matches!(
         name,
-        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "find_place"
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place"
     )
 }
 
@@ -1351,6 +1367,8 @@ mod tests {
             ("make_movie", json!({ "keys": [k], "path": dir.join("library.json").to_string_lossy() })),
             ("get_photo", json!([1, 2])),
             ("show_photo", json!({ "key": k })),
+            ("show_on_map", json!({ "keys": [k] })),
+            ("show_on_map", json!({ "keys": [] })),
             ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),
             ("set_location", json!({ "keys": [k], "latitude": 10 })),
             ("set_location", json!({ "keys": [k], "latitude": "10", "longitude": 0 })),

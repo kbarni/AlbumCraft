@@ -620,7 +620,7 @@ impl App {
                 app.open_editor(3);
                 app.edit.tab = Tab::Presets;
             }
-            if matches!(shot_view.as_str(), "map" | "place" | "pin") {
+            if matches!(shot_view.as_str(), "map" | "place" | "pin" | "mapscope") {
                 // ALBUMCRAFT_SHOT_ONLINE=1: show the online map (the screenshot saves nothing)
                 if std::env::var_os("ALBUMCRAFT_SHOT_ONLINE").is_some() {
                     app.store.online_maps = Some(true);
@@ -635,6 +635,11 @@ impl App {
                 }
                 if shot_view == "map" {
                     app.open_places();
+                } else if shot_view == "mapscope" {
+                    // one folder on the map
+                    if let Some(f) = app.folders.first().cloned() {
+                        app.show_set_on_map(f.name.clone(), &f.photos);
+                    }
                 } else {
                     let n = app.photos.len();
                     app.start_placing((28..n.min(31)).collect());
@@ -1591,14 +1596,19 @@ impl App {
         self.arm_tray_check();
     }
 
-    /// Open the web-gallery dialog for the tray, titled after what is shown.
-    pub fn open_gallery_dialog(&mut self) {
-        let title = match &self.source {
+    /// A name for what is in the tray: the album, the person, or the folder of its first picture.
+    pub fn tray_title(&self) -> String {
+        match &self.source {
             Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()),
             Source::Person(n) => Some(n.clone()),
             _ => self.tray().first().and_then(|&id| self.photos.get(id)).and_then(|p| self.folders.get(p.folder)).map(|f| f.name.clone()),
         }
-        .unwrap_or_else(|| "My pictures".into());
+        .unwrap_or_else(|| "My pictures".into())
+    }
+
+    /// Open the web-gallery dialog for the tray, titled after what is shown.
+    pub fn open_gallery_dialog(&mut self) {
+        let title = self.tray_title();
         self.dialog = Some(Dialog::Gallery { title, style: crate::gallery::Style::Light, size: 1280, captions: true });
     }
 
@@ -2375,6 +2385,13 @@ impl crate::commands::Host for App {
             return Err("no such picture".into());
         }
         self.open_editor(id);
+        Ok(())
+    }
+    fn show_map(&mut self, ids: &[usize], title: String) -> Result<(), String> {
+        if !ids.iter().any(|&id| self.location(id).is_some()) {
+            return Err("none of these pictures has a location".into());
+        }
+        self.show_set_on_map(title, ids);
         Ok(())
     }
     fn file_gps(&mut self) -> &std::collections::HashMap<String, Option<crate::geo::LatLon>> {

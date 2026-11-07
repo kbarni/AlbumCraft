@@ -309,6 +309,12 @@ impl App {
                                 delete = Some(i);
                                 ui.close();
                             }
+                            if ui.button("Show on map").clicked() {
+                                let ids: Vec<usize> = self.store.albums[i].keys.iter().filter_map(|k| self.key_index.get(k).copied()).collect();
+                                let name = self.store.albums[i].name.clone();
+                                self.show_set_on_map(name, &ids);
+                                ui.close();
+                            }
                             if ui.button("Play as slideshow").clicked() {
                                 self.source = Source::Album(i);
                                 let list = self.visible_flat();
@@ -567,6 +573,9 @@ impl App {
                     }
                     if icon_btn(ui, icons::EDIT, "Edit description").clicked() {
                         self.dialog = Some(Dialog::FolderNote { path: f.path.clone(), text: note.clone().unwrap_or_default() });
+                    }
+                    if icon_btn(ui, icons::MAP, "Show this folder on the map").clicked() {
+                        self.show_set_on_map(f.name.clone(), ids);
                     }
                 });
             });

@@ -164,7 +164,17 @@ pub struct Placing {
     dragging_pin: bool,
 }
 
+/// Only some pictures on the map: a folder, an album, the tray.
+pub struct MapScope {
+    /// "Skocia", "Best of the year", "3 pictures"
+    pub title: String,
+    /// The pictures, by key (photo numbers change with a rescan).
+    pub keys: std::collections::HashSet<String>,
+}
+
 pub struct MapState {
+    /// Shown instead of the whole library (None: every picture with a location).
+    pub scope: Option<MapScope>,
     center: [f64; 2],
     zoom: f64,
     /// The view was set up (fitted to the pictures) at least once.
@@ -187,6 +197,7 @@ pub struct MapState {
 impl Default for MapState {
     fn default() -> Self {
         MapState {
+            scope: None,
             center: [0.5, 0.42],
             zoom: 0.0,
             ready: false,
@@ -414,9 +425,38 @@ impl App {
         if self.view != View::Map {
             self.geo.map.back = self.view;
         }
+        if self.geo.map.scope.take().is_some() {
+            self.geo.map.fit_next = true;
+        }
         self.geo.map.placing = None;
         self.geo.map.fit_next = !self.geo.map.ready;
         self.view = View::Map;
+    }
+
+    /// Open the Places map with only these pictures on it (a folder, an album, the tray).
+    pub fn show_set_on_map(&mut self, title: String, ids: &[usize]) {
+        let keys: std::collections::HashSet<String> = ids.iter().filter_map(|&id| self.photos.get(id)).map(|p| p.key.clone()).collect();
+        let located = ids.iter().filter(|&&id| self.location(id).is_some()).count();
+        if located == 0 {
+            let n = keys.len();
+            self.toast(if self.geo.indexing() {
+                "Still looking for GPS positions in your pictures: try again in a moment.".to_string()
+            } else {
+                format!("None of these {n} picture(s) has a location yet. Select them and click Location in the photo tray to place them.")
+            });
+            return;
+        }
+        self.open_places();
+        self.geo.map.scope = Some(MapScope { title, keys });
+        self.geo.map.selected.clear();
+        self.geo.map.fit_next = true;
+    }
+
+    /// The pictures the map shows: the whole library, or only the scope's.
+    fn shown_on_map(&mut self) -> Arc<Vec<Located>> {
+        let all = self.located();
+        let Some(scope) = &self.geo.map.scope else { return all };
+        Arc::new(all.iter().filter(|l| self.photos.get(l.id).is_some_and(|p| scope.keys.contains(&p.key))).cloned().collect())
     }
 
     /// Open the Places map on one picture, with it selected.
@@ -573,7 +613,7 @@ impl App {
         if self.online_maps() && self.geo.tiles.is_none() {
             self.geo.tiles = Some(Tiles::new(&ctx));
         }
-        let located = self.located();
+        let located = self.shown_on_map();
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.dialog.is_none() {
             if self.geo.map.results_open {
                 self.geo.map.results_open = false;
@@ -615,16 +655,30 @@ impl App {
                             Some(n) => ("Set location".to_string(), format!("{n} picture{}", if n == 1 { "" } else { "s" })),
                             None => {
                                 let n = located.len();
-                                let sub = if self.geo.indexing() {
-                                    format!("{n} with a location · looking for GPS positions…")
-                                } else {
-                                    format!("{n} picture{} with a location", if n == 1 { "" } else { "s" })
+                                let sub = match &self.geo.map.scope {
+                                    Some(s) => format!("{n} of {} picture{} with a location", s.keys.len(), if s.keys.len() == 1 { "" } else { "s" }),
+                                    None if self.geo.indexing() => format!("{n} with a location · looking for GPS positions…"),
+                                    None => format!("{n} picture{} with a location", if n == 1 { "" } else { "s" }),
                                 };
-                                ("Places".to_string(), sub)
+                                let title = match &self.geo.map.scope {
+                                    Some(s) => format!("Places · {}", s.title),
+                                    None => "Places".to_string(),
+                                };
+                                (title, sub)
                             }
                         };
                         ui.label(RichText::new(title).size(20.0).strong().color(t().text_strong));
-                        ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
+                            if placing.is_none()
+                                && self.geo.map.scope.is_some()
+                                && ui.link(RichText::new("Show the whole library").size(12.0)).clicked()
+                            {
+                                self.geo.map.scope = None;
+                                self.geo.map.selected.clear();
+                                self.geo.map.fit_next = true;
+                            }
+                        });
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
@@ -641,7 +695,7 @@ impl App {
                             self.geo.map.online_results.clear();
                         }
                         if placing.is_none()
-                            && ui.add(egui::Button::new("Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture").clicked()
+                            && ui.add(egui::Button::new("Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture on the map").clicked()
                         {
                             self.geo.map.fit_next = true;
                         }
