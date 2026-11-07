@@ -25,7 +25,7 @@ crates/albumcraft-core/src/   everything without a window (native: desktop app, 
   library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool
   imaging.rs       reading picture files (load_source, oriented_dims) on top of the edit pipeline
   commands.rs      the command layer (Host, Headless); mcp.rs and control.rs: the MCP server and the window's control connection
-  export.rs        export_one (edited JPEG copies, never overwriting)
+  export.rs        export_one (edited JPEG copies, never overwriting); import.rs: copying from cards / folders
   exifinfo.rs raw.rs geo.rs thumbcache.rs gallery.rs movie.rs
   online.rs        online map services (tiles on disk, place search), only when allowed
   print.rs         print layouts and page rendering; slides.rs: slideshow settings and motion
@@ -37,6 +37,7 @@ src/                          the egui app (binary `albumcraft`)
   library_view.rs  shared library helpers, menus, context menu, keys
   edit_view.rs     editor UI, compare modes, slideshow
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
+  import_view.rs   Import view (copy from a card, camera or folder into a new library folder)
   online.rs        map tiles as textures (adds to core's online.rs)
   print.rs         printers: Win32 GDI (the only `unsafe`, Windows only) and CUPS (adds to core's print.rs)
   print_view.rs    print UI

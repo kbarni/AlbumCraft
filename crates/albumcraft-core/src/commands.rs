@@ -235,6 +235,25 @@ pub fn specs() -> Vec<Spec> {
             schema: || json!({ "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] }),
         },
         Spec {
+            name: "import_pictures",
+            description: "Copy pictures from a memory card, camera or other folder (and its subfolders) into one folder, which is added to \
+the library. Originals are not changed; nothing is overwritten (a taken name gets \" (2)\"; a picture already in that folder is skipped). \
+Call `rescan` afterwards to see the new pictures in the library.",
+            schema: || {
+                json!({ "type": "object", "properties": {
+                    "source": { "type": "string", "description": "The folder to import from, e.g. a card's DCIM folder" },
+                    "destination": { "type": "string", "description": "The folder to copy into (made if missing; its parent must exist)" },
+                    "files": { "type": "array", "items": { "type": "string" }, "description": "Only these files of the source (paths); default: all" },
+                    "skip_duplicates": { "type": "boolean", "description": "Leave out pictures the library already has (same content); default true" }
+                }, "required": ["source", "destination"] })
+            },
+        },
+        Spec {
+            name: "rescan",
+            description: "Look again for added or removed pictures in the library's folders.",
+            schema: || json!({ "type": "object", "properties": {} }),
+        },
+        Spec {
             name: "add_edit",
             description: EDIT_DOC,
             schema: || keys_schema(json!({ "edit": { "description": "The edit step (see the tool description)" } })),
@@ -776,6 +795,58 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             host.rescan();
             now(json!({ "pictures": host.photos().len() }))
         }
+        "import_pictures" => {
+            let source = existing_dir(str_arg(args, "source")?)?;
+            let dest = PathBuf::from(str_arg(args, "destination")?);
+            let parent = dest.parent().filter(|p| !p.as_os_str().is_empty()).ok_or("`destination` must be a full folder path")?;
+            if !parent.is_dir() {
+                return Err(format!("{:?} is not an existing folder", parent));
+            }
+            if dest.file_name().is_none() || dest.is_file() {
+                return Err("`destination` must be a folder".into());
+            }
+            let only: Option<std::collections::HashSet<String>> = match args.get("files") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(
+                    v.as_array()
+                        .ok_or("`files` must be a list of paths")?
+                        .iter()
+                        .map(|f| f.as_str().map(str::to_string).ok_or("`files` must be a list of paths"))
+                        .collect::<Result<_, _>>()?,
+                ),
+            };
+            let skip_dups = match args.get("skip_duplicates") {
+                None | Some(Value::Null) => true,
+                Some(v) => v.as_bool().ok_or("`skip_duplicates` must be true or false")?,
+            };
+            let library: Vec<(String, u64)> = host.photos().iter().map(|p| (p.key.clone(), p.bytes)).collect();
+            if !host.store().roots.iter().any(|r| dest.starts_with(r)) {
+                host.store_mut().roots.push(dest.to_string_lossy().to_string());
+            }
+            Ok(Outcome::Later(Box::new(move || {
+                let (found, _) = crate::import::list(&source, &library);
+                let duplicates = found.iter().filter(|c| c.duplicate).count();
+                let files: Vec<String> = found
+                    .into_iter()
+                    .filter(|c| !(skip_dups && c.duplicate))
+                    .filter(|c| only.as_ref().is_none_or(|o| o.contains(&c.path)))
+                    .map(|c| c.path)
+                    .collect();
+                let stop = std::sync::atomic::AtomicBool::new(false);
+                let r = crate::import::copy_into(&files, &dest, &|_, _| {}, &stop)?;
+                Ok(Reply::json(json!({
+                    "folder": dest.to_string_lossy(),
+                    "copied": r.copied.len(),
+                    "already_there": r.already_there,
+                    "left_out_duplicates": if skip_dups { duplicates } else { 0 },
+                    "failed": r.failed.iter().map(|(f, why)| json!({ "file": f, "error": why })).collect::<Vec<_>>(),
+                })))
+            })))
+        }
+        "rescan" => {
+            host.rescan();
+            now(json!({ "rescanning": true }))
+        }
         "add_edit" => {
             let ids = ids(host, args)?;
             let op = parse_edit(args.get("edit").ok_or("`edit` is required")?)?;
@@ -1114,6 +1185,29 @@ mod tests {
     }
 
     #[test]
+    fn import_copies_new_pictures_only() {
+        let (dir, mut h, keys) = fixture("import");
+        let card = dir.join("card/DCIM/100CAM");
+        std::fs::create_dir_all(&card).unwrap();
+        // one picture the library already has (renamed), one new
+        std::fs::copy(&keys[0], card.join("IMG_0001.JPG")).unwrap();
+        image::DynamicImage::ImageRgba8(crate::imaging::sample_image(9, 100, 70)).to_rgb8().save(card.join("IMG_0002.JPG")).unwrap();
+        let dest = dir.join("Trip");
+        let args = json!({ "source": dir.join("card").to_string_lossy(), "destination": dest.to_string_lossy() });
+        let reply = run(&mut h, "import_pictures", &args).and_then(|o| o.finish()).unwrap();
+        assert_eq!(reply.value["copied"], 1);
+        assert_eq!(reply.value["left_out_duplicates"], 1);
+        assert!(dest.join("IMG_0002.JPG").is_file());
+        assert!(!dest.join("IMG_0001.JPG").exists());
+        assert!(h.store().roots.contains(&dest.to_string_lossy().to_string()));
+        run(&mut h, "rescan", &json!({})).unwrap();
+        assert_eq!(h.photos().len(), 4);
+        // the card is untouched
+        assert!(card.join("IMG_0001.JPG").is_file() && card.join("IMG_0002.JPG").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn locations() {
         let (dir, mut h, keys) = fixture("places");
         // beach.jpg carries a GPS position (Bordeaux) in its EXIF
@@ -1231,6 +1325,11 @@ mod tests {
             ("auto_fix", json!({ "keys": [k], "fix": "magic" })),
             ("add_to_album", json!({ "keys": [k], "album": "missing" })),
             ("add_folder", json!({ "path": "/no/such/folder" })),
+            ("import_pictures", json!({ "source": "/no/such/folder", "destination": dir.join("x").to_string_lossy() })),
+            ("import_pictures", json!({ "source": dir.to_string_lossy(), "destination": "/no/such/parent/x" })),
+            ("import_pictures", json!({ "source": dir.to_string_lossy(), "destination": "relative" })),
+            ("import_pictures", json!({ "source": dir.to_string_lossy(), "destination": dir.join("x").to_string_lossy(), "files": "a" })),
+            ("import_pictures", json!({ "source": dir.to_string_lossy(), "destination": dir.join("x").to_string_lossy(), "skip_duplicates": 1 })),
             ("export", json!({ "keys": [k], "folder": "/no/such/folder" })),
             ("render_preview", json!({ "key": k, "edits": "x" })),
             ("make_movie", json!({ "keys": [k], "path": dir.join("library.json").to_string_lossy() })),

@@ -182,8 +182,17 @@ impl App {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if pill(ui, &format!("{}  Import", icons::ADD), true).on_hover_text("Add a folder of pictures to the library").clicked() {
-                            self.import_folder();
+                        if pill(ui, &format!("{}  Import", icons::DRIVE), true)
+                            .on_hover_text("Copy pictures from a memory card, a camera or a folder into your library")
+                            .clicked()
+                        {
+                            self.open_import();
+                        }
+                        if pill(ui, &format!("{}  Folders", icons::FOLDER), false)
+                            .on_hover_text("The folders shown in the library, where they are (nothing is copied)")
+                            .clicked()
+                        {
+                            self.dialog = Some(Dialog::FolderManager);
                         }
                         use crate::theme::Mode;
                         let mode = Mode::from_name(&self.store.theme);
@@ -534,7 +543,7 @@ impl App {
                     Source::Album(_) => (icons::ALBUM, "This album is empty. Select pictures and add them from the selection bar."),
                     Source::Person(_) => (icons::PERSON, "Nobody tagged yet."),
                     Source::Picks => (icons::FLAG, "No picks yet. Hover a picture and click its flag, or press P."),
-                    Source::Library => (icons::PHOTOS, "Your library is empty. Import a folder to get started."),
+                    Source::Library => (icons::PHOTOS, "Your library is empty. Import pictures, or add a folder you already have."),
                 }
             };
             ui.label(RichText::new(icon).size(42.0));
@@ -542,9 +551,22 @@ impl App {
             ui.label(RichText::new(msg).size(15.0).color(t().text_weak));
             if matches!(self.source, Source::Library) && self.search.is_empty() && !self.scanning {
                 ui.add_space(12.0);
-                if pill(ui, &format!("{}  Import a folder", icons::ADD), true).clicked() {
-                    self.import_folder();
-                }
+                ui.horizontal(|ui| {
+                    // centred: two pills of about 330 px together
+                    ui.add_space((ui.available_width() - 330.0).max(0.0) / 2.0);
+                    if pill(ui, &format!("{}  Import pictures", icons::DRIVE), true)
+                        .on_hover_text("Copy pictures from a memory card, a camera or a folder")
+                        .clicked()
+                    {
+                        self.open_import();
+                    }
+                    if pill(ui, &format!("{}  Add a folder", icons::FOLDER), false)
+                        .on_hover_text("Show the pictures of a folder where they are, without copying them")
+                        .clicked()
+                    {
+                        self.add_library_folder();
+                    }
+                });
             }
         });
     }

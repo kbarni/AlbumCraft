@@ -28,6 +28,7 @@ icons! {
     COLLAGE = "auto_awesome_mosaic" "\u{e660}";
     CONTRAST = "contrast" "\u{eb37}";
     CROP = "crop" "\u{e3be}";
+    DRIVE = "sd_card" "\u{e623}";
     DARK_MODE = "dark_mode" "\u{e51c}";
     DESKTOP = "desktop_windows" "\u{e30c}";
     EDIT = "edit" "\u{f097}";

@@ -111,6 +111,8 @@ pub struct Store {
     pub online_maps: Option<bool>,
     /// Exported copies get the picture's location in their EXIF.
     pub export_location: bool,
+    /// The folder the last import copied into a new folder of (offered first next time).
+    pub import_to: Option<String>,
 }
 
 impl Default for Store {
@@ -128,6 +130,7 @@ impl Default for Store {
             slideshow: Default::default(),
             online_maps: None,
             export_location: true,
+            import_to: None,
         }
     }
 }
@@ -694,6 +697,8 @@ pub enum Job {
     Big { id: usize, key: String },
     /// A sharp render for zooming in: the picture at up to ZOOM_DIM pixels with its edits applied.
     Zoom { id: usize, key: String, ops: Vec<EditOp> },
+    /// Any picture file, not (yet) in the library, at THUMB_DIM or BIG_DIM: the import view.
+    File { key: String, dim: u32 },
 }
 
 impl Job {
@@ -717,6 +722,18 @@ impl Job {
                 let img = src.map(|s| imaging::apply_all(&s, &ops));
                 Done::Zoom { id, key, ops, img, unedited_width }
             }
+            Job::File { key, dim } => {
+                let img = if dim == THUMB_DIM {
+                    crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
+                        let img = imaging::load_source(&key, THUMB_DIM)?;
+                        crate::thumbcache::put(&key, THUMB_DIM, &img);
+                        Some(img)
+                    })
+                } else {
+                    imaging::load_source(&key, dim)
+                };
+                Done::File { key, dim, img }
+            }
         }
     }
 
@@ -726,6 +743,7 @@ impl Job {
             Job::Thumb { id, key } => Done::Thumb { id: *id, key: key.clone(), img: None },
             Job::Big { id, key } => Done::Big { id: *id, key: key.clone(), img: None },
             Job::Zoom { id, key, ops } => Done::Zoom { id: *id, key: key.clone(), ops: ops.clone(), img: None, unedited_width: 0 },
+            Job::File { key, dim } => Done::File { key: key.clone(), dim: *dim, img: None },
         }
     }
 }
@@ -740,6 +758,13 @@ pub enum Done {
     Message(String),
     /// A short progress note for the toast.
     Toast(String),
+    File { key: String, dim: u32, img: Option<RgbaImage> },
+    /// The pictures found in an import source (see `import::list`).
+    ImportList { source: std::path::PathBuf, items: Vec<crate::import::Candidate>, truncated: bool },
+    /// `done` of `total` pictures copied so far.
+    ImportProgress { done: usize, total: usize },
+    /// The import into `dest` finished: what to tell the user, and whether anything was copied.
+    ImportDone { dest: std::path::PathBuf, summary: String, copied: usize, problems: bool },
 }
 
 pub const THUMB_DIM: u32 = 256;

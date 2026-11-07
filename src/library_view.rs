@@ -272,11 +272,15 @@ impl App {
     pub fn app_menu_items(&mut self, ui: &mut egui::Ui) {
                 let tray = self.targets();
                 ui.menu_button("File", |ui| {
-                    if ui.button("Add folder to library…").clicked() {
-                        self.import_folder();
+                    if ui.button("Import pictures…").clicked() {
+                        self.open_import();
                         ui.close();
                     }
-                    if ui.button("Folder manager…").clicked() {
+                    if ui.button("Add folder to library…").clicked() {
+                        self.add_library_folder();
+                        ui.close();
+                    }
+                    if ui.button("Library folders…").clicked() {
                         self.dialog = Some(Dialog::FolderManager);
                         ui.close();
                     }
@@ -462,10 +466,19 @@ impl App {
                         ui.spinner();
                         ui.label(RichText::new("Looking for pictures…").size(12.0));
                     }
+                    if let Some(i) = &self.importing {
+                        ui.separator();
+                        ui.spinner();
+                        ui.add(egui::ProgressBar::new(i.done as f32 / i.total.max(1) as f32).desired_width(120.0));
+                        ui.label(RichText::new(format!("Importing {} of {}…", i.done, i.total)).size(12.0));
+                        if ui.small_button("Stop").on_hover_text("Stop after the current picture (the ones copied stay)").clicked() {
+                            self.stop_import();
+                        }
+                    }
                     if self.using_samples {
                         ui.separator();
                         ui.label(
-                            RichText::new("Showing sample pictures. Use Import to add your own folders.").size(12.0).color(t().accent),
+                            RichText::new("Showing sample pictures. Use Import or Folders to bring in your own.").size(12.0).color(t().accent),
                         );
                     }
                 });

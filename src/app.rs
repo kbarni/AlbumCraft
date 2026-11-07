@@ -68,6 +68,8 @@ pub enum View {
     Print,
     /// Places: the map of where pictures were taken (also used to set a location).
     Map,
+    /// Copying pictures from a card, camera or folder into the library.
+    Import,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -318,6 +320,12 @@ pub struct App {
     pub print: Option<crate::print_view::PrintState>,
     pub dialog: Option<Dialog>,
     pub toast: Option<(String, f64)>,
+    /// The import view's state (only while it is open).
+    pub import: Option<Box<crate::import_view::ImportState>>,
+    /// A copy running in the background (shown in the status bar).
+    pub importing: Option<crate::import_view::Importing>,
+    /// The folder to show once the scan after an import is done.
+    pub show_after_scan: Option<PathBuf>,
 
     pub shot: Option<PathBuf>,
     pub frames: u64,
@@ -453,6 +461,9 @@ impl App {
             print: None,
             dialog: None,
             toast: None,
+            import: None,
+            importing: None,
+            show_after_scan: None,
             shot,
             frames: 0,
             shot_requested: false,
@@ -508,6 +519,9 @@ impl App {
                 app.edit.compare = CompareMode::BeforeAfter;
                 app.edit.tab = Tab::Edit;
                 app.edit.advanced = true;
+            }
+            if shot_view == "import" {
+                app.demo_import();
             }
             if shot_view == "print" && app.photos.len() > 5 {
                 app.selection = [0usize, 1, 2, 3, 5].into_iter().collect();
@@ -1421,7 +1435,7 @@ impl App {
         self.toast = Some((text.into(), now));
     }
 
-    pub fn import_folder(&mut self) {
+    pub fn add_library_folder(&mut self) {
         if let Some(dir) = rfd::FileDialog::new().set_title("Choose a folder of pictures").pick_folder() {
             let s = dir.to_string_lossy().to_string();
             if !self.store.roots.contains(&s) {
@@ -1573,6 +1587,7 @@ impl App {
                     } else {
                         self.set_library(found, false);
                     }
+                    self.show_imported_folder();
                     if truncated {
                         self.toast(format!(
                             "Only the first {} pictures are shown: remove some folders from the library to see the rest.",
@@ -1581,6 +1596,15 @@ impl App {
                     }
                 }
                 Done::Toast(m) => self.toast(m),
+                Done::File { key, dim, img } => self.on_import_file(key, dim, img),
+                Done::ImportList { source, items, truncated } => self.on_import_list(source, items, truncated),
+                Done::ImportProgress { done, total } => {
+                    if let Some(i) = self.importing.as_mut() {
+                        i.done = done;
+                        i.total = total;
+                    }
+                }
+                Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
                 Done::Message(m) => {
                     // don't throw away a dialog the user is filling in
                     if self.dialog.is_none() {
@@ -1647,7 +1671,7 @@ impl App {
             Dialog::Export { .. } => "Export pictures".into(),
             Dialog::Gallery { .. } => "Web gallery".into(),
             Dialog::FolderNote { .. } => "Folder description".into(),
-            Dialog::FolderManager => "Folder manager".into(),
+            Dialog::FolderManager => "Library folders".into(),
             Dialog::Collage => "Make a collage".into(),
             Dialog::Movie { .. } => "Movie".into(),
             Dialog::About => "About AlbumCraft".into(),
@@ -1818,7 +1842,9 @@ impl App {
                     });
                 }
                 Dialog::FolderManager => {
-                    ui.label("These folders on your computer are watched for pictures:");
+                    ui.label("The library shows the pictures in these folders and their subfolders, where they are: nothing is copied or moved.");
+                    ui.weak("To copy pictures from a memory card or a camera, use Import.");
+                    ui.add_space(4.0);
                     let mut remove = None;
                     if self.store.roots.is_empty() {
                         ui.weak("(none yet — sample pictures are shown instead)");
@@ -1839,7 +1865,7 @@ impl App {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         if ui.button(format!("{} Add folder…", icons::ADD)).clicked() {
-                            self.import_folder();
+                            self.add_library_folder();
                         }
                         if ui.button(format!("{} Scan again", icons::REFRESH)).clicked() {
                             self.rescan();
@@ -2163,6 +2189,7 @@ impl eframe::App for App {
             View::Slideshow => self.slideshow_ui(ui),
             View::Print => self.print_ui(ui),
             View::Map => self.map_ui(ui),
+            View::Import => self.import_ui(ui),
         }
         // Ctrl+P opens printing from the library or the editor
         if crate::print::available()

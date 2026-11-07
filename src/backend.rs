@@ -65,6 +65,15 @@ pub trait Library {
     fn make_movie(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings);
     /// Save a collage of these pictures as a PNG file; a report arrives as `Done::Message`.
     fn make_collage(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf);
+
+    /// List the pictures in an import source, marking the ones `library` (path, size) already
+    /// has; the list arrives as `Done::ImportList`.
+    fn list_import(&self, source: PathBuf, library: Vec<(String, u64)>);
+    /// Copy pictures into `dest` (see `import::copy_into`) until `stop`; progress arrives as
+    /// `Done::ImportProgress`, the end as `Done::ImportDone`.
+    fn import(&self, files: Vec<String>, dest: PathBuf, stop: Arc<AtomicBool>);
+    /// Memory cards, cameras and USB drives plugged in now, as (label, folder).
+    fn import_sources(&self) -> Vec<(String, PathBuf)>;
 }
 
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).
@@ -240,6 +249,42 @@ impl Library for LocalLibrary {
             }
         });
     }
+
+    fn import_sources(&self) -> Vec<(String, PathBuf)> {
+        crate::import::removable_sources()
+    }
+
+    fn list_import(&self, source: PathBuf, library: Vec<(String, u64)>) {
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            let (items, truncated) = std::panic::catch_unwind(|| crate::import::list(&source, &library)).unwrap_or_default();
+            let _ = tx.send(Done::ImportList { source, items, truncated });
+            wake();
+        });
+    }
+
+    fn import(&self, files: Vec<String>, dest: PathBuf, stop: Arc<AtomicBool>) {
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        std::thread::spawn(move || {
+            let progress = |done, total| {
+                let _ = tx.send(Done::ImportProgress { done, total });
+                wake();
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::import::copy_into(&files, &dest, &progress, &stop)));
+            let done = match result {
+                Ok(Ok(r)) => Done::ImportDone {
+                    summary: r.summary(&dest),
+                    copied: r.copied.len(),
+                    problems: !r.failed.is_empty() || r.stopped,
+                    dest,
+                },
+                Ok(Err(e)) => Done::ImportDone { dest, summary: e, copied: 0, problems: true },
+                Err(_) => Done::ImportDone { dest, summary: "The import stopped unexpectedly.".into(), copied: 0, problems: true },
+            };
+            let _ = tx.send(done);
+            wake();
+        });
+    }
 }
 
 #[cfg(test)]
@@ -280,5 +325,41 @@ mod tests {
         // a folder that does not exist: the PNG can't be written
         lib.make_collage(vec![(format!("{}1", imaging::SAMPLE_PREFIX), vec![])], PathBuf::from("/no/such/folder/c.png"));
         assert!(matches!(next(&rx), Done::Message(m) if m.starts_with("Could not save the collage")));
+    }
+
+    /// The window's import path: list a card, copy what is new, report progress and the end.
+    #[test]
+    fn import_lists_and_copies_in_the_background() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-backend-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let card = dir.join("card/DCIM/100CAM");
+        std::fs::create_dir_all(&card).unwrap();
+        for i in 0..3 {
+            image::DynamicImage::ImageRgba8(imaging::sample_image(i + 1, 60, 40)).to_rgb8().save(card.join(format!("IMG_{i}.JPG"))).unwrap();
+        }
+        let (lib, rx) = local();
+        lib.list_import(dir.join("card"), vec![]);
+        let Done::ImportList { items, truncated, .. } = next(&rx) else { panic!("expected the list") };
+        assert_eq!(items.len(), 3);
+        assert!(!truncated);
+        let dest = dir.join("Trip");
+        lib.import(items.iter().map(|c| c.path.clone()).collect(), dest.clone(), Arc::new(AtomicBool::new(false)));
+        let mut progress = 0;
+        loop {
+            match next(&rx) {
+                Done::ImportProgress { done, total } => {
+                    assert_eq!(total, 3);
+                    progress = done;
+                }
+                Done::ImportDone { dest: d, copied, problems, .. } => {
+                    assert_eq!((d, copied, problems), (dest.clone(), 3, false));
+                    break;
+                }
+                _ => panic!("unexpected message"),
+            }
+        }
+        assert_eq!(progress, 3);
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
