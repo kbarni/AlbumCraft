@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "albumcraft"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "albumcraft-core",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "albumcraft-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "albumcraft-edit",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "albumcraft-edit"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "epaint_default_fonts",
