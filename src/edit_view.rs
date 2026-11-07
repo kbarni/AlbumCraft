@@ -114,10 +114,10 @@ enum AutoFix {
     Straighten,
 }
 
-/// The alignment grid: square cells (about ten across the long side), so straight horizontal and
-/// vertical lines in the picture are easy to check against it.
+/// The alignment grid: square cells (about fifteen across the long side), so straight horizontal
+/// and vertical lines in the picture are easy to check against it.
 fn paint_grid(p: &egui::Painter, r: Rect) {
-    let cell = (r.width().max(r.height()) / 10.0).max(12.0);
+    let cell = (r.width().max(r.height()) / 15.0).max(12.0);
     let stroke = Stroke::new(1.0, Color32::from_white_alpha(120));
     let shadow = Stroke::new(1.0, Color32::from_black_alpha(60));
     let mut x = r.center().x - (r.width() / 2.0 / cell).floor() * cell;
