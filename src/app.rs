@@ -1,5 +1,6 @@
 //! Application state, shared helpers, dialogs and the frame loop.
 
+use crate::icons;
 use crate::imaging::{self, EditOp};
 use crate::backend::{Library, LocalLibrary};
 use crate::library::{self, Album, Done, Flag, Folder, Job, Loaded, Meta, Photo, ScannedFolder, Store};
@@ -1824,7 +1825,7 @@ impl App {
                     }
                     for (i, r) in self.store.roots.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            ui.label(format!("📁 {r}"));
+                            ui.label(format!("{} {r}", icons::FOLDER));
                             if ui.small_button("Remove").clicked() {
                                 remove = Some(i);
                             }
@@ -1837,10 +1838,10 @@ impl App {
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("➕ Add folder…").clicked() {
+                        if ui.button(format!("{} Add folder…", icons::ADD)).clicked() {
                             self.import_folder();
                         }
-                        if ui.button("↻ Scan again").clicked() {
+                        if ui.button(format!("{} Scan again", icons::REFRESH)).clicked() {
                             self.rescan();
                         }
                         if ui.button("Close").clicked() {
@@ -1904,7 +1905,7 @@ impl App {
                             self.make_movie(list.clone(), size);
                             close = true;
                         }
-                        if ui.button("▶ Preview as slideshow").clicked() {
+                        if ui.button(format!("{} Preview as slideshow", icons::PLAY)).clicked() {
                             let first = list.first().copied().unwrap_or(0);
                             self.start_slideshow(list.clone(), first);
                             close = true;

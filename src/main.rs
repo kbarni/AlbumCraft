@@ -5,6 +5,7 @@ mod backend;
 mod basemap;
 mod display;
 mod edit_view;
+mod icons;
 mod library_view;
 mod map_view;
 mod online;

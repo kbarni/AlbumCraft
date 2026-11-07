@@ -149,4 +149,5 @@ Low / clean-up:
 - Left open from those: the perspective correction is a simple keystone (rows or columns scaled linearly), not a full projective transform; no guide lines are drawn while moving the geometry sliders.
 - 2026-11-06: code split into a Cargo workspace (albumcraft-edit, albumcraft-core, the app) behind a `Library` interface; version 0.2.0.
 - 2026-11-06: release packages: AppImage, .deb, Flatpak (from the .deb) and a Windows MSI; version 0.2.1.
+- 2026-11-07: one icon set: every UI icon is a Material Symbols character from `src/icons.rs`, drawn from a bundled 8 KB font subset (`assets/fonts/`), instead of a mix of Unicode symbols and each system's colour emoji; the glyph test now rejects emoji in UI text.
 - Next: phase 5 (later: face recognition, GPU only if measured slow, print ordering).

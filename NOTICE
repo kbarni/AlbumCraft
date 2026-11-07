@@ -19,6 +19,9 @@ interface and drawn into pictures by the text effect and print captions:
 Their license texts are in the epaint_default_fonts crate (fonts/UFL.txt, fonts/Hack-Regular.txt,
 fonts/OFL.txt, fonts/emoji-icon-font-mit-license.txt).
 
+AlbumCraft builds embed a subset of the Material Symbols icon font (assets/fonts/, Copyright
+Google LLC), Apache License 2.0 (assets/fonts/LICENSE-MaterialSymbols).
+
 AlbumCraft builds embed map data (assets/geo/, details in assets/geo/README.md):
 
   Land, lakes and country borders - Natural Earth (naturalearthdata.com), public domain

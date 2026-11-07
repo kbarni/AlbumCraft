@@ -1,5 +1,6 @@
 //! The Edit view (one photo with fix-up tools) and the full-screen slideshow.
 
+use crate::icons;
 use crate::app::*;
 use crate::develop::{self, Adjust};
 use crate::imaging::{self, EditOp};
@@ -317,7 +318,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().toolbar_bg).inner_margin(egui::Margin::symmetric(8, 6)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.add(egui::Button::new(RichText::new("◀  Back to Library").strong()).min_size(egui::vec2(0.0, 28.0))).clicked() {
+                    if ui.add(egui::Button::new(RichText::new(format!("{}  Back to Library", icons::ARROW_BACK)).strong()).min_size(egui::vec2(0.0, 28.0))).clicked() {
                         self.edit_go(PendingLeave::Library);
                     }
                     ui.separator();
@@ -325,7 +326,7 @@ impl App {
                     ui.label(RichText::new(&self.folders[p.folder].name).size(14.0).strong());
                     ui.label(RichText::new(format!("›  {}", p.name)).size(13.0).color(t().text_weak));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.selectable_label(self.edit.show_info, "ℹ Properties").clicked() {
+                        if ui.selectable_label(self.edit.show_info, format!("{} Properties", icons::INFO)).clicked() {
                             self.edit.show_info = !self.edit.show_info;
                         }
                         ui.separator();
@@ -334,7 +335,7 @@ impl App {
                         // swap_2up_layout (side by side <-> one above the other) and
                         // swap_2up_focus ("Change the picture the focus is on").
                         if self.edit.compare != CompareMode::Single {
-                            let layout_icon = if self.edit.vertical { "⬌" } else { "⬍" };
+                            let layout_icon = if self.edit.vertical { icons::SIDE_BY_SIDE } else { icons::ABOVE_BELOW };
                             if ui
                                 .button(RichText::new(layout_icon).size(15.0))
                                 .on_hover_text(if self.edit.vertical { "Show the pictures side by side" } else { "Show one picture above the other" })
@@ -343,7 +344,7 @@ impl App {
                                 self.edit.vertical = !self.edit.vertical;
                             }
                             if ui
-                                .button(RichText::new("⇆").size(15.0))
+                                .button(RichText::new(icons::SWAP).size(15.0))
                                 .on_hover_text("Change the picture the focus is on (where your edits go)")
                                 .clicked()
                             {
@@ -361,16 +362,16 @@ impl App {
                             }
                         }
                         ui.separator();
-                        if ui.button("▶ Slideshow").clicked() {
+                        if ui.button(format!("{} Slideshow", icons::PLAY)).clicked() {
                             let list = self.edit.list.clone();
                             self.start_slideshow(list, id);
                         }
                         let pos = self.edit.list.iter().position(|&x| x == id).unwrap_or(0);
-                        if ui.add_enabled(pos + 1 < self.edit.list.len(), egui::Button::new("▶")).on_hover_text("Next picture").clicked() {
+                        if ui.add_enabled(pos + 1 < self.edit.list.len(), egui::Button::new(icons::CHEVRON_RIGHT)).on_hover_text("Next picture").clicked() {
                             self.step_photo(1);
                         }
                         ui.label(format!("{} of {}", pos + 1, self.edit.list.len()));
-                        if ui.add_enabled(pos > 0, egui::Button::new("◀")).on_hover_text("Previous picture").clicked() {
+                        if ui.add_enabled(pos > 0, egui::Button::new(icons::CHEVRON_LEFT)).on_hover_text("Previous picture").clicked() {
                             self.step_photo(-1);
                         }
                     });
@@ -454,13 +455,13 @@ impl App {
                     ui.horizontal(|ui| {
                         let last = edits.last().map(|e| e.label());
                         if ui
-                            .add_enabled(last.is_some(), egui::Button::new(format!("↶ Undo {}", last.clone().unwrap_or_default())))
+                            .add_enabled(last.is_some(), egui::Button::new(format!("{} Undo {}", icons::UNDO, last.clone().unwrap_or_default())))
                             .clicked()
                         {
                             self.undo();
                         }
                         let next = self.edit.redo.last().map(|e| e.label());
-                        if ui.add_enabled(next.is_some(), egui::Button::new("↷ Redo")).on_hover_text(next.unwrap_or_default()).clicked() {
+                        if ui.add_enabled(next.is_some(), egui::Button::new(format!("{} Redo", icons::REDO))).on_hover_text(next.unwrap_or_default()).clicked() {
                             self.redo();
                         }
                     });
@@ -536,7 +537,7 @@ impl App {
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new("✔ Apply")).clicked() {
+                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
                         if let Some(s) = self.edit.sel.take() {
                             self.push_edit(id, EditOp::Crop(s));
                         }
@@ -552,7 +553,7 @@ impl App {
                 ui.label(RichText::new("Redeye").strong().size(15.0));
                 ui.label("Drag a box around the red eyes. Only red pupils inside the box are darkened.");
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new("✔ Apply")).clicked() {
+                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
                         if let Some(s) = self.edit.sel.take() {
                             self.push_edit(id, EditOp::Redeye(s));
                         }
@@ -569,7 +570,7 @@ impl App {
                 ui.label("Move the slider until the horizon lines up with the grid.");
                 ui.add(egui::Slider::new(&mut self.edit.angle, -12.0..=12.0).suffix("°").step_by(0.1));
                 ui.horizontal(|ui| {
-                    if ui.button("✔ Apply").clicked() {
+                    if ui.button(format!("{} Apply", icons::CHECK)).clicked() {
                         if self.edit.angle.abs() > 0.01 {
                             let a = self.edit.angle;
                             self.push_edit(id, EditOp::Straighten(a));
@@ -586,24 +587,24 @@ impl App {
             Tool::None => {
                 ui.label(RichText::new("One-click fixes").size(12.0).weak());
                 let lucky = ui
-                    .add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new("✨  I'm feeling lucky").size(14.0)))
+                    .add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new(format!("{}  I'm feeling lucky", icons::AUTO_FIX)).size(14.0)))
                     .on_hover_text("Exposure, white balance, black point and a little vibrance, all at once (then fine-tune them in Advanced)");
                 if lucky.clicked() {
                     self.auto_fix(id, AutoFix::Lucky);
                 }
                 ui.add_space(4.0);
                 egui::Grid::new("auto").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-                    if tool_button(ui, "☀", "Auto exposure").on_hover_text("Brighten or darken to a balanced exposure").clicked() {
+                    if tool_button(ui, icons::WB_SUNNY, "Auto exposure").on_hover_text("Brighten or darken to a balanced exposure").clicked() {
                         self.auto_fix(id, AutoFix::Exposure);
                     }
-                    if tool_button(ui, "🎨", "Auto colour").on_hover_text("Auto white balance: remove a colour cast").clicked() {
+                    if tool_button(ui, icons::PALETTE, "Auto colour").on_hover_text("Auto white balance: remove a colour cast").clicked() {
                         self.auto_fix(id, AutoFix::WhiteBalance);
                     }
                     ui.end_row();
-                    if tool_button(ui, "◐", "Auto contrast").on_hover_text("Stretch the darkest and brightest tones").clicked() {
+                    if tool_button(ui, icons::CONTRAST, "Auto contrast").on_hover_text("Stretch the darkest and brightest tones").clicked() {
                         self.push_edit(id, EditOp::AutoContrast);
                     }
-                    if tool_button(ui, "📐", "Auto straighten").on_hover_text("Level a tilted horizon or verticals").clicked() {
+                    if tool_button(ui, icons::STRAIGHTEN, "Auto straighten").on_hover_text("Level a tilted horizon or verticals").clicked() {
                         self.auto_fix(id, AutoFix::Straighten);
                     }
                     ui.end_row();
@@ -611,27 +612,27 @@ impl App {
                 ui.add_space(10.0);
                 ui.label(RichText::new("Tools").size(12.0).weak());
                 egui::Grid::new("basic").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-                    if tool_button(ui, "✂", "Crop").clicked() {
+                    if tool_button(ui, icons::CROP, "Crop").clicked() {
                         self.edit.tool = Tool::Crop;
                         self.edit.sel = None;
                     }
-                    if tool_button(ui, "📐", "Straighten").clicked() {
+                    if tool_button(ui, icons::STRAIGHTEN, "Straighten").clicked() {
                         self.edit.tool = Tool::Straighten;
                         self.edit.angle = 0.0;
                     }
                     ui.end_row();
-                    if tool_button(ui, "👁", "Redeye").clicked() {
+                    if tool_button(ui, icons::REDEYE, "Redeye").clicked() {
                         self.edit.tool = Tool::Redeye;
                         self.edit.sel = None;
                     }
-                    if tool_button(ui, "◌", "Pick neutral").on_hover_text("Click something gray to set the white balance").clicked() {
+                    if tool_button(ui, icons::EYEDROPPER, "Pick neutral").on_hover_text("Click something gray to set the white balance").clicked() {
                         self.edit.tool = Tool::PickNeutral;
                     }
                     ui.end_row();
-                    if tool_button(ui, "↺", "Rotate left").clicked() {
+                    if tool_button(ui, icons::ROTATE_LEFT, "Rotate left").clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if tool_button(ui, "↻", "Rotate right").clicked() {
+                    if tool_button(ui, icons::ROTATE_RIGHT, "Rotate right").clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.end_row();
@@ -664,7 +665,7 @@ impl App {
                     (a.temp, a.tint) = develop::auto_white_balance(&img);
                 }
             });
-            if ui.button("◌ Pick").on_hover_text("Click something gray in the picture").clicked() {
+            if ui.button(format!("{} Pick", icons::EYEDROPPER)).on_hover_text("Click something gray in the picture").clicked() {
                 self.edit.tool = Tool::PickNeutral;
             }
         });
@@ -883,12 +884,12 @@ impl App {
         ui.label(RichText::new("Add on or around the picture").size(12.0).weak());
         let white = [255, 255, 255];
         let adds: [(&str, &str, Decor); 6] = [
-            ("◐", "Vignette", Decor::Vignette { amount: 0.5, size: 0.5 }),
-            ("▢", "Border", Decor::Border { width: 0.03, bottom: 0.0, color: white }),
-            ("🖼", "Instant frame", Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }),
-            ("▣", "Drop shadow", Decor::Shadow { size: 0.04, opacity: 0.55, background: white }),
-            ("▢", "Rounded corners", Decor::Rounded { radius: 0.06, background: white }),
-            ("🔤", "Text", Decor::Text(TextOverlay { text: "Your text".into(), ..Default::default() })),
+            (icons::VIGNETTE, "Vignette", Decor::Vignette { amount: 0.5, size: 0.5 }),
+            (icons::BORDER, "Border", Decor::Border { width: 0.03, bottom: 0.0, color: white }),
+            (icons::FRAME, "Instant frame", Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }),
+            (icons::SHADOW, "Drop shadow", Decor::Shadow { size: 0.04, opacity: 0.55, background: white }),
+            (icons::ROUNDED, "Rounded corners", Decor::Rounded { radius: 0.06, background: white }),
+            (icons::TEXT, "Text", Decor::Text(TextOverlay { text: "Your text".into(), ..Default::default() })),
         ];
         let mut add = None;
         egui::Grid::new("decor_add").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
@@ -993,10 +994,10 @@ impl App {
                         self.set_rating(&[id], n);
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("↺").size(17.0))).on_hover_text("Rotate left").clicked() {
+                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text("Rotate left").clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new("↻").size(17.0))).on_hover_text("Rotate right").clicked() {
+                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text("Rotate right").clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.separator();
@@ -1006,21 +1007,21 @@ impl App {
                         self.meta_mut(id).caption = caption;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("💾 Export").clicked() {
+                        if ui.button(format!("{} Export", icons::EXPORT)).clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                         }
-                        if crate::print::available() && ui.button("🖨 Print").on_hover_text("Print this picture (Ctrl+P)").clicked() {
+                        if crate::print::available() && ui.button(format!("{} Print", icons::PRINT)).on_hover_text("Print this picture (Ctrl+P)").clicked() {
                             self.open_print();
                         }
                         let mut add = None;
-                        ui.menu_button("📚 Album ▾", |ui| {
+                        ui.menu_button(format!("{} Album {}", icons::ALBUM, icons::EXPAND_MORE), |ui| {
                             for (i, a) in self.store.albums.iter().enumerate() {
                                 if ui.button(&a.name).clicked() {
                                     add = Some(i);
                                     ui.close();
                                 }
                             }
-                            if ui.button("➕ New album…").clicked() {
+                            if ui.button(format!("{} New album…", icons::ADD)).clicked() {
                                 self.dialog = Some(Dialog::NewAlbum { name: String::new() });
                                 ui.close();
                             }
@@ -1069,7 +1070,7 @@ impl App {
                     let (tags, people) = self.meta(id).map(|m| (m.tags.clone(), m.people.clone())).unwrap_or_default();
                     ui.label(RichText::new("Tags:").size(12.0));
                     for t in &tags {
-                        if ui.small_button(format!("{t} ✖")).on_hover_text("Remove tag").clicked() {
+                        if ui.small_button(format!("{t} {}", icons::CLOSE)).on_hover_text("Remove tag").clicked() {
                             self.meta_mut(id).tags.retain(|x| x != t);
                         }
                     }
@@ -1085,7 +1086,7 @@ impl App {
                     ui.add_space(10.0);
                     ui.label(RichText::new("People:").size(12.0));
                     for t in &people {
-                        if ui.small_button(format!("👤 {t} ✖")).on_hover_text("Remove person").clicked() {
+                        if ui.small_button(format!("{} {t} {}", icons::PERSON, icons::CLOSE)).on_hover_text("Remove person").clicked() {
                             self.meta_mut(id).people.retain(|x| x != t);
                         }
                     }
@@ -1158,7 +1159,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("Properties").strong().size(14.0).color(Color32::WHITE));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("✖").on_hover_text("Close").clicked() {
+                            if ui.small_button(icons::CLOSE).on_hover_text("Close").clicked() {
                                 close = true;
                             }
                         });
@@ -1198,10 +1199,10 @@ impl App {
                         });
                         ui.horizontal(|ui| {
                             ui.add_space(6.0);
-                            if ui.small_button(if place.is_some() { "📍 Change…" } else { "📍 Set…" }).on_hover_text("Set where this picture was taken, on a map").clicked() {
+                            if ui.small_button(if place.is_some() { format!("{} Change…", icons::LOCATION) } else { format!("{} Set…", icons::LOCATION) }).on_hover_text("Set where this picture was taken, on a map").clicked() {
                                 set_place = true;
                             }
-                            if place.is_some() && ui.small_button("🗺 Show on map").clicked() {
+                            if place.is_some() && ui.small_button(format!("{} Show on map", icons::MAP)).clicked() {
                                 show_map = true;
                             }
                         });
@@ -1856,13 +1857,13 @@ impl App {
         child.visuals_mut().widgets.inactive.weak_bg_fill = Color32::from_rgb(60, 60, 64);
         child.visuals_mut().widgets.hovered.weak_bg_fill = Color32::from_rgb(80, 80, 90);
         let big = |t: &str| egui::Button::new(RichText::new(t).size(18.0).color(Color32::WHITE));
-        if child.add(big("⏮")).on_hover_text("Previous (←)").clicked() {
+        if child.add(big(icons::SKIP_PREVIOUS)).on_hover_text("Previous (←)").clicked() {
             cmd = Some(SlideCmd::Prev);
         }
-        if child.add(big(if playing { "⏸" } else { "▶" })).on_hover_text("Play / pause (Space)").clicked() {
+        if child.add(big(if playing { icons::PAUSE } else { icons::PLAY })).on_hover_text("Play / pause (Space)").clicked() {
             cmd = Some(SlideCmd::PlayPause);
         }
-        if child.add(big("⏭")).on_hover_text("Next (→)").clicked() {
+        if child.add(big(icons::SKIP_NEXT)).on_hover_text("Next (→)").clicked() {
             cmd = Some(SlideCmd::Next);
         }
         child.label(format!("{} / {}", pos + 1, len));
@@ -1873,7 +1874,7 @@ impl App {
         changed |= child.add(egui::Slider::new(&mut st.interval, 2.0..=15.0).suffix(" s").max_decimals(0)).on_hover_text("Seconds per picture").changed();
         changed |= child.toggle_value(&mut st.fade, "Fade").on_hover_text("Crossfade between pictures").changed();
         changed |= child.toggle_value(&mut st.motion, "Motion").on_hover_text("Slow pan and zoom").changed();
-        let music_label = if st.music.is_some() { "♪ Music" } else { "♪ Choose music…" };
+        let music_label = if st.music.is_some() { format!("{} Music", icons::MUSIC) } else { format!("{} Choose music…", icons::MUSIC) };
         let mut music_changed = false;
         if st.music.is_some() {
             music_changed |= child.toggle_value(&mut st.music_on, music_label).on_hover_text(st.music.clone().unwrap_or_default()).changed();
@@ -1883,7 +1884,7 @@ impl App {
         } else if child.button(music_label).clicked() {
             music_changed |= pick_music(st);
         }
-        if child.add(big("✖")).on_hover_text("Exit (Esc)").clicked() {
+        if child.add(big(icons::CLOSE)).on_hover_text("Exit (Esc)").clicked() {
             cmd = Some(SlideCmd::Stop);
         }
         if changed || music_changed {
