@@ -738,9 +738,7 @@ impl App {
                         let r = Rect::from_min_size(well.left_top() + egui::vec2(4.0, 10.0) + off, egui::vec2(64.0, 64.0));
                         p.rect_filled(r.expand(2.0), 3, Color32::WHITE);
                         paint_square_thumb(&p, r, self.thumbs.get(&id), 1.0);
-                        if !self.thumbs.contains_key(&id) {
-                            self.request_thumb(id);
-                        }
+                        self.want_thumb(id);
                     }
                     if ids.len() > 4 {
                         p.text(well.right_bottom() - egui::vec2(4.0, 4.0), egui::Align2::RIGHT_BOTTOM, format!("+{}", ids.len() - 4), egui::FontId::proportional(12.0), t().text);
@@ -840,9 +838,7 @@ impl App {
                         for &id in ids.iter().take(500) {
                             let (r, resp) = ui.allocate_exact_size(egui::vec2(84.0, 84.0), Sense::click());
                             if ui.is_rect_visible(r) {
-                                if !self.thumbs.contains_key(&id) {
-                                    self.request_thumb(id);
-                                }
+                                self.want_thumb(id);
                                 if resp.hovered() {
                                     ui.painter().rect_filled(r.expand(2.0), 4, t().accent);
                                 }

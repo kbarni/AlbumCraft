@@ -511,9 +511,7 @@ impl App {
                             let r = Rect::from_center_size(c + off, egui::vec2(52.0, 52.0));
                             p.rect_filled(r.expand(2.0), 2, t().surface);
                             paint_thumb(&p, r, self.thumbs.get(&id), false);
-                            if !self.thumbs.contains_key(&id) {
-                                self.request_thumb(id);
-                            }
+                            self.want_thumb(id);
                         }
                         let what = match set {
                             TraySet::Folder(_) => "Folder selected",

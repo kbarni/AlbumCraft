@@ -1108,9 +1108,7 @@ impl App {
                         for &pid in &list {
                             let (rect, resp) = ui.allocate_exact_size(egui::vec2(60.0, 54.0), Sense::click());
                             if ui.is_rect_visible(rect) {
-                                if !self.thumbs.contains_key(&pid) {
-                                    self.request_thumb(pid);
-                                }
+                                self.want_thumb(pid);
                                 let p = ui.painter();
                                 if pid == id {
                                     p.rect_filled(rect, 3, t().accent);
@@ -1338,9 +1336,7 @@ impl App {
             }
             _ => match self.compare_partner() {
                 Some(o) => {
-                    if !self.thumbs.contains_key(&o) {
-                        self.request_thumb(o);
-                    }
+                    self.want_thumb(o);
                     let t = self.big_texture(o, &[]).or_else(|| self.thumbs.get(&o).cloned());
                     (t, self.photos[o].name.clone())
                 }
@@ -1572,9 +1568,7 @@ impl App {
             };
             let tex = self.big_texture(id, &extra).or_else(|| self.thumbs.get(&id).cloned());
             let Some(tex) = tex else {
-                if !self.thumbs.contains_key(&id) {
-                    self.request_thumb(id);
-                }
+                self.want_thumb(id);
                 ui.put(Rect::from_center_size(area.center(), Vec2::splat(40.0)), egui::Spinner::new().size(32.0));
                 return;
             };

@@ -280,6 +280,10 @@ pub struct App {
     pub thumb_base: HashMap<usize, RgbaImage>,
     pub thumbs: HashMap<usize, TextureHandle>,
     pub thumb_req: HashSet<usize>,
+    /// When each thumbnail was last drawn (window time), to forget the oldest (`trim_thumbs`).
+    pub thumb_seen: HashMap<usize, f64>,
+    /// Width / height of thumbnails that were forgotten (keeps the grid's layout steady).
+    pub thumb_aspect: HashMap<usize, f32>,
     pub thumb_failed: HashSet<usize>,
     pub big: HashMap<usize, BigEntry>,
     pub big_order: VecDeque<usize>,
@@ -310,6 +314,8 @@ pub struct App {
     pub tray_check: Option<TrayCheck>,
     /// Real pixel size of each photo (from the file header), for 100 % zoom.
     pub real_dims: HashMap<usize, (u32, u32)>,
+    /// A `Job::Dims` is out (one at a time, so it never holds up the thumbnails).
+    pub dims_pending: bool,
     /// Camera information (EXIF) per photo; None = the file has none.
     pub exif_cache: HashMap<usize, Option<Arc<crate::exifinfo::CameraInfo>>>,
     /// The camera's own embedded thumbnail, as a texture.
@@ -340,6 +346,7 @@ pub fn to_color_image(img: &RgbaImage) -> ColorImage {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, shot: Option<PathBuf>) -> Self {
+        let t_new = std::time::Instant::now();
         let ctx = cc.egui_ctx.clone();
         crate::theme::apply(&ctx, crate::theme::Mode::System, true);
         crate::theme::set_fonts(&ctx);
@@ -407,6 +414,8 @@ impl App {
             thumb_base: HashMap::new(),
             thumbs: HashMap::new(),
             thumb_req: HashSet::new(),
+            thumb_seen: HashMap::new(),
+            thumb_aspect: HashMap::new(),
             thumb_failed: HashSet::new(),
             big: HashMap::new(),
             big_order: VecDeque::new(),
@@ -428,6 +437,7 @@ impl App {
             list_pick: None,
             tray_check: None,
             real_dims: HashMap::new(),
+            dims_pending: false,
             exif_cache: HashMap::new(),
             exif_thumbs: HashMap::new(),
             edit: EditState {
@@ -637,6 +647,7 @@ impl App {
             // asked once (and again at the next start if something more urgent was shown instead)
             app.dialog = Some(Dialog::OnlineMaps);
         }
+        library::trace_since("App::new", t_new, 0);
         app
     }
 
@@ -648,6 +659,12 @@ impl App {
     }
 
     pub fn set_library(&mut self, scanned: Vec<ScannedFolder>, samples: bool) {
+        let t0 = std::time::Instant::now();
+        self.set_library_inner(scanned, samples);
+        library::trace_since("set_library (window thread)", t0, 0);
+    }
+
+    fn set_library_inner(&mut self, scanned: Vec<ScannedFolder>, samples: bool) {
         self.list_rev += 1;
         self.photos.clear();
         self.folders.clear();
@@ -655,10 +672,13 @@ impl App {
         self.thumb_base.clear();
         self.thumbs.clear();
         self.thumb_req.clear();
+        self.thumb_seen.clear();
+        self.thumb_aspect.clear();
         self.thumb_failed.clear();
         self.big.clear();
         // photo numbers change with a new scan, so per-photo caches start over
         self.real_dims.clear();
+        self.dims_pending = false;
         self.exif_cache.clear();
         self.exif_thumbs.clear();
         self.edit.zoom_tex = None;
@@ -706,7 +726,9 @@ impl App {
             self.folders.push(Folder { path, name, date, photos: ids });
         }
         if !samples {
+            let t0 = std::time::Instant::now();
             self.import_picasa_ini();
+            library::trace_since(".picasa.ini import (window thread)", t0, 0);
         }
         if let Source::Album(i) = self.source
             && i >= self.store.albums.len() {
@@ -1095,6 +1117,36 @@ impl App {
         }
     }
 
+    /// A thumbnail about to be drawn: remember it is in use, and ask for it when it is missing.
+    pub fn want_thumb(&mut self, id: usize) {
+        self.thumb_seen.insert(id, self.ctx.input(|i| i.time));
+        if !self.thumbs.contains_key(&id) {
+            self.request_thumb(id);
+        }
+    }
+
+    /// Keep at most MAX_THUMBS thumbnails (about 200 KB each, in memory and on the graphics
+    /// card): forget the ones not drawn for the longest time. Their shape is kept for the layout;
+    /// they come back from the disk cache when needed.
+    fn trim_thumbs(&mut self) {
+        const MAX_THUMBS: usize = 1200;
+        const KEEP: usize = 1000;
+        if self.thumbs.len() <= MAX_THUMBS {
+            return;
+        }
+        let mut by_age: Vec<(f64, usize)> = self.thumbs.keys().map(|id| (self.thumb_seen.get(id).copied().unwrap_or(0.0), *id)).collect();
+        by_age.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for &(_, id) in by_age.iter().take(self.thumbs.len().saturating_sub(KEEP)) {
+            if let Some(tex) = self.thumbs.remove(&id) {
+                let [w, h] = tex.size();
+                self.thumb_aspect.insert(id, w as f32 / h.max(1) as f32);
+            }
+            self.thumb_base.remove(&id);
+            self.thumb_req.remove(&id);
+            self.thumb_seen.remove(&id);
+        }
+    }
+
     pub fn request_thumb(&mut self, id: usize) {
         if !self.thumb_req.contains(&id) {
             self.thumb_req.insert(id);
@@ -1438,11 +1490,13 @@ impl App {
     pub fn add_library_folder(&mut self) {
         if let Some(dir) = rfd::FileDialog::new().set_title("Choose a folder of pictures").pick_folder() {
             let s = dir.to_string_lossy().to_string();
-            if !self.store.roots.contains(&s) {
-                self.store.roots.push(s);
-                self.dirty = true;
+            match self.store.add_root(&s) {
+                Ok(()) => {
+                    self.dirty = true;
+                    self.rescan();
+                }
+                Err(e) => self.toast(e),
             }
-            self.rescan();
         }
     }
 
@@ -1535,9 +1589,15 @@ impl App {
     // ----------------------------------------------------------------- frame
 
     fn process_results(&mut self) {
-        while let Ok(done) = self.rx.try_recv() {
+        // a frame's share: when a flood of results arrives, the rest waits for the next frame
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(8) {
+            let Ok(done) = self.rx.try_recv() else { return };
             match done {
                 Done::Thumb { id, key, img } => {
+                    if library::tracing() && self.thumbs.len() % 100 == 99 {
+                        eprintln!("[trace] {} thumbnails at {:.1} s", self.thumbs.len() + 1, self.ctx.input(|i| i.time));
+                    }
                     if self.photos.get(id).is_some_and(|p| p.key == key) {
                         match img {
                             Some(img) => {
@@ -1597,6 +1657,15 @@ impl App {
                 }
                 Done::Toast(m) => self.toast(m),
                 Done::File { key, dim, img } => self.on_import_file(key, dim, img),
+                Done::Dims(found) => {
+                    self.dims_pending = false;
+                    for (id, key, dims) in found {
+                        if self.photos.get(id).is_some_and(|p| p.key == key) {
+                            // unknown (unreadable header): the usual 3:2, and don't ask again
+                            self.real_dims.insert(id, dims.unwrap_or((3, 2)));
+                        }
+                    }
+                }
                 Done::ImportList { source, items, truncated } => self.on_import_list(source, items, truncated),
                 Done::ImportProgress { done, total } => {
                     if let Some(i) = self.importing.as_mut() {
@@ -1615,6 +1684,8 @@ impl App {
                 }
             }
         }
+        // out of time with results still waiting: come back next frame
+        self.ctx.request_repaint();
     }
 
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
@@ -2149,8 +2220,13 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::theme::apply(ctx, crate::theme::Mode::from_name(&self.store.theme), false);
+        let t0 = std::time::Instant::now();
         self.process_results();
+        library::trace_since("frame: results", t0, 30);
+        self.trim_thumbs();
+        let t0 = std::time::Instant::now();
         self.geo_tick();
+        library::trace_since("frame: geo", t0, 30);
         self.run_control_requests();
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
@@ -2183,6 +2259,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let t0 = std::time::Instant::now();
         match self.view {
             View::Library => self.library_ui(ui),
             View::Edit => self.edit_ui(ui),
@@ -2191,6 +2268,7 @@ impl eframe::App for App {
             View::Map => self.map_ui(ui),
             View::Import => self.import_ui(ui),
         }
+        library::trace_since(&format!("frame: {:?} view", self.view), t0, 30);
         // Ctrl+P opens printing from the library or the editor
         if crate::print::available()
             && matches!(self.view, View::Library | View::Edit)

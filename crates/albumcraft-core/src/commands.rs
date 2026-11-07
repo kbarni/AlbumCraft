@@ -788,10 +788,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let dir = existing_dir(str_arg(args, "path")?)?;
             let dir = dir.canonicalize().map_err(|e| e.to_string())?;
             let s = dir.to_string_lossy().to_string();
-            if host.store().roots.contains(&s) {
-                return Err("that folder is already in the library".into());
-            }
-            host.store_mut().roots.push(s);
+            host.store_mut().add_root(&s)?;
             host.rescan();
             now(json!({ "pictures": host.photos().len() }))
         }
@@ -820,9 +817,8 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 Some(v) => v.as_bool().ok_or("`skip_duplicates` must be true or false")?,
             };
             let library: Vec<(String, u64)> = host.photos().iter().map(|p| (p.key.clone(), p.bytes)).collect();
-            if !host.store().roots.iter().any(|r| dest.starts_with(r)) {
-                host.store_mut().roots.push(dest.to_string_lossy().to_string());
-            }
+            // already shown when inside a library folder (that is not an error here)
+            let _ = host.store_mut().add_root(&dest.to_string_lossy());
             Ok(Outcome::Later(Box::new(move || {
                 let (found, _) = crate::import::list(&source, &library);
                 let duplicates = found.iter().filter(|c| c.duplicate).count();

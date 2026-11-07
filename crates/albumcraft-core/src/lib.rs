@@ -16,6 +16,8 @@ pub mod gallery;
 pub mod geo;
 pub mod imaging;
 pub mod import;
+#[cfg(test)]
+mod perf_tests;
 pub mod library;
 pub mod mcp;
 pub mod movie;

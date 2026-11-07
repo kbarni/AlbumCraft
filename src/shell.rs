@@ -398,6 +398,9 @@ impl App {
             let [w, h] = tex.size();
             return w as f32 / h.max(1) as f32;
         }
+        if let Some(&a) = self.thumb_aspect.get(&id) {
+            return a;
+        }
         if let Some(&(w, h)) = self.real_dims.get(&id) {
             return w as f32 / h.max(1) as f32;
         }
@@ -412,16 +415,18 @@ impl App {
                 return;
             }
             let flat: Vec<usize> = groups.iter().flat_map(|(_, v)| v.iter().copied()).collect();
-            // learn the real shape of pictures whose thumbnail is not loaded yet (a few per frame)
-            let mut budget = 120;
-            for &id in &flat {
-                if budget == 0 {
-                    ui.ctx().request_repaint();
-                    break;
-                }
-                if !self.thumbs.contains_key(&id) && !self.real_dims.contains_key(&id) {
-                    self.real_dims_of(id);
-                    budget -= 1;
+            // learn the real shape of pictures whose thumbnail is not loaded yet, in the background
+            // (a batch at a time: reading headers from a slow disk must not hold up the window)
+            if !self.dims_pending {
+                let batch: Vec<(usize, String)> = flat
+                    .iter()
+                    .filter(|id| !self.thumbs.contains_key(id) && !self.thumb_aspect.contains_key(id) && !self.real_dims.contains_key(id))
+                    .filter_map(|&id| self.photos.get(id).map(|p| (id, p.key.clone())))
+                    .take(32)
+                    .collect();
+                if !batch.is_empty() {
+                    self.dims_pending = true;
+                    self.lib.request(crate::library::Job::Dims(batch), false);
                 }
             }
 
@@ -455,9 +460,7 @@ impl App {
                                 let w = aspects[k] * h;
                                 let rect = Rect::from_min_size(Pos2::new(x, row.top()), egui::vec2(w, h));
                                 x += w + GAP;
-                                if !self.thumbs.contains_key(&id) {
-                                    self.request_thumb(id);
-                                }
+                                self.want_thumb(id);
                                 if self.scroll_to_photo == Some(id) {
                                     ui.scroll_to_rect(rect, Some(egui::Align::Center));
                                     self.scroll_to_photo = None;

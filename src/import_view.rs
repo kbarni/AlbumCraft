@@ -220,9 +220,8 @@ impl App {
     pub fn on_import_done(&mut self, dest: PathBuf, summary: String, copied: usize, problems: bool) {
         self.importing = None;
         if copied > 0 {
-            if !self.store.roots.iter().any(|r| dest.starts_with(r)) {
-                self.store.roots.push(dest.to_string_lossy().to_string());
-            }
+            // already shown when inside a library folder (that is not an error here)
+            let _ = self.store.add_root(&dest.to_string_lossy());
             self.dirty = true;
             self.show_after_scan = Some(dest);
             self.rescan();

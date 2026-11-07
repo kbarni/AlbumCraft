@@ -30,18 +30,31 @@ fn candidates(data: &[u8]) -> Vec<(usize, u32, u32)> {
     let mut found = vec![];
     let mut i = 0;
     while found.len() < MAX_CANDIDATES {
-        let Some(pos) = data.get(i..).and_then(|rest| rest.windows(3).position(|w| w == [0xFF, 0xD8, 0xFF])) else { break };
-        let off = i + pos;
+        let Some(off) = find_soi(data, i) else { break };
         i = off + 3;
         let Some(stream) = data.get(off..) else { break };
-        let Ok(dec) = image::codecs::jpeg::JpegDecoder::new(Cursor::new(stream)) else { continue };
-        let (w, h) = dec.dimensions();
+        // only the header: decoders copy the whole rest of the file
+        let Some(head) = crate::imaging::jpeg_head_of(stream) else { continue };
+        let (w, h) = (head.width, head.height);
         if w >= 16 && h >= 16 {
             found.push((off, w, h));
         }
     }
     found.sort_by_key(|&(_, w, h)| std::cmp::Reverse(u64::from(w) * u64::from(h)));
     found
+}
+
+/// The next JPEG start (FF D8 FF) at or after `from`.
+fn find_soi(data: &[u8], from: usize) -> Option<usize> {
+    let mut i = from;
+    loop {
+        // jumping from one 0xFF byte to the next is much faster than comparing every window
+        let pos = i + data.get(i..)?.iter().position(|&b| b == 0xFF)?;
+        if data.get(pos + 1) == Some(&0xD8) && data.get(pos + 2) == Some(&0xFF) {
+            return Some(pos);
+        }
+        i = pos + 1;
+    }
 }
 
 fn read_file(path: &str) -> Option<Vec<u8>> {
@@ -52,18 +65,41 @@ fn read_file(path: &str) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
-/// The raw file's own "this way up", if it records one.
-fn raw_orientation(path: &str) -> Option<Orientation> {
-    let file = std::fs::File::open(path).ok()?;
-    let exif = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)).ok()?;
+/// The raw file's own "this way up", if it records one (from the file already read).
+fn raw_orientation(data: &[u8]) -> Option<Orientation> {
+    let exif = exif::Reader::new().read_from_container(&mut Cursor::new(data)).ok()?;
     let v = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?.value.get_uint(0)?;
     Orientation::from_exif(u8::try_from(v).ok()?)
+}
+
+/// The largest embedded preview, at most `max_dim` pixels, decoded at a reduced scale when it is
+/// at least twice as big (much cheaper). None when that does not apply: see `preview`.
+pub fn preview_scaled(path: &str, max_dim: u32) -> Option<image::RgbaImage> {
+    let data = read_file(path)?;
+    let &(off, _, _) = candidates(&data).first()?;
+    let stream = data.get(off..)?;
+    let head = crate::imaging::jpeg_head_of(stream)?;
+    let turn = raw_orientation(&data).map(orientation_number).unwrap_or(head.orientation);
+    crate::imaging::decode_jpeg_scaled(stream, &head, max_dim, turn)
+}
+
+fn orientation_number(o: Orientation) -> u8 {
+    match o {
+        Orientation::NoTransforms => 1,
+        Orientation::FlipHorizontal => 2,
+        Orientation::Rotate180 => 3,
+        Orientation::FlipVertical => 4,
+        Orientation::Rotate90FlipH => 5,
+        Orientation::Rotate90 => 6,
+        Orientation::Rotate270FlipH => 7,
+        Orientation::Rotate270 => 8,
+    }
 }
 
 /// The largest embedded preview that decodes, turned the way the camera recorded.
 pub fn preview(path: &str) -> Option<DynamicImage> {
     let data = read_file(path)?;
-    let orientation = raw_orientation(path);
+    let orientation = raw_orientation(&data);
     for (off, _, _) in candidates(&data) {
         let Some(stream) = data.get(off..) else { continue };
         let Ok(mut dec) = image::codecs::jpeg::JpegDecoder::new(Cursor::new(stream)) else { continue };
@@ -81,7 +117,7 @@ pub fn preview_dims(path: &str) -> Option<(u32, u32)> {
     let data = read_file(path)?;
     let &(_, w, h) = candidates(&data).first()?;
     let turned = matches!(
-        raw_orientation(path),
+        raw_orientation(&data),
         Some(Orientation::Rotate90 | Orientation::Rotate270 | Orientation::Rotate90FlipH | Orientation::Rotate270FlipH)
     );
     Some(if turned { (h, w) } else { (w, h) })

@@ -61,7 +61,18 @@ fn file_name(path: &str) -> String {
 
 /// The EXIF "taken" time as Unix seconds (it is recorded in the camera's local time).
 fn date_taken(path: &str) -> Option<i64> {
-    let text = crate::exifinfo::read(path)?.date_taken?;
+    // JPEG: from the header only; other files (TIFF, raw): the EXIF reader
+    let text = match crate::imaging::jpeg_head(path) {
+        Some(head) => {
+            let exif = head.exif()?;
+            let field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
+            match &field.value {
+                exif::Value::Ascii(v) => String::from_utf8_lossy(v.first()?).to_string(),
+                _ => return None,
+            }
+        }
+        None => crate::exifinfo::read(path)?.date_taken?,
+    };
     parse_exif_date(&text)
 }
 
