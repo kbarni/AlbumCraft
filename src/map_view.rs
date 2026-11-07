@@ -7,6 +7,7 @@
 
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
+use crate::icons;
 use crate::app::*;
 use crate::geo::{self, Found, LatLon, Place};
 use crate::library::Photo;
@@ -529,7 +530,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().lightbox_bg).inner_margin(egui::Margin::symmetric(16, 8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let back = if self.geo.map.back == View::Edit { "‹  Editor" } else { "‹  Library" };
+                    let back = if self.geo.map.back == View::Edit { format!("{}  Editor", icons::ARROW_BACK) } else { format!("{}  Library", icons::ARROW_BACK) };
                     if ui.add(egui::Button::new(RichText::new(back).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text("Go back (Esc)").clicked() {
                         self.leave_map();
                         return;
@@ -555,7 +556,7 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         let online = self.online_maps();
-                        let label = if online { "🌐  Online map" } else { "🗺  Built-in map" };
+                        let label = if online { format!("{}  Online map", icons::WEB) } else { format!("{}  Built-in map", icons::MAP) };
                         let tip = if online {
                             "Showing OpenStreetMap. Click to use the built-in map only (no internet connections)."
                         } else {
@@ -587,7 +588,7 @@ impl App {
             .inner_margin(egui::Margin::symmetric(12, 3))
             .show(ui, |ui| {
                 ui.allocate_ui_with_layout(egui::vec2(300.0, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("🔍").size(13.0).color(t().text_weak));
+                    ui.label(RichText::new(icons::SEARCH).size(13.0).color(t().text_weak));
                     let hint = if online { "Search a place or address" } else { "Search a city or coordinates" };
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut self.geo.map.search)
@@ -695,7 +696,7 @@ impl App {
                                     chosen = Some(f.clone());
                                 }
                             }
-                        } else if ui.add(egui::Button::new(RichText::new("🔍  Search addresses online   (Enter)").size(12.5)).frame(false)).clicked() {
+                        } else if ui.add(egui::Button::new(RichText::new(format!("{}  Search addresses online   (Enter)", icons::SEARCH)).size(12.5)).frame(false)).clicked() {
                             search_online = true;
                         }
                     }
@@ -737,9 +738,7 @@ impl App {
                         let r = Rect::from_min_size(well.left_top() + egui::vec2(4.0, 10.0) + off, egui::vec2(64.0, 64.0));
                         p.rect_filled(r.expand(2.0), 3, Color32::WHITE);
                         paint_square_thumb(&p, r, self.thumbs.get(&id), 1.0);
-                        if !self.thumbs.contains_key(&id) {
-                            self.request_thumb(id);
-                        }
+                        self.want_thumb(id);
                     }
                     if ids.len() > 4 {
                         p.text(well.right_bottom() - egui::vec2(4.0, 4.0), egui::Align2::RIGHT_BOTTOM, format!("+{}", ids.len() - 4), egui::FontId::proportional(12.0), t().text);
@@ -760,7 +759,7 @@ impl App {
                             }
                             Some(at) => {
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new("📍").size(16.0));
+                                    ui.label(RichText::new(icons::LOCATION).size(16.0));
                                     let r = ui.add(egui::TextEdit::singleline(&mut pl.name).hint_text("Name of the place (optional)").desired_width(300.0));
                                     if r.changed() {
                                         pl.name_edited = true;
@@ -823,10 +822,10 @@ impl App {
                         ui.label(RichText::new(format!("·  {l}")).size(13.0).color(t().text));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("✖").on_hover_text("Close (Esc)").clicked() {
+                        if ui.small_button(icons::CLOSE).on_hover_text("Close (Esc)").clicked() {
                             close = true;
                         }
-                        if ui.button("📍 Change location…").clicked() {
+                        if ui.button(format!("{} Change location…", icons::LOCATION)).clicked() {
                             change = true;
                         }
                         if ui.button("Select in library").on_hover_text("Put these pictures in the photo tray").clicked() {
@@ -839,9 +838,7 @@ impl App {
                         for &id in ids.iter().take(500) {
                             let (r, resp) = ui.allocate_exact_size(egui::vec2(84.0, 84.0), Sense::click());
                             if ui.is_rect_visible(r) {
-                                if !self.thumbs.contains_key(&id) {
-                                    self.request_thumb(id);
-                                }
+                                self.want_thumb(id);
                                 if resp.hovered() {
                                     ui.painter().rect_filled(r.expand(2.0), 4, t().accent);
                                 }
@@ -1017,10 +1014,10 @@ impl App {
         };
         let plus = Rect::from_min_size(rect.left_top() + egui::vec2(12.0, 12.0), egui::vec2(32.0, 32.0));
         let minus = plus.translate(egui::vec2(0.0, 36.0));
-        if zoom_btn(ui, plus, "+", "in") {
+        if zoom_btn(ui, plus, icons::ADD, "in") {
             view.zoom_at(rect.center(), 1.0, max_zoom);
         }
-        if zoom_btn(ui, minus, "−", "out") {
+        if zoom_btn(ui, minus, icons::REMOVE, "out") {
             view.zoom_at(rect.center(), -1.0, max_zoom);
         }
 
@@ -1051,7 +1048,7 @@ impl App {
             let text = if self.geo.indexing() {
                 "Looking for GPS positions in your pictures…".to_string()
             } else {
-                "No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click 📍 Location in the photo tray.".to_string()
+                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} Location in the photo tray.", icons::LOCATION)
             };
             let galley = painter.layout(text, egui::FontId::proportional(13.5), t().text, 360.0);
             let r = Rect::from_center_size(rect.center(), galley.size() + egui::vec2(36.0, 28.0));

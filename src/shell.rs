@@ -7,6 +7,7 @@
 
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
+use crate::icons;
 use crate::app::*;
 use crate::library::{fmt_date, local_year};
 use crate::library::{Flag, MAX_RATING};
@@ -181,8 +182,17 @@ impl App {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if pill(ui, "+  Import", true).on_hover_text("Add a folder of pictures to the library").clicked() {
-                            self.import_folder();
+                        if pill(ui, &format!("{}  Import", icons::DRIVE), true)
+                            .on_hover_text("Copy pictures from a memory card, a camera or a folder into your library")
+                            .clicked()
+                        {
+                            self.open_import();
+                        }
+                        if pill(ui, &format!("{}  Folders", icons::FOLDER), false)
+                            .on_hover_text("The folders shown in the library, where they are (nothing is copied)")
+                            .clicked()
+                        {
+                            self.dialog = Some(Dialog::FolderManager);
                         }
                         use crate::theme::Mode;
                         let mode = Mode::from_name(&self.store.theme);
@@ -201,10 +211,10 @@ impl App {
                         // rating / rejects filter (a small menu), then the Picks toggle
                         let f = self.filter.clone();
                         let label = match (f.min_rating, f.hide_rejects) {
-                            (0, false) => "⭐  Any".to_string(),
-                            (0, true) => "⭐  Any, no rejects".to_string(),
-                            (n, false) => format!("⭐  {n}+"),
-                            (n, true) => format!("⭐  {n}+, no rejects"),
+                            (0, false) => format!("{}  Any", icons::STAR),
+                            (0, true) => format!("{}  Any, no rejects", icons::STAR),
+                            (n, false) => format!("{}  {n}+", icons::STAR),
+                            (n, true) => format!("{}  {n}+, no rejects", icons::STAR),
                         };
                         let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text("Filter by rating; hide rejected pictures");
                         egui::Popup::menu(&resp).show(|ui| {
@@ -230,7 +240,7 @@ impl App {
                             .show(ui, |ui| {
                                 let sw = ((wide - 640.0) * 0.5).clamp(70.0, 190.0);
                                 ui.allocate_ui_with_layout(egui::vec2(sw + 52.0, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new("🔍").size(13.0).color(t().text_weak));
+                                    ui.label(RichText::new(icons::SEARCH).size(13.0).color(t().text_weak));
                                     let r = ui.add(
                                         egui::TextEdit::singleline(&mut self.search)
                                             .hint_text("Search pictures")
@@ -264,7 +274,7 @@ impl App {
                     ui.painter().image(icon.id(), r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                     ui.label(RichText::new("AlbumCraft").size(16.0).strong().color(t().text_strong));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.menu_button(RichText::new("≡").size(17.0), |ui| {
+                        ui.menu_button(RichText::new(icons::MENU).size(17.0), |ui| {
                             ui.set_min_width(190.0);
                             self.app_menu_items(ui);
                         });
@@ -275,7 +285,7 @@ impl App {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     let all_on = self.source == Source::Library && self.search.is_empty() && self.list_pick.is_none();
-                    if nav_row(ui, "🖼", "All pictures", Some(self.photos.len()), all_on).clicked() {
+                    if nav_row(ui, icons::PHOTOS, "All pictures", Some(self.photos.len()), all_on).clicked() {
                         self.source = Source::Library;
                         self.selection.clear();
                         self.tray_set = None;
@@ -289,7 +299,7 @@ impl App {
                         self.pick_set(TraySet::Picks);
                     }
                     let nplaces = self.located().len();
-                    if nav_row(ui, "🗺", "Places", Some(nplaces), false).on_hover_text("Your pictures on a map").clicked() {
+                    if nav_row(ui, icons::MAP, "Places", Some(nplaces), false).on_hover_text("Your pictures on a map").clicked() {
                         self.open_places();
                     }
 
@@ -297,7 +307,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("ALBUMS").size(11.0).strong().color(t().text_weak));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_btn(ui, "+", "New album").clicked() {
+                            if icon_btn(ui, icons::ADD, "New album").clicked() {
                                 self.dialog = Some(Dialog::NewAlbum { name: String::new() });
                             }
                         });
@@ -306,7 +316,7 @@ impl App {
                     for i in 0..self.store.albums.len() {
                         let a = &self.store.albums[i];
                         let n = a.keys.iter().filter(|k| self.key_index.contains_key(*k)).count();
-                        let r = nav_row(ui, "📚", &a.name.clone(), Some(n), self.source == Source::Album(i));
+                        let r = nav_row(ui, icons::ALBUM, &a.name.clone(), Some(n), self.source == Source::Album(i));
                         if r.clicked() {
                             self.source = Source::Album(i);
                             self.pick_set(TraySet::Album(i));
@@ -342,7 +352,7 @@ impl App {
                     }
                     for (name, n) in people {
                         let sel = self.source == Source::Person(name.clone());
-                        if nav_row(ui, "👤", &name, Some(n), sel).clicked() {
+                        if nav_row(ui, icons::PERSON, &name, Some(n), sel).clicked() {
                             self.source = Source::Person(name.clone());
                             self.pick_set(TraySet::Person(name));
                         }
@@ -368,7 +378,7 @@ impl App {
                             .show(ui, |ui| {
                                 for fi in fis {
                                     let f = &self.folders[fi];
-                                    let r = nav_row(ui, "📁", &f.name.clone(), Some(f.photos.len()), current_folder == Some(fi) && self.source == Source::Library);
+                                    let r = nav_row(ui, icons::FOLDER, &f.name.clone(), Some(f.photos.len()), current_folder == Some(fi) && self.source == Source::Library);
                                     if r.clicked() {
                                         self.source = Source::Library;
                                         self.scroll_to_folder = Some(fi);
@@ -388,6 +398,9 @@ impl App {
             let [w, h] = tex.size();
             return w as f32 / h.max(1) as f32;
         }
+        if let Some(&a) = self.thumb_aspect.get(&id) {
+            return a;
+        }
         if let Some(&(w, h)) = self.real_dims.get(&id) {
             return w as f32 / h.max(1) as f32;
         }
@@ -402,16 +415,18 @@ impl App {
                 return;
             }
             let flat: Vec<usize> = groups.iter().flat_map(|(_, v)| v.iter().copied()).collect();
-            // learn the real shape of pictures whose thumbnail is not loaded yet (a few per frame)
-            let mut budget = 120;
-            for &id in &flat {
-                if budget == 0 {
-                    ui.ctx().request_repaint();
-                    break;
-                }
-                if !self.thumbs.contains_key(&id) && !self.real_dims.contains_key(&id) {
-                    self.real_dims_of(id);
-                    budget -= 1;
+            // learn the real shape of pictures whose thumbnail is not loaded yet, in the background
+            // (a batch at a time: reading headers from a slow disk must not hold up the window)
+            if !self.dims_pending {
+                let batch: Vec<(usize, String)> = flat
+                    .iter()
+                    .filter(|id| !self.thumbs.contains_key(id) && !self.thumb_aspect.contains_key(id) && !self.real_dims.contains_key(id))
+                    .filter_map(|&id| self.photos.get(id).map(|p| (id, p.key.clone())))
+                    .take(32)
+                    .collect();
+                if !batch.is_empty() {
+                    self.dims_pending = true;
+                    self.lib.request(crate::library::Job::Dims(batch), false);
                 }
             }
 
@@ -445,9 +460,7 @@ impl App {
                                 let w = aspects[k] * h;
                                 let rect = Rect::from_min_size(Pos2::new(x, row.top()), egui::vec2(w, h));
                                 x += w + GAP;
-                                if !self.thumbs.contains_key(&id) {
-                                    self.request_thumb(id);
-                                }
+                                self.want_thumb(id);
                                 if self.scroll_to_photo == Some(id) {
                                     ui.scroll_to_rect(rect, Some(egui::Align::Center));
                                     self.scroll_to_photo = None;
@@ -525,15 +538,15 @@ impl App {
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() * 0.3);
             let (icon, msg) = if self.scanning {
-                ("⏳", "Looking for pictures…")
+                (icons::HOURGLASS, "Looking for pictures…")
             } else if !self.search.is_empty() || self.filter.is_active() {
-                ("🔍", "Nothing matches your search or filter.")
+                (icons::SEARCH, "Nothing matches your search or filter.")
             } else {
                 match self.source {
-                    Source::Album(_) => ("📚", "This album is empty. Select pictures and add them from the selection bar."),
-                    Source::Person(_) => ("👤", "Nobody tagged yet."),
-                    Source::Picks => ("🚩", "No picks yet. Hover a picture and click its flag, or press P."),
-                    Source::Library => ("🖼", "Your library is empty. Import a folder to get started."),
+                    Source::Album(_) => (icons::ALBUM, "This album is empty. Select pictures and add them from the selection bar."),
+                    Source::Person(_) => (icons::PERSON, "Nobody tagged yet."),
+                    Source::Picks => (icons::FLAG, "No picks yet. Hover a picture and click its flag, or press P."),
+                    Source::Library => (icons::PHOTOS, "Your library is empty. Import pictures, or add a folder you already have."),
                 }
             };
             ui.label(RichText::new(icon).size(42.0));
@@ -541,9 +554,22 @@ impl App {
             ui.label(RichText::new(msg).size(15.0).color(t().text_weak));
             if matches!(self.source, Source::Library) && self.search.is_empty() && !self.scanning {
                 ui.add_space(12.0);
-                if pill(ui, "+  Import a folder", true).clicked() {
-                    self.import_folder();
-                }
+                ui.horizontal(|ui| {
+                    // centred: two pills of about 330 px together
+                    ui.add_space((ui.available_width() - 330.0).max(0.0) / 2.0);
+                    if pill(ui, &format!("{}  Import pictures", icons::DRIVE), true)
+                        .on_hover_text("Copy pictures from a memory card, a camera or a folder")
+                        .clicked()
+                    {
+                        self.open_import();
+                    }
+                    if pill(ui, &format!("{}  Add a folder", icons::FOLDER), false)
+                        .on_hover_text("Show the pictures of a folder where they are, without copying them")
+                        .clicked()
+                    {
+                        self.add_library_folder();
+                    }
+                });
             }
         });
     }
@@ -557,10 +583,10 @@ impl App {
                 ui.label(RichText::new(&f.name).size(19.0).strong().color(t().text_strong));
                 ui.label(RichText::new(format!("{}  ·  {}", fmt_date(f.date), ids.len())).size(12.5).color(t().text_weak));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_btn(ui, "▶", "Play this folder as a slideshow").clicked() {
+                    if icon_btn(ui, icons::PLAY, "Play this folder as a slideshow").clicked() {
                         self.start_slideshow(ids.to_vec(), ids[0]);
                     }
-                    if icon_btn(ui, "✏", "Edit description").clicked() {
+                    if icon_btn(ui, icons::EDIT, "Edit description").clicked() {
                         self.dialog = Some(Dialog::FolderNote { path: f.path.clone(), text: note.clone().unwrap_or_default() });
                     }
                 });
@@ -649,7 +675,7 @@ impl App {
             p.circle_stroke(c, 5.0, Stroke::new(1.0, Color32::WHITE));
         }
         if self.held.contains(&id) {
-            p.text(Pos2::new(img.right() - 6.0, img.bottom() - 28.0), egui::Align2::RIGHT_BOTTOM, "📌", egui::FontId::proportional(13.0), Color32::WHITE);
+            p.text(Pos2::new(img.right() - 6.0, img.bottom() - 28.0), egui::Align2::RIGHT_BOTTOM, icons::PIN, egui::FontId::proportional(13.0), Color32::WHITE);
         }
     }
 

@@ -1,5 +1,6 @@
 //! The Library view: menu, toolbar, folder list, lightbox of thumbnails and the photo tray.
 
+use crate::icons;
 use crate::app::*;
 use crate::library::{fmt_bytes, Flag, MAX_RATING};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
@@ -271,11 +272,15 @@ impl App {
     pub fn app_menu_items(&mut self, ui: &mut egui::Ui) {
                 let tray = self.targets();
                 ui.menu_button("File", |ui| {
-                    if ui.button("Add folder to library…").clicked() {
-                        self.import_folder();
+                    if ui.button("Import pictures…").clicked() {
+                        self.open_import();
                         ui.close();
                     }
-                    if ui.button("Folder manager…").clicked() {
+                    if ui.button("Add folder to library…").clicked() {
+                        self.add_library_folder();
+                        ui.close();
+                    }
+                    if ui.button("Library folders…").clicked() {
                         self.dialog = Some(Dialog::FolderManager);
                         ui.close();
                     }
@@ -461,10 +466,19 @@ impl App {
                         ui.spinner();
                         ui.label(RichText::new("Looking for pictures…").size(12.0));
                     }
+                    if let Some(i) = &self.importing {
+                        ui.separator();
+                        ui.spinner();
+                        ui.add(egui::ProgressBar::new(i.done as f32 / i.total.max(1) as f32).desired_width(120.0));
+                        ui.label(RichText::new(format!("Importing {} of {}…", i.done, i.total)).size(12.0));
+                        if ui.small_button("Stop").on_hover_text("Stop after the current picture (the ones copied stay)").clicked() {
+                            self.stop_import();
+                        }
+                    }
                     if self.using_samples {
                         ui.separator();
                         ui.label(
-                            RichText::new("Showing sample pictures. Use Import to add your own folders.").size(12.0).color(t().accent),
+                            RichText::new("Showing sample pictures. Use Import or Folders to bring in your own.").size(12.0).color(t().accent),
                         );
                     }
                 });
@@ -497,9 +511,7 @@ impl App {
                             let r = Rect::from_center_size(c + off, egui::vec2(52.0, 52.0));
                             p.rect_filled(r.expand(2.0), 2, t().surface);
                             paint_thumb(&p, r, self.thumbs.get(&id), false);
-                            if !self.thumbs.contains_key(&id) {
-                                self.request_thumb(id);
-                            }
+                            self.want_thumb(id);
                         }
                         let what = match set {
                             TraySet::Folder(_) => "Folder selected",
@@ -552,7 +564,7 @@ impl App {
 
                     ui.vertical(|ui| {
                         ui.set_width(112.0);
-                        if ui.add_sized([108.0, 24.0], egui::Button::new("📌 Hold")).on_hover_text("Keep these pictures in the tray while you browse").clicked() {
+                        if ui.add_sized([108.0, 24.0], egui::Button::new(format!("{} Hold", icons::PIN))).on_hover_text("Keep these pictures in the tray while you browse").clicked() {
                             for id in tray.clone() {
                                 if !self.held.contains(&id) {
                                     self.held.push(id);
@@ -560,21 +572,21 @@ impl App {
                             }
                             self.tray_set = None;
                         }
-                        if ui.add_sized([108.0, 24.0], egui::Button::new("✖ Clear")).on_hover_text("Empty the tray").clicked() {
+                        if ui.add_sized([108.0, 24.0], egui::Button::new(format!("{} Clear", icons::CLOSE))).on_hover_text("Empty the tray").clicked() {
                             self.held.clear();
                             self.selection.clear();
                             self.tray_set = None;
                         }
                         let mut add_to: Option<usize> = None;
                         let mut new_album = false;
-                        ui.menu_button("📚 To album…", |ui| {
+                        ui.menu_button(format!("{} To album…", icons::ALBUM), |ui| {
                             for (i, a) in self.store.albums.iter().enumerate() {
                                 if ui.button(&a.name).clicked() {
                                     add_to = Some(i);
                                     ui.close();
                                 }
                             }
-                            if ui.button("➕ New album…").clicked() {
+                            if ui.button(format!("{} New album…", icons::ADD)).clicked() {
                                 new_album = true;
                                 ui.close();
                             }
@@ -612,15 +624,15 @@ impl App {
                     });
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("↺").size(18.0))).on_hover_text("Rotate left").clicked() {
+                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(18.0))).on_hover_text("Rotate left").clicked() {
                                 self.rotate(&tray, -1);
                             }
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("↻").size(18.0))).on_hover_text("Rotate right").clicked() {
+                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(18.0))).on_hover_text("Rotate right").clicked() {
                                 self.rotate(&tray, 1);
                             }
                         });
                         ui.horizontal(|ui| {
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new("🏷").size(16.0))).on_hover_text("Tags and people").clicked() {
+                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::TAG).size(16.0))).on_hover_text("Tags and people").clicked() {
                                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                             }
                         });
@@ -629,26 +641,26 @@ impl App {
                     ui.separator();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
-                        if big_button(ui, "🎞", "Movie", "Make a movie from the tray").clicked() {
+                        if big_button(ui, icons::MOVIE, "Movie", "Make a movie from the tray").clicked() {
                             self.dialog = Some(Dialog::Movie { hd: false });
                         }
-                        if big_button(ui, "🖼", "Collage", "Make a collage from the tray").clicked() {
+                        if big_button(ui, icons::COLLAGE, "Collage", "Make a collage from the tray").clicked() {
                             self.dialog = Some(Dialog::Collage);
                         }
-                        if big_button(ui, "💾", "Export", "Save edited copies to a folder").clicked() {
+                        if big_button(ui, icons::EXPORT, "Export", "Save edited copies to a folder").clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                         }
-                        if crate::print::available() && big_button(ui, "🖨", "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
+                        if crate::print::available() && big_button(ui, icons::PRINT, "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
                             self.open_print();
                         }
-                        if big_button(ui, "📧", "Email", "Send pictures by email").clicked() {
+                        if big_button(ui, icons::MAIL, "Email", "Send pictures by email").clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 800, quality: 85 });
                             self.toast("Export small copies, then attach them to an email.");
                         }
-                        if big_button(ui, "🌐", "Web page", "Make a web gallery of these pictures").clicked() {
+                        if big_button(ui, icons::WEB, "Web page", "Make a web gallery of these pictures").clicked() {
                             self.open_gallery_dialog();
                         }
-                        if big_button(ui, "📍", "Location", "Set where these pictures were taken, on a map").clicked() {
+                        if big_button(ui, icons::LOCATION, "Location", "Set where these pictures were taken, on a map").clicked() {
                             self.start_placing(tray.clone());
                         }
                     });
@@ -677,15 +689,15 @@ impl App {
             ui.separator();
             self.edit_clipboard_menu(ui, &tray);
             ui.separator();
-            if ui.button("↺ Rotate left").clicked() {
+            if ui.button(format!("{} Rotate left", icons::ROTATE_LEFT)).clicked() {
                 self.rotate(&tray, -1);
                 ui.close();
             }
-            if ui.button("↻ Rotate right").clicked() {
+            if ui.button(format!("{} Rotate right", icons::ROTATE_RIGHT)).clicked() {
                 self.rotate(&tray, 1);
                 ui.close();
             }
-            if ui.button("📌 Hold in tray").clicked() {
+            if ui.button(format!("{} Hold in tray", icons::PIN)).clicked() {
                 for &t in &tray {
                     if !self.held.contains(&t) {
                         self.held.push(t);
@@ -693,7 +705,7 @@ impl App {
                 }
                 ui.close();
             }
-            ui.menu_button("📚 Add to album", |ui| {
+            ui.menu_button(format!("{} Add to album", icons::ALBUM), |ui| {
                 let mut chosen = None;
                 for (i, a) in self.store.albums.iter().enumerate() {
                     if ui.button(&a.name).clicked() {
@@ -701,7 +713,7 @@ impl App {
                         ui.close();
                     }
                 }
-                if ui.button("➕ New album…").clicked() {
+                if ui.button(format!("{} New album…", icons::ADD)).clicked() {
                     self.dialog = Some(Dialog::NewAlbum { name: String::new() });
                     ui.close();
                 }
@@ -719,15 +731,15 @@ impl App {
                     self.selection.clear();
                     ui.close();
                 }
-            if ui.button("🏷 Tags and people…").clicked() {
+            if ui.button(format!("{} Tags and people…", icons::TAG)).clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                 ui.close();
             }
-            if ui.button("📍 Set location…").clicked() {
+            if ui.button(format!("{} Set location…", icons::LOCATION)).clicked() {
                 self.start_placing(tray.clone());
                 ui.close();
             }
-            if ui.button("💾 Export…").clicked() {
+            if ui.button(format!("{} Export…", icons::EXPORT)).clicked() {
                 self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
                 ui.close();
             }

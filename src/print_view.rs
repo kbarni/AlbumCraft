@@ -1,6 +1,7 @@
 //! The print screen: "Page Layout" choices and printer settings on the
 //! left, a page "Preview" in the middle, and Review / Print / Cancel at the bottom right.
 
+use crate::icons;
 use crate::app::*;
 use crate::library::Done;
 use crate::print::{self, BorderStyle, CaptionMode, Paper, PrintLayout, PrinterChoice};
@@ -268,11 +269,11 @@ impl App {
                     ui.label(RichText::new("Copies per picture").strong());
                     ui.horizontal(|ui| {
                         let c = self.store.print.copies.max(1);
-                        if ui.add_enabled(c > 1, egui::Button::new(" − ")).clicked() {
+                        if ui.add_enabled(c > 1, egui::Button::new(icons::REMOVE)).clicked() {
                             self.store.print.copies = c - 1;
                             self.dirty = true;
                         }
-                        if ui.add_enabled(c < 99, egui::Button::new(" + ")).clicked() {
+                        if ui.add_enabled(c < 99, egui::Button::new(icons::ADD)).clicked() {
                             self.store.print.copies = c + 1;
                             self.dirty = true;
                         }
@@ -299,13 +300,13 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let busy = job.is_some();
-                        if ui.add_enabled(!busy, egui::Button::new(RichText::new("Cancel  ✖").size(14.0)).min_size(egui::vec2(110.0, 30.0))).clicked() {
+                        if ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("Cancel  {}", icons::CLOSE)).size(14.0)).min_size(egui::vec2(110.0, 30.0))).clicked() {
                             self.close_print();
                             return;
                         }
                         let can_print = self.print.as_ref().is_some_and(|p| !p.choice.name.is_empty() && p.paper_known);
                         if ui
-                            .add_enabled(!busy && can_print, egui::Button::new(RichText::new("Print  ✔").size(14.0).strong()).min_size(egui::vec2(110.0, 30.0)))
+                            .add_enabled(!busy && can_print, egui::Button::new(RichText::new(format!("Print  {}", icons::CHECK)).size(14.0).strong()).min_size(egui::vec2(110.0, 30.0)))
                             .on_disabled_hover_text("No printer is available")
                             .clicked()
                         {
@@ -503,11 +504,11 @@ impl App {
             let nav = Rect::from_center_size(Pos2::new(full.center().x, full.max.y - nav_h / 2.0), egui::vec2(200.0, 30.0));
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(nav).layout(egui::Layout::left_to_right(egui::Align::Center)));
             let mut new_page = page;
-            if child.add_enabled(page > 0, egui::Button::new(" ◀ ")).clicked() {
+            if child.add_enabled(page > 0, egui::Button::new(icons::CHEVRON_LEFT)).clicked() {
                 new_page = page - 1;
             }
             child.label(format!("  {} of {}  ", page + 1, pages));
-            if child.add_enabled(page + 1 < pages, egui::Button::new(" ▶ ")).clicked() {
+            if child.add_enabled(page + 1 < pages, egui::Button::new(icons::CHEVRON_RIGHT)).clicked() {
                 new_page = page + 1;
             }
             if let Some(ps) = self.print.as_mut() {

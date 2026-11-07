@@ -3,6 +3,7 @@
 //! Style after PhotoCraft's "Studio" themes: flat surfaces, hairline borders, rounded controls and a
 //! single blue accent. Never hard-code a UI colour in a view; add a token here instead.
 
+use crate::icons;
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -160,9 +161,9 @@ impl Mode {
     }
     pub fn icon(self) -> &'static str {
         match self {
-            Mode::System => "🖥",
-            Mode::Light => "☀",
-            Mode::Dark => "🌙",
+            Mode::System => icons::DESKTOP,
+            Mode::Light => icons::LIGHT_MODE,
+            Mode::Dark => icons::DARK_MODE,
         }
     }
 }
@@ -247,15 +248,27 @@ fn setup_style(ctx: &egui::Context) {
     });
 }
 
-/// egui's fonts, with the bundled monospace font (Hack) as a fallback for ordinary text too: it
-/// has the symbols used as icons (≡ ↺ ↻ ◌ …) that the main font lacks. Colour emoji still come
-/// from the system's emoji font.
+/// The Material Symbols subset behind `crate::icons` (see `assets/fonts/`).
+pub const ICON_FONT: &[u8] = include_bytes!("../assets/fonts/MaterialSymbolsOutlined-subset.ttf");
+
+/// egui's fonts, with the bundled monospace font (Hack) as a fallback for ordinary text too (it
+/// has symbols such as › − × that the main font lacks), and the icon font (`crate::icons`) last.
 pub fn set_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional)
-        && !family.iter().any(|f| f == "Hack")
-    {
-        family.push("Hack".to_owned());
+    let icons = egui::FontData::from_static(ICON_FONT).tweak(egui::FontTweak {
+        scale: 1.15,
+        y_offset_factor: 0.12,
+        ..Default::default()
+    });
+    fonts.font_data.insert("icons".to_owned(), std::sync::Arc::new(icons));
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        if !family.iter().any(|f| f == "Hack") {
+            family.push("Hack".to_owned());
+        }
+        family.push("icons".to_owned());
+    }
+    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+        family.push("icons".to_owned());
     }
     ctx.set_fonts(fonts);
 }
@@ -265,19 +278,19 @@ mod glyph_tests {
     use ab_glyph::{Font, FontRef};
     use unicode_properties::UnicodeEmoji;
 
-    /// Every character in the user interface's text must be in one of the fonts egui ships with
-    /// (see `set_fonts`), or be an emoji (drawn from the system's colour emoji font, which has
-    /// them all on Windows, macOS and Linux). Anything else shows as an empty box on some
-    /// systems, as ☰ and ＋ did on Windows. Scans the string literals of the sources, up to each
-    /// file's tests.
+    /// Every character in the user interface's text must be in the text fonts egui ships with or
+    /// in the icon font (see `set_fonts`). Anything else shows as an empty box on some systems,
+    /// as ☰ and ＋ did on Windows. Emoji are not used either: they come from each system's own
+    /// colour emoji font and look different everywhere; icons come from `crate::icons`. Scans
+    /// the string literals of the sources, up to each file's tests.
     #[test]
     fn every_ui_character_is_in_the_fonts() {
-        // the fonts egui 0.37 bundles; colour emoji come from the system's emoji font instead
-        let fonts: Vec<FontRef> = [epaint_default_fonts::UBUNTU_LIGHT, epaint_default_fonts::HACK_REGULAR, epaint_default_fonts::EGUI_ICONS]
+        let text_fonts: Vec<FontRef> = [epaint_default_fonts::UBUNTU_LIGHT, epaint_default_fonts::HACK_REGULAR]
             .iter()
             .filter_map(|b| FontRef::try_from_slice(b).ok())
             .collect();
-        assert_eq!(fonts.len(), 3);
+        assert_eq!(text_fonts.len(), 2);
+        let icons = FontRef::try_from_slice(super::ICON_FONT).unwrap();
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut missing: Vec<(String, char)> = vec![];
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
@@ -300,7 +313,10 @@ mod glyph_tests {
                     if c == '"' && prev != '\\' {
                         inside = !inside;
                     } else if inside && !c.is_ascii() && !c.is_whitespace() {
-                        let found = fonts.iter().any(|f| f.glyph_id(c).0 != 0) || c.is_emoji_char();
+                        let in_text = text_fonts.iter().any(|f| f.glyph_id(c).0 != 0);
+                        // emoji are allowed only where the main font draws them itself (©)
+                        let emoji_ok = !c.is_emoji_char() || text_fonts[0].glyph_id(c).0 != 0;
+                        let found = (in_text && emoji_ok) || icons.glyph_id(c).0 != 0;
                         if !found && !missing.iter().any(|(_, m)| *m == c) {
                             missing.push((name.clone(), c));
                         }
@@ -310,6 +326,17 @@ mod glyph_tests {
             }
         }
         let list: Vec<String> = missing.iter().map(|(f, c)| format!("{c} (U+{:04X}) in {f}", *c as u32)).collect();
-        assert!(missing.is_empty(), "characters the fonts don't have:\n{}", list.join("\n"));
+        assert!(missing.is_empty(), "characters the fonts don't have, or emoji (use crate::icons):\n{}", list.join("\n"));
+    }
+
+    /// Every constant of `crate::icons` is in the bundled icon font.
+    #[test]
+    fn every_icon_is_in_the_icon_font() {
+        let icons = FontRef::try_from_slice(super::ICON_FONT).unwrap();
+        for (name, s) in crate::icons::ALL {
+            let mut chars = s.chars();
+            let (Some(c), None) = (chars.next(), chars.next()) else { panic!("{name} is not one character") };
+            assert_ne!(icons.glyph_id(c).0, 0, "{name} (U+{:04X}) is missing: run assets/fonts/subset_icons.py", c as u32);
+        }
     }
 }

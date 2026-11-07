@@ -9,6 +9,20 @@ use std::sync::mpsc::Sender;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
+/// `ALBUMCRAFT_TRACE=1`: print how long the slow steps take (to standard error).
+pub fn tracing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALBUMCRAFT_TRACE").is_some())
+}
+
+/// With `ALBUMCRAFT_TRACE`, print `what` and the time since `start` when it is over `min_ms`.
+pub fn trace_since(what: &str, start: std::time::Instant, min_ms: u128) {
+    let ms = start.elapsed().as_millis();
+    if tracing() && ms >= min_ms {
+        eprintln!("[trace] {what}: {ms} ms");
+    }
+}
+
 pub const EXTENSIONS: [&str; 9] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "jpe"];
 
 /// Whether a file with this (lower-case) extension is shown in the library.
@@ -111,6 +125,8 @@ pub struct Store {
     pub online_maps: Option<bool>,
     /// Exported copies get the picture's location in their EXIF.
     pub export_location: bool,
+    /// The folder the last import copied into a new folder of (offered first next time).
+    pub import_to: Option<String>,
 }
 
 impl Default for Store {
@@ -128,6 +144,7 @@ impl Default for Store {
             slideshow: Default::default(),
             online_maps: None,
             export_location: true,
+            import_to: None,
         }
     }
 }
@@ -389,13 +406,46 @@ pub type ScannedFolder = (String, Vec<(String, i64, u64)>);
 /// Most pictures one library scan takes in (keeps memory and start-up time bounded).
 pub const SCAN_LIMIT: usize = 200_000;
 
+/// The roots to scan: each once, and none inside another (its pictures would show twice).
+pub fn distinct_roots(roots: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for r in roots {
+        let p = Path::new(r);
+        if roots.iter().any(|o| o != r && p.starts_with(o)) || out.iter().any(|o| Path::new(o) == p) {
+            continue;
+        }
+        out.push(r.clone());
+    }
+    out
+}
+
+impl Store {
+    /// Add a folder to the library. A folder inside one already there is refused (it is shown
+    /// already); folders inside the new one are replaced by it.
+    pub fn add_root(&mut self, path: &str) -> Result<(), String> {
+        let p = Path::new(path);
+        if let Some(outer) = self.roots.iter().find(|r| p.starts_with(r)) {
+            return Err(if Path::new(outer) == p {
+                "That folder is already in the library.".into()
+            } else {
+                format!("That folder is already in the library, as part of {outer}.")
+            });
+        }
+        self.roots.retain(|r| !Path::new(r).starts_with(p));
+        self.roots.push(path.to_string());
+        Ok(())
+    }
+}
+
 /// Scan the folders for pictures; the flag is true when the scan stopped at `limit`.
 pub fn scan_roots(roots: &[String], limit: usize) -> (Vec<ScannedFolder>, bool) {
+    let t0 = std::time::Instant::now();
     let mut out = vec![];
     let mut count = 0;
-    for r in roots {
+    for r in &distinct_roots(roots) {
         scan_dir(Path::new(r), 0, &mut out, &mut count, limit);
     }
+    trace_since(&format!("scan of {} folder(s): {count} pictures", roots.len()), t0, 0);
     (out, count >= limit)
 }
 
@@ -464,6 +514,57 @@ pub fn sample_folders() -> Vec<ScannedFolder> {
 pub fn sample_file_name(key: &str) -> String {
     let n = key.trim_start_matches(SAMPLE_PREFIX);
     format!("IMG_{:04}.JPG", 2000 + n.parse::<u32>().unwrap_or(0) * 7)
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    fn key(j: Option<Job>) -> String {
+        match j {
+            Some(Job::Thumb { key, .. }) => key,
+            _ => String::new(),
+        }
+    }
+
+    #[test]
+    fn urgent_first_then_newest_first() {
+        let mut q = Queues::default();
+        let job = |k: &str| Job::Thumb { id: 0, key: k.into() };
+        q.normal.push_back(job("old thumb"));
+        q.normal.push_back(job("new thumb"));
+        q.urgent.push_back(job("preview"));
+        assert_eq!(key(q.pop()), "preview");
+        assert_eq!(key(q.pop()), "new thumb");
+        assert_eq!(key(q.pop()), "old thumb");
+        assert!(q.pop().is_none());
+    }
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::*;
+
+    #[test]
+    fn nested_roots_are_scanned_once() {
+        let roots: Vec<String> = ["/p/2025", "/p/2025/Trip", "/home/me", "/p/2025"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(distinct_roots(&roots), vec!["/p/2025".to_string(), "/home/me".to_string()]);
+        // a sibling with a common prefix is not inside
+        let roots: Vec<String> = ["/p/2025", "/p/2025-old"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(distinct_roots(&roots), roots);
+    }
+
+    #[test]
+    fn adding_roots() {
+        let mut s = Store::default();
+        s.add_root("/p/2025/Trip").unwrap();
+        s.add_root("/p/2025/Other").unwrap();
+        assert!(s.add_root("/p/2025/Trip").is_err());
+        assert!(s.add_root("/p/2025/Trip/day1").is_err());
+        // the parent takes the place of both
+        s.add_root("/p/2025").unwrap();
+        assert_eq!(s.roots, vec!["/p/2025".to_string()]);
+    }
 }
 
 #[cfg(test)]
@@ -694,6 +795,10 @@ pub enum Job {
     Big { id: usize, key: String },
     /// A sharp render for zooming in: the picture at up to ZOOM_DIM pixels with its edits applied.
     Zoom { id: usize, key: String, ops: Vec<EditOp> },
+    /// Any picture file, not (yet) in the library, at THUMB_DIM or BIG_DIM: the import view.
+    File { key: String, dim: u32 },
+    /// The shapes of these pictures (from their headers), for the grid's layout.
+    Dims(Vec<(usize, String)>),
 }
 
 impl Job {
@@ -701,7 +806,7 @@ impl Job {
         match self {
             Job::Thumb { id, key } => {
                 let img = crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
-                    let img = imaging::load_source(&key, THUMB_DIM)?;
+                    let img = imaging::load_thumbnail(&key, THUMB_DIM)?;
                     crate::thumbcache::put(&key, THUMB_DIM, &img);
                     Some(img)
                 });
@@ -717,6 +822,22 @@ impl Job {
                 let img = src.map(|s| imaging::apply_all(&s, &ops));
                 Done::Zoom { id, key, ops, img, unedited_width }
             }
+            Job::File { key, dim } => {
+                let img = if dim == THUMB_DIM {
+                    crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
+                        let img = imaging::load_thumbnail(&key, THUMB_DIM)?;
+                        crate::thumbcache::put(&key, THUMB_DIM, &img);
+                        Some(img)
+                    })
+                } else {
+                    imaging::load_source(&key, dim)
+                };
+                Done::File { key, dim, img }
+            }
+            Job::Dims(batch) => Done::Dims(batch.into_iter().map(|(id, key)| {
+                let d = source_dims(&key);
+                (id, key, d)
+            }).collect()),
         }
     }
 
@@ -726,6 +847,8 @@ impl Job {
             Job::Thumb { id, key } => Done::Thumb { id: *id, key: key.clone(), img: None },
             Job::Big { id, key } => Done::Big { id: *id, key: key.clone(), img: None },
             Job::Zoom { id, key, ops } => Done::Zoom { id: *id, key: key.clone(), ops: ops.clone(), img: None, unedited_width: 0 },
+            Job::File { key, dim } => Done::File { key: key.clone(), dim: *dim, img: None },
+            Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), None)).collect()),
         }
     }
 }
@@ -740,7 +863,19 @@ pub enum Done {
     Message(String),
     /// A short progress note for the toast.
     Toast(String),
+    File { key: String, dim: u32, img: Option<RgbaImage> },
+    /// (photo id, key, shown size) for each picture of a `Job::Dims`.
+    Dims(Vec<FoundDims>),
+    /// The pictures found in an import source (see `import::list`).
+    ImportList { source: std::path::PathBuf, items: Vec<crate::import::Candidate>, truncated: bool },
+    /// `done` of `total` pictures copied so far.
+    ImportProgress { done: usize, total: usize },
+    /// The import into `dest` finished: what to tell the user, and whether anything was copied.
+    ImportDone { dest: std::path::PathBuf, summary: String, copied: usize, problems: bool },
 }
+
+/// (photo id, key, shown size or None when the header can't be read).
+pub type FoundDims = (usize, String, Option<(u32, u32)>);
 
 pub const THUMB_DIM: u32 = 256;
 pub const BIG_DIM: u32 = 1400;
@@ -759,14 +894,28 @@ pub fn source_dims(key: &str) -> Option<(u32, u32)> {
 /// Called after each finished job so the window draws the result (e.g. `ctx.request_repaint`).
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
+/// Waiting jobs: urgent ones (the picture being looked at) first, then the others; newest first
+/// in both, so that what is on screen now comes before what was on screen a moment ago.
+#[derive(Default)]
+struct Queues {
+    urgent: VecDeque<Job>,
+    normal: VecDeque<Job>,
+}
+
+impl Queues {
+    fn pop(&mut self) -> Option<Job> {
+        self.urgent.pop_back().or_else(|| self.normal.pop_back())
+    }
+}
+
 #[derive(Clone)]
 pub struct Pool {
-    queue: Arc<(Mutex<VecDeque<Job>>, Condvar)>,
+    queue: Arc<(Mutex<Queues>, Condvar)>,
 }
 
 impl Pool {
     pub fn new(threads: usize, tx: Sender<Done>, wake: Wake) -> Self {
-        let queue: Arc<(Mutex<VecDeque<Job>>, Condvar)> = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
+        let queue: Arc<(Mutex<Queues>, Condvar)> = Arc::new((Mutex::new(Queues::default()), Condvar::new()));
         for _ in 0..threads {
             let q = queue.clone();
             let tx = tx.clone();
@@ -776,7 +925,7 @@ impl Pool {
                     let (lock, cv) = &*q;
                     let mut g = lock.lock().unwrap_or_else(PoisonError::into_inner);
                     loop {
-                        if let Some(j) = g.pop_front() {
+                        if let Some(j) = g.pop() {
                             break j;
                         }
                         g = cv.wait(g).unwrap_or_else(PoisonError::into_inner);
@@ -799,9 +948,9 @@ impl Pool {
         let (lock, cv) = &*self.queue;
         let mut g = lock.lock().unwrap_or_else(PoisonError::into_inner);
         if urgent {
-            g.push_front(job);
+            g.urgent.push_back(job);
         } else {
-            g.push_back(job);
+            g.normal.push_back(job);
         }
         cv.notify_one();
     }
