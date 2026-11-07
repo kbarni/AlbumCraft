@@ -36,6 +36,7 @@ These processing functions should be reimplemented. Normally there's nothing com
 
 - More organizing options: pick, reject, 1-5 stars...
 - In a later phase: Face recognition: first extract faces with face detector (maybe Haar cascades or other methods) then use a face recognizer
+- Automatic tag suggestions: a small neural network run on the thumbnail proposes the 5 most probable tags; the user clicks one to add it, or searches for other tags (see "Tag suggestions" below).
 
 ## General optimization
 
@@ -69,6 +70,7 @@ Guiding rule: keep the app simple to use and fast. Heavy work stays in the backg
 | Effects tab | Yes | S–M | Vignette, frames/borders, drop shadow, rounded corners: easy. Text overlay needs on-picture placement UI; `ab_glyph` already renders text. |
 | Pick / reject / 1–5 stars | Yes | S | `Meta.star: bool` → `rating: u8` + pick/reject flag, with migration of old data (`star=yes` in `.picasa.ini`). Lightroom keys: `P`, `X`, `0`–`5`. |
 | Face recognition | Later | L | Not Haar cascades (dated, poor recall). Small ONNX models (YuNet detection, SFace embeddings, a few MB) via a pure-Rust runtime (`tract`), then cluster embeddings. Runs in the background `Pool`. |
+| Tag suggestions | Yes | M | Small model via `tract` (ONNX) on the 256 px thumbnail, once per picture in the background, results cached. Shares the runtime with face recognition. Model choice still open: see "Tag suggestions" below. |
 | GPU acceleration | Only if measured slow | — | egui already draws on the GPU; edits are CPU on the preview, with rayon in `image`. Measure first; wgpu compute shaders are possible later. |
 | HTML gallery | Yes | S | Resized JPEGs + one HTML file with inline CSS/JS lightbox; 2–3 styles (grid, masonry, dark). No new dependency. |
 | Order prints | Mostly not code | — | Labs (CEWE etc.) rarely offer a public ordering API for desktop apps; affiliate programs usually pay for web links (terms to verify). Simple version: "Export for print" (crop to print ratio, size for the DPI) + open the lab's upload page. |
@@ -93,7 +95,19 @@ Guiding rule: keep the app simple to use and fast. Heavy work stays in the backg
 2. New Edit tab (Basic + Advanced with histogram), then Presets and Effects.
 3. Slideshow upgrades, HTML gallery, then movie export.
 4. Command layer + MCP server.
-5. Later: face recognition, GPU (only if measured slow), print ordering.
+5. Later: tag suggestions, then face recognition on the same model runtime; GPU (only if measured slow), print ordering.
+
+## Tag suggestions (planned, 2026-11-07)
+
+Suggest tags for a picture; never add them without the user's click.
+
+- **Runtime:** a pure-Rust ONNX runtime (`tract`), shared with face recognition later. Jobs run in the background `Pool` at normal (low) priority on the cached 256 px thumbnail (models take ~224 px), about 10–30 ms per picture on the CPU. Results (scores or an embedding) are cached on disk next to the thumbnails, keyed like them, so opening a picture shows the suggestions at once.
+- **Model, two options to compare:**
+  1. An image classifier (MobileNet class, 5–15 MB). ImageNet's 1000 classes fit personal photos poorly (dog breeds, "tench"…), so it needs a curated map to a few hundred friendly tags; a scene model (Places365: beach, mountain, kitchen…) fits photos better and can be combined.
+  2. A small image–text model (CLIP style, ~40–100 MB): compares the picture with any word, so it can rank the user's own library tags as well as a built-in list (personal suggestions), and the same embeddings allow searching untagged pictures by words ("snow"). Preferred if a small model with a permissive licence exists.
+- **Constraints:** no network unless allowed, so the model ships with the app (size cost) or is downloaded only after the user agrees; permissive licence for the weights and acceptable training data (clean-room rule 3), licence file next to the model.
+- **Interface:** in the info panel's Tags section, "Suggested: beach · sea · sunset" as dimmed chips under the add field, one click to add; at most 5, and only above a confidence threshold. The existing add field with library-tag suggestions stays.
+- **First step:** a research pass (candidate models: size, speed, licence, quality) and a test on real holiday pictures with an ignored `perf_`-style test, before any UI.
 
 ## Phase 0: review findings (2026-11-04)
 
