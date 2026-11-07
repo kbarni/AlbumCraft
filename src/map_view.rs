@@ -164,7 +164,17 @@ pub struct Placing {
     dragging_pin: bool,
 }
 
+/// Only some pictures on the map: a folder, an album, the tray.
+pub struct MapScope {
+    /// "Skocia", "Best of the year", "3 pictures"
+    pub title: String,
+    /// The pictures, by key (photo numbers change with a rescan).
+    pub keys: std::collections::HashSet<String>,
+}
+
 pub struct MapState {
+    /// Shown instead of the whole library (None: every picture with a location).
+    pub scope: Option<MapScope>,
     center: [f64; 2],
     zoom: f64,
     /// The view was set up (fitted to the pictures) at least once.
@@ -187,6 +197,7 @@ pub struct MapState {
 impl Default for MapState {
     fn default() -> Self {
         MapState {
+            scope: None,
             center: [0.5, 0.42],
             zoom: 0.0,
             ready: false,
@@ -219,6 +230,12 @@ pub struct GeoState {
     located_key: Option<(u64, u64, usize)>,
     pub map: MapState,
     tiles: Option<Tiles>,
+    /// Words each located picture can be searched by (`geo::place_terms`), by key, with the
+    /// position and place name they were made for.
+    pub place_terms: HashMap<String, (LatLon, String, Vec<String>)>,
+    /// Changes whenever `place_terms` does (part of the library list's cache key).
+    pub place_rev: u64,
+    place_key: Option<(u64, u64, usize)>,
 }
 
 impl GeoState {
@@ -331,8 +348,75 @@ impl App {
     /// Per frame: take GPS positions found by the background index.
     pub fn geo_tick(&mut self) {
         self.geo.poll();
+        self.refresh_place_terms();
         if self.view == View::Map && self.geo.indexing() {
             self.ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+    }
+
+    /// A small map around `at` with a pin on it (the editor's info panel). Click: the Places map.
+    pub fn mini_map(&mut self, ui: &mut egui::Ui, at: LatLon, height: f32) -> egui::Response {
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), Sense::click());
+        if !ui.is_rect_visible(rect) {
+            return resp;
+        }
+        let ctx = ui.ctx().clone();
+        let online = self.online_maps();
+        if online && self.geo.tiles.is_none() {
+            self.geo.tiles = Some(Tiles::new(&ctx));
+        }
+        // the built-in map has country-level detail; online tiles show the streets around
+        // the place sits a little below the middle, so the pin above it looks centred
+        let drop = egui::vec2(0.0, 14.0);
+        let view = Viewport { rect: rect.translate(drop), center: geo::to_world(at), zoom: if online { 12.0 } else { 5.0 } };
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0, t().map_water);
+        if let Some(b) = crate::basemap::get(&ctx) {
+            b.paint(&painter, &view);
+        }
+        if online && let Some(tiles) = &mut self.geo.tiles {
+            tiles.begin_frame(&ctx);
+            paint_tiles(&painter, &view, tiles);
+            painter.text(
+                rect.right_bottom() - egui::vec2(4.0, 2.0),
+                egui::Align2::RIGHT_BOTTOM,
+                "© OpenStreetMap",
+                egui::FontId::proportional(9.5),
+                Color32::from_gray(60),
+            );
+        }
+        paint_pin(&painter, rect.center() + drop, false);
+        painter.rect_stroke(rect, 4, Stroke::new(1.0, t().border), StrokeKind::Inside);
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Show on the map")
+    }
+
+    /// Keep `place_terms` up to date: only pictures whose position is new or moved are looked up
+    /// (the city lookup takes a few microseconds each).
+    fn refresh_place_terms(&mut self) {
+        let key = (self.list_rev, self.geo.gps_rev, self.photos.len());
+        if self.geo.place_key == Some(key) {
+            return;
+        }
+        self.geo.place_key = Some(key);
+        let mut changed = false;
+        for p in &self.photos {
+            let place = self.store.meta.get(&p.key).and_then(|m| m.place.as_ref());
+            let Some(at) = geo::effective(place, self.geo.file_gps.get(&p.key).copied().flatten()) else {
+                changed |= self.geo.place_terms.remove(&p.key).is_some();
+                continue;
+            };
+            let name = match place {
+                Some(Place::Set { name, .. }) => name.as_str(),
+                _ => "",
+            };
+            let fresh = self.geo.place_terms.get(&p.key).is_some_and(|(was, was_name, _)| *was == at && was_name == name);
+            if !fresh {
+                self.geo.place_terms.insert(p.key.clone(), (at, name.to_string(), geo::place_terms(place, at)));
+                changed = true;
+            }
+        }
+        if changed {
+            self.geo.place_rev += 1;
         }
     }
 
@@ -341,9 +425,38 @@ impl App {
         if self.view != View::Map {
             self.geo.map.back = self.view;
         }
+        if self.geo.map.scope.take().is_some() {
+            self.geo.map.fit_next = true;
+        }
         self.geo.map.placing = None;
         self.geo.map.fit_next = !self.geo.map.ready;
         self.view = View::Map;
+    }
+
+    /// Open the Places map with only these pictures on it (a folder, an album, the tray).
+    pub fn show_set_on_map(&mut self, title: String, ids: &[usize]) {
+        let keys: std::collections::HashSet<String> = ids.iter().filter_map(|&id| self.photos.get(id)).map(|p| p.key.clone()).collect();
+        let located = ids.iter().filter(|&&id| self.location(id).is_some()).count();
+        if located == 0 {
+            let n = keys.len();
+            self.toast(if self.geo.indexing() {
+                "Still looking for GPS positions in your pictures: try again in a moment.".to_string()
+            } else {
+                format!("None of these {n} picture(s) has a location yet. Select them and click {} (Set location) in the photo tray to place them.", icons::LOCATION)
+            });
+            return;
+        }
+        self.open_places();
+        self.geo.map.scope = Some(MapScope { title, keys });
+        self.geo.map.selected.clear();
+        self.geo.map.fit_next = true;
+    }
+
+    /// The pictures the map shows: the whole library, or only the scope's.
+    fn shown_on_map(&mut self) -> Arc<Vec<Located>> {
+        let all = self.located();
+        let Some(scope) = &self.geo.map.scope else { return all };
+        Arc::new(all.iter().filter(|l| self.photos.get(l.id).is_some_and(|p| scope.keys.contains(&p.key))).cloned().collect())
     }
 
     /// Open the Places map on one picture, with it selected.
@@ -500,7 +613,7 @@ impl App {
         if self.online_maps() && self.geo.tiles.is_none() {
             self.geo.tiles = Some(Tiles::new(&ctx));
         }
-        let located = self.located();
+        let located = self.shown_on_map();
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.dialog.is_none() {
             if self.geo.map.results_open {
                 self.geo.map.results_open = false;
@@ -542,16 +655,30 @@ impl App {
                             Some(n) => ("Set location".to_string(), format!("{n} picture{}", if n == 1 { "" } else { "s" })),
                             None => {
                                 let n = located.len();
-                                let sub = if self.geo.indexing() {
-                                    format!("{n} with a location · looking for GPS positions…")
-                                } else {
-                                    format!("{n} picture{} with a location", if n == 1 { "" } else { "s" })
+                                let sub = match &self.geo.map.scope {
+                                    Some(s) => format!("{n} of {} picture{} with a location", s.keys.len(), if s.keys.len() == 1 { "" } else { "s" }),
+                                    None if self.geo.indexing() => format!("{n} with a location · looking for GPS positions…"),
+                                    None => format!("{n} picture{} with a location", if n == 1 { "" } else { "s" }),
                                 };
-                                ("Places".to_string(), sub)
+                                let title = match &self.geo.map.scope {
+                                    Some(s) => format!("Places · {}", s.title),
+                                    None => "Places".to_string(),
+                                };
+                                (title, sub)
                             }
                         };
                         ui.label(RichText::new(title).size(20.0).strong().color(t().text_strong));
-                        ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
+                            if placing.is_none()
+                                && self.geo.map.scope.is_some()
+                                && ui.link(RichText::new("Show the whole library").size(12.0)).clicked()
+                            {
+                                self.geo.map.scope = None;
+                                self.geo.map.selected.clear();
+                                self.geo.map.fit_next = true;
+                            }
+                        });
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
@@ -568,7 +695,7 @@ impl App {
                             self.geo.map.online_results.clear();
                         }
                         if placing.is_none()
-                            && ui.add(egui::Button::new("Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture").clicked()
+                            && ui.add(egui::Button::new("Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture on the map").clicked()
                         {
                             self.geo.map.fit_next = true;
                         }
@@ -1048,7 +1175,7 @@ impl App {
             let text = if self.geo.indexing() {
                 "Looking for GPS positions in your pictures…".to_string()
             } else {
-                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} Location in the photo tray.", icons::LOCATION)
+                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} (Set location) in the photo tray.", icons::LOCATION)
             };
             let galley = painter.layout(text, egui::FontId::proportional(13.5), t().text, 360.0);
             let r = Rect::from_center_size(rect.center(), galley.size() + egui::vec2(36.0, 28.0));

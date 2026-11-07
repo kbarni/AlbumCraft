@@ -202,6 +202,28 @@ pub fn effective(place: Option<&Place>, file: Option<LatLon>) -> Option<LatLon> 
 
 /// A short description of a position: the stored name, else the nearest city ("Near Bordeaux,
 /// France"), else the coordinates.
+/// Words a search can find a located picture by: the place name set by the user, and the
+/// nearest city (within 60 km) with its region and country.
+pub fn place_terms(place: Option<&Place>, at: LatLon) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    if let Some(Place::Set { name, .. }) = place
+        && !name.trim().is_empty()
+    {
+        out.push(name.trim().to_string());
+    }
+    if let Some((c, km)) = nearest(at)
+        && km <= 60.0
+    {
+        let g = gazetteer();
+        for t in [c.name.as_str(), c.admin.as_str(), g.country(c)] {
+            if !t.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(t)) {
+                out.push(t.to_string());
+            }
+        }
+    }
+    out
+}
+
 pub fn describe(place: Option<&Place>, at: LatLon) -> String {
     if let Some(Place::Set { name, .. }) = place
         && !name.is_empty()
@@ -401,6 +423,8 @@ pub struct Gazetteer {
     pub cities: Vec<City>,
     /// (code, name, folded name)
     countries: Vec<(String, String, String)>,
+    /// City indexes sorted by latitude (for `nearest`).
+    by_lat: Vec<u32>,
 }
 
 impl Gazetteer {
@@ -443,7 +467,9 @@ impl Gazetteer {
                 keys,
             });
         }
-        Gazetteer { cities, countries }
+        let mut by_lat: Vec<u32> = (0..cities.len() as u32).collect();
+        by_lat.sort_by(|&a, &b| cities[a as usize].lat.total_cmp(&cities[b as usize].lat));
+        Gazetteer { cities, countries, by_lat }
     }
 
     pub fn country(&self, c: &City) -> &str {
@@ -596,15 +622,25 @@ fn match_score(key: &str, q: &str) -> u8 {
 pub fn nearest(at: LatLon) -> Option<(&'static City, f64)> {
     let g = gazetteer();
     let coslat = at.lat.to_radians().cos().max(0.01);
-    // a quick flat distance to pick the candidate, then the real one
-    let best = g.cities.iter().min_by(|a, b| {
-        let d = |c: &City| {
-            let dx = ((c.lon as f64 - at.lon + 540.0) % 360.0 - 180.0) * coslat;
-            let dy = c.lat as f64 - at.lat;
-            dx * dx + dy * dy
-        };
-        d(a).total_cmp(&d(b))
-    })?;
+    // a quick flat distance (in degrees) to pick the candidate, then the real one
+    let flat = |c: &City| {
+        let dx = ((c.lon as f64 - at.lon + 540.0) % 360.0 - 180.0) * coslat;
+        let dy = c.lat as f64 - at.lat;
+        (dx * dx + dy * dy).sqrt()
+    };
+    // look in a band of latitudes first: a city at flat distance d is at most d degrees of
+    // latitude away, so the best one in a band at most `band` away is the best overall
+    for band in [1.0, 4.0, 15.0] {
+        let lo = g.by_lat.partition_point(|&i| (g.cities[i as usize].lat as f64) < at.lat - band);
+        let hi = g.by_lat.partition_point(|&i| (g.cities[i as usize].lat as f64) <= at.lat + band);
+        let best = g.by_lat.get(lo..hi)?.iter().map(|&i| &g.cities[i as usize]).min_by(|a, b| flat(a).total_cmp(&flat(b)));
+        if let Some(c) = best
+            && flat(c) <= band
+        {
+            return Some((c, at.km_to(c.at())));
+        }
+    }
+    let best = g.cities.iter().min_by(|a, b| flat(a).total_cmp(&flat(b)))?;
     Some((best, at.km_to(best.at())))
 }
 
@@ -812,5 +848,46 @@ mod tests {
         std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
         std::fs::write(&dest, &packed).unwrap();
         eprintln!("{n} cities, {} countries: {} bytes -> {} bytes", countries.len(), out.len(), packed.len());
+    }
+}
+
+#[cfg(test)]
+mod nearest_tests {
+    use super::*;
+
+    /// The quick lookup finds the same city as looking at every one, all over the world.
+    #[test]
+    fn nearest_matches_a_full_scan() {
+        let g = gazetteer();
+        assert!(!g.cities.is_empty());
+        let mut seed = 12345u64;
+        let mut rnd = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as f64 / (1u64 << 31) as f64
+        };
+        for _ in 0..400 {
+            let at = LatLon { lat: rnd() * 160.0 - 80.0, lon: rnd() * 360.0 - 180.0 };
+            let coslat = at.lat.to_radians().cos().max(0.01);
+            let flat = |c: &City| {
+                let dx = ((c.lon as f64 - at.lon + 540.0) % 360.0 - 180.0) * coslat;
+                let dy = c.lat as f64 - at.lat;
+                dx * dx + dy * dy
+            };
+            let full = g.cities.iter().min_by(|a, b| flat(a).total_cmp(&flat(b))).unwrap();
+            let (quick, _) = nearest(at).unwrap();
+            assert!((flat(quick) - flat(full)).abs() < 1e-9, "{at:?}: {} vs {}", quick.name, full.name);
+        }
+    }
+
+    #[test]
+    fn place_terms_name_city_region_country() {
+        let bordeaux = LatLon { lat: 44.8378, lon: -0.5792 };
+        let terms = place_terms(None, bordeaux);
+        assert!(terms.iter().any(|t| t == "Bordeaux"), "{terms:?}");
+        assert!(terms.iter().any(|t| t == "France"), "{terms:?}");
+        let set = Place::Set { lat: bordeaux.lat, lon: bordeaux.lon, name: "Grandma's house".into() };
+        assert_eq!(place_terms(Some(&set), bordeaux).first().map(String::as_str), Some("Grandma's house"));
+        // the middle of the Pacific: no city near
+        assert!(place_terms(None, LatLon { lat: -30.0, lon: -140.0 }).is_empty());
     }
 }

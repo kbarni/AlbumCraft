@@ -127,6 +127,11 @@ pub struct Store {
     pub export_location: bool,
     /// The folder the last import copied into a new folder of (offered first next time).
     pub import_to: Option<String>,
+    /// The editor's info panel is shown.
+    pub info_open: bool,
+    /// Sections of the info panel opened (true) or closed (false) by the user; others use their
+    /// default.
+    pub info_sections: HashMap<String, bool>,
 }
 
 impl Default for Store {
@@ -145,6 +150,8 @@ impl Default for Store {
             online_maps: None,
             export_location: true,
             import_to: None,
+            info_open: true,
+            info_sections: HashMap::new(),
         }
     }
 }

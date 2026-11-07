@@ -6,7 +6,6 @@ use crate::develop::{self, Adjust};
 use crate::imaging::{self, EditOp};
 use crate::decor::{Decor, TextOverlay};
 use crate::looks::Look;
-use crate::library::{fmt_bytes, fmt_date, fmt_time};
 use crate::library_view::paint_thumb;
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureOptions, Vec2};
 
@@ -326,8 +325,13 @@ impl App {
                     ui.label(RichText::new(&self.folders[p.folder].name).size(14.0).strong());
                     ui.label(RichText::new(format!("›  {}", p.name)).size(13.0).color(t().text_weak));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.selectable_label(self.edit.show_info, format!("{} Properties", icons::INFO)).clicked() {
-                            self.edit.show_info = !self.edit.show_info;
+                        if ui
+                            .selectable_label(self.store.info_open, format!("{} Info", icons::INFO))
+                            .on_hover_text("Properties, location and tags (I)")
+                            .clicked()
+                        {
+                            self.store.info_open = !self.store.info_open;
+                            self.dirty = true;
                         }
                         ui.separator();
                         // View buttons in the editor toolbar: A, A|B, A|A.
@@ -380,8 +384,8 @@ impl App {
 
         self.edit_tools_panel(ui);
         self.edit_bottom_panel(ui);
-        if self.edit.show_info {
-            self.properties_panel(ui);
+        if self.store.info_open {
+            self.info_panel(ui);
         }
         self.edit_canvas(ui);
     }
@@ -420,6 +424,10 @@ impl App {
         }
         if redo {
             self.redo();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::I) && !i.modifiers.command) {
+            self.store.info_open = !self.store.info_open;
+            self.dirty = true;
         }
         let id = self.edit.id;
         if id < self.photos.len() {
@@ -1065,25 +1073,9 @@ impl App {
                         }
                     });
                 });
-                // tags and people chips
+                // people chips (tags are in the info panel)
                 ui.horizontal_wrapped(|ui| {
-                    let (tags, people) = self.meta(id).map(|m| (m.tags.clone(), m.people.clone())).unwrap_or_default();
-                    ui.label(RichText::new("Tags:").size(12.0));
-                    for t in &tags {
-                        if ui.small_button(format!("{t} {}", icons::CLOSE)).on_hover_text("Remove tag").clicked() {
-                            self.meta_mut(id).tags.retain(|x| x != t);
-                        }
-                    }
-                    let r = ui.add(egui::TextEdit::singleline(&mut self.edit.tag_buf).hint_text("add tag").desired_width(90.0));
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.edit.tag_buf.trim().is_empty() {
-                        let t = self.edit.tag_buf.trim().to_string();
-                        self.edit.tag_buf.clear();
-                        let m = self.meta_mut(id);
-                        if !m.tags.contains(&t) {
-                            m.tags.push(t);
-                        }
-                    }
-                    ui.add_space(10.0);
+                    let people = self.meta(id).map(|m| m.people.clone()).unwrap_or_default();
                     ui.label(RichText::new("People:").size(12.0));
                     for t in &people {
                         if ui.small_button(format!("{} {t} {}", icons::PERSON, icons::CLOSE)).on_hover_text("Remove person").clicked() {
@@ -1134,172 +1126,6 @@ impl App {
                         self.edit_go(PendingLeave::Photo(pid));
                     }
             });
-    }
-
-    fn properties_panel(&mut self, ui: &mut egui::Ui) {
-        let id = self.edit.id;
-        let p = self.photos[id].clone();
-        let dims = self.real_dims_of(id);
-        let cam = self.camera_info(id);
-        let thumb = self.exif_thumbs.get(&id).cloned();
-        let m = self.meta(id).cloned().unwrap_or_default();
-        let place = self.location_label(id);
-        let mut close = false;
-        let mut set_place = false;
-        let mut show_map = false;
-        egui::Panel::right("props")
-            .exact_size(270.0)
-            .frame(egui::Frame::new().fill(t().surface).inner_margin(egui::Margin::same(0)).stroke(Stroke::new(1.0, t().border)))
-            .show(ui, |ui| {
-                // title bar of the "Properties" pane
-                egui::Frame::new().fill(t().tray_well).inner_margin(egui::Margin::symmetric(10, 5)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Properties").strong().size(14.0).color(Color32::WHITE));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button(icons::CLOSE).on_hover_text("Close").clicked() {
-                                close = true;
-                            }
-                        });
-                    });
-                });
-                egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
-                    ui.label(RichText::new(format!("Properties of {}", p.name)).strong().size(13.0));
-                });
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    egui::Frame::new().inner_margin(egui::Margin { left: 10, right: 10, top: 0, bottom: 10 }).show(ui, |ui| {
-                        // one property: bold name with the value underneath, a thin line between rows
-                        let row = |ui: &mut egui::Ui, k: &str, v: Option<String>| {
-                            let Some(v) = v.filter(|v| !v.is_empty()) else { return };
-                            ui.label(RichText::new(k).strong().size(11.5).color(t().text));
-                            ui.horizontal(|ui| {
-                                ui.add_space(6.0);
-                                ui.add(egui::Label::new(RichText::new(v).size(12.5).color(t().text)).wrap_mode(egui::TextWrapMode::Wrap));
-                            });
-                            let r = ui.available_rect_before_wrap();
-                            ui.painter().hline(r.x_range(), r.top() + 2.0, Stroke::new(1.0, t().border));
-                            ui.add_space(5.0);
-                        };
-                        let location = if p.is_sample() { Some("Built-in sample picture".into()) } else { Some(self.folders[p.folder].path.clone()) };
-                        // labels and value formats of the metadata table
-                        row(ui, "Folder", location);
-                        ui.label(RichText::new("Place").strong().size(11.5).color(t().text));
-                        ui.horizontal_wrapped(|ui| {
-                            ui.add_space(6.0);
-                            match &place {
-                                Some(name) => {
-                                    ui.add(egui::Label::new(RichText::new(name).size(12.5).color(t().text)).wrap_mode(egui::TextWrapMode::Wrap));
-                                }
-                                None => {
-                                    ui.label(RichText::new("Not set").size(12.5).weak());
-                                }
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.add_space(6.0);
-                            if ui.small_button(if place.is_some() { format!("{} Change…", icons::LOCATION) } else { format!("{} Set…", icons::LOCATION) }).on_hover_text("Set where this picture was taken, on a map").clicked() {
-                                set_place = true;
-                            }
-                            if place.is_some() && ui.small_button(format!("{} Show on map", icons::MAP)).clicked() {
-                                show_map = true;
-                            }
-                        });
-                        let r = ui.available_rect_before_wrap();
-                        ui.painter().hline(r.x_range(), r.top() + 2.0, Stroke::new(1.0, t().border));
-                        ui.add_space(5.0);
-                        row(ui, "File Size", Some(fmt_bytes(p.bytes)));
-                        row(ui, "Dimensions", dims.map(|(w, h)| format!("{w} x {h} pixels")));
-                        if let Some(c) = cam.as_deref() {
-                            row(ui, "Camera Make", c.make.clone());
-                            row(ui, "Camera Model", c.model.clone());
-                            row(ui, "Lens", c.lens.clone());
-                            row(ui, "Camera Date", c.date_taken.clone());
-                            row(ui, "Digitized Date", c.date_digitized.clone());
-                            row(ui, "Modified Date", c.date_modified.clone());
-                        }
-                        row(ui, "File Date", Some(format!("{} {}", fmt_date(p.modified), fmt_time(p.modified))));
-                        if let Some(c) = cam.as_deref() {
-                            let num = crate::exifinfo::trim_num;
-                            row(ui, "Flash", c.flash.clone());
-                            row(ui, "Focal Length", c.focal_mm.map(|f| format!("{}mm", num(f, 1))));
-                            row(ui, "Focal Length in 35mm Film", c.focal_35mm.map(|e| format!("{e}mm")));
-                            row(ui, "Exposure Time", c.exposure_long());
-                            row(ui, "F Number", c.fnumber.map(|f| format!("f/{}", num(f, 1))));
-                            row(ui, "ISO", c.iso.map(|i| i.to_string()));
-                            row(ui, "Exposure Bias", c.exposure_bias.filter(|b| *b != 0.0).map(|b| num(b, 2)));
-                            row(ui, "Subject Distance", c.subject_distance.map(|d| format!("{}m", num(d, 2))));
-                            row(ui, "Metering Mode", c.metering.clone());
-                            row(ui, "Exposure Program", c.program.clone());
-                            row(ui, "White Balance", c.white_balance.clone());
-                            row(ui, "Color Space", c.color_space.clone());
-                            row(
-                                ui,
-                                "Orientation",
-                                c.orientation.filter(|&o| o != 1).map(|o| {
-                                    match o {
-                                        2 => "Mirrored",
-                                        3 => "Upside down",
-                                        4 => "Mirrored, upside down",
-                                        5 => "Mirrored, turned left",
-                                        6 => "Turned right (camera held upright)",
-                                        7 => "Mirrored, turned right",
-                                        8 => "Turned left (camera held upright)",
-                                        _ => "Unknown",
-                                    }
-                                    .to_string()
-                                }),
-                            );
-                            row(ui, "Software", c.software.clone());
-                        } else {
-                            ui.label(RichText::new("No camera information (EXIF) in this picture.").size(12.0).weak());
-                            ui.add_space(6.0);
-                        }
-                        if let Some(th) = &thumb {
-                            let [w, h] = th.size();
-                            ui.label(RichText::new(format!("Thumbnail ({w} x {h} pixels)")).strong().size(11.5).color(t().text));
-                            let s = (200.0 / w.max(h) as f32).min(1.0);
-                            ui.add(egui::Image::new((th.id(), egui::vec2(w as f32 * s, h as f32 * s))));
-                            ui.add_space(6.0);
-                        }
-                        row(ui, "Caption", Some(m.caption.clone()));
-                        row(ui, "Tags", Some(m.tags.join(", ")));
-                        row(ui, "People", Some(m.people.join(", ")));
-                        let flag = match m.flag {
-                            crate::library::Flag::Pick => Some("Pick".to_string()),
-                            crate::library::Flag::Reject => Some("Rejected".to_string()),
-                            crate::library::Flag::None => None,
-                        };
-                        row(ui, "Flag", flag);
-                        row(ui, "Rating", (m.rating > 0).then(|| crate::library_view::rating_label(m.rating)));
-                        row(ui, "Edits", (!m.edits.is_empty()).then(|| m.edits.iter().map(|e| e.label()).collect::<Vec<_>>().join(", ")));
-
-                        // every EXIF entry the file holds
-                        if let Some(c) = cam.as_deref().filter(|c| !c.all.is_empty()) {
-                            ui.add_space(4.0);
-                            egui::CollapsingHeader::new(RichText::new(format!("All EXIF data ({} entries)", c.all.len())).strong().size(12.5))
-                                .id_salt(("allexif", id))
-                                .default_open(false)
-                                .show(ui, |ui| {
-                                    egui::Grid::new(("exif_all", id)).num_columns(2).striped(true).spacing([8.0, 3.0]).show(ui, |ui| {
-                                        for (k, v) in &c.all {
-                                            ui.label(RichText::new(k).size(11.0).strong());
-                                            ui.add(egui::Label::new(RichText::new(v).size(11.0)).wrap());
-                                            ui.end_row();
-                                        }
-                                    });
-                                });
-                        }
-                    });
-                });
-            });
-        if close {
-            self.edit.show_info = false;
-        }
-        if set_place {
-            self.start_placing(vec![id]);
-        } else if show_map {
-            self.show_on_map(id);
-        }
     }
 
     /// "A|A'" (before / after) and "A|B" (two pictures) views: two halves side by side, the edited

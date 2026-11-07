@@ -31,6 +31,10 @@ pub trait Host {
     fn show(&mut self, _id: usize) -> Result<(), String> {
         Err("the AlbumCraft window isn't open".into())
     }
+    /// Open the Places map with only these pictures on it, titled `title` (only with a window).
+    fn show_map(&mut self, _ids: &[usize], _title: String) -> Result<(), String> {
+        Err("the AlbumCraft window isn't open".into())
+    }
     /// The GPS positions stored in the picture files, by key (None: the file has none). Pictures
     /// not looked at yet may be missing.
     fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>>;
@@ -154,13 +158,15 @@ pub fn specs() -> Vec<Spec> {
         },
         Spec {
             name: "search_photos",
-            description: "Find pictures. All filters are optional and combine. Words in `query` must all appear in the file or folder name, caption, tags, people or place name.",
+            description: "Find pictures. All filters are optional and combine. Words in `query` must all appear in the file or folder name, caption, tags, people or place (the name set for it, or the nearest city, its region and country).",
             schema: || {
                 json!({ "type": "object", "properties": {
                     "query": { "type": "string" },
                     "folder": { "type": "string", "description": "Folder path (as in list_folders)" },
                     "album": { "type": "string", "description": "Album name" },
                     "person": { "type": "string" },
+                    "tag": { "type": "string", "description": "Only pictures with this tag (any letter case)" },
+                    "place": { "type": "string", "description": "Only pictures whose place, nearest city, region or country contains this, e.g. \"Scotland\"" },
                     "flag": { "type": "string", "enum": ["pick", "reject", "none"] },
                     "min_rating": { "type": "integer", "minimum": 0, "maximum": 5 },
                     "has_location": { "type": "boolean", "description": "Only pictures with (true) or without (false) a location" },
@@ -332,6 +338,11 @@ Call `rescan` afterwards to see the new pictures in the library.",
             name: "show_photo",
             description: "Open a picture in the AlbumCraft window's editor (only while the window is open).",
             schema: || json!({ "type": "object", "properties": { "key": { "type": "string" } }, "required": ["key"] }),
+        },
+        Spec {
+            name: "show_on_map",
+            description: "Open the Places map in the AlbumCraft window with only these pictures on it (only while the window is open). Pictures without a location are left out; at least one needs one.",
+            schema: || keys_schema(json!({ "title": { "type": "string", "description": "Shown above the map, e.g. the folder's name", "required": false } })),
         },
         Spec {
             name: "set_location",
@@ -559,14 +570,16 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     Some((at, r))
                 }
             };
+            let tag = opt_str(args, "tag").map(str::trim).filter(|t| !t.is_empty());
+            let place_q = opt_str(args, "place").map(geo::fold).filter(|t| !t.trim().is_empty());
+            let query = opt_str(args, "query").unwrap_or("").to_lowercase();
             // positions only when asked for (looking at every file can take a while)
-            let located: Option<Vec<Option<LatLon>>> = if has_location.is_some() || near.is_some() {
+            let located: Option<Vec<Option<LatLon>>> = if has_location.is_some() || near.is_some() || place_q.is_some() || !query.trim().is_empty() {
                 let gps = host.file_gps().clone();
                 Some(host.photos().iter().map(|p| location_of(host.store(), &gps, &p.key)).collect())
             } else {
                 None
             };
-            let query = opt_str(args, "query").unwrap_or("").to_lowercase();
             let words: Vec<&str> = query.split_whitespace().collect();
             let folder = opt_str(args, "folder");
             let album: Option<std::collections::HashSet<&String>> = match opt_str(args, "album") {
@@ -593,8 +606,17 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     if flag.is_some_and(|f| m.map(|m| m.flag).unwrap_or_default() != f) || m.map(|m| m.rating).unwrap_or(0) < min_rating {
                         return false;
                     }
-                    if let Some(loc) = &located {
-                        let at = loc.get(id).copied().flatten();
+                    if tag.is_some_and(|t| !m.is_some_and(|m| m.tags.iter().any(|x| x.eq_ignore_ascii_case(t)))) {
+                        return false;
+                    }
+                    let at = located.as_ref().and_then(|l| l.get(id).copied().flatten());
+                    let place_words = || at.map(|a| geo::place_terms(m.and_then(|m| m.place.as_ref()), a)).unwrap_or_default();
+                    if let Some(q) = &place_q
+                        && !place_words().iter().any(|w| geo::fold(w).contains(q.as_str()))
+                    {
+                        return false;
+                    }
+                    if located.is_some() {
                         if has_location.is_some_and(|want| want != at.is_some()) {
                             return false;
                         }
@@ -615,10 +637,10 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                             hay.push(' ');
                             hay.push_str(&t.to_lowercase());
                         }
-                        if let Some(Place::Set { name, .. }) = &m.place {
-                            hay.push(' ');
-                            hay.push_str(&name.to_lowercase());
-                        }
+                    }
+                    for w in place_words() {
+                        hay.push(' ');
+                        hay.push_str(&w.to_lowercase());
                     }
                     words.iter().all(|w| hay.contains(w))
                 })
@@ -1053,6 +1075,13 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             host.show(id)?;
             now(json!({ "shown": true }))
         }
+        "show_on_map" => {
+            let ids = ids(host, args)?;
+            let title = opt_str(args, "title").map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+            let title = title.unwrap_or_else(|| format!("{} picture{}", ids.len(), if ids.len() == 1 { "" } else { "s" }));
+            host.show_map(&ids, title)?;
+            now(json!({ "shown": true }))
+        }
         _ => Err(format!("unknown command {name:?}")),
     }
 }
@@ -1152,7 +1181,7 @@ impl Host for Headless {
 pub fn read_only(name: &str) -> bool {
     matches!(
         name,
-        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "find_place"
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place"
     )
 }
 
@@ -1228,6 +1257,13 @@ mod tests {
         assert_eq!(near["photos"][0]["key"], keys[1]);
         assert_eq!(call(&mut h, "search_photos", json!({ "query": "paris" })).unwrap()["total"], 1);
         assert_eq!(call(&mut h, "get_photo", json!({ "key": keys[1] })).unwrap()["location"]["place"], "Paris");
+        // places found by city, region or country, also from the file's GPS (no name typed)
+        assert_eq!(call(&mut h, "search_photos", json!({ "query": "bordeaux" })).unwrap()["total"], 1);
+        assert_eq!(call(&mut h, "search_photos", json!({ "place": "france" })).unwrap()["total"], 2);
+        assert_eq!(call(&mut h, "search_photos", json!({ "place": "Île-de-France" })).unwrap()["total"], 1);
+        call(&mut h, "tag_photos", json!({ "keys": [keys[0]], "add_tags": ["Beach"] })).unwrap();
+        assert_eq!(call(&mut h, "search_photos", json!({ "tag": "beach", "place": "France" })).unwrap()["total"], 1);
+        assert_eq!(call(&mut h, "search_photos", json!({ "tag": "nothing" })).unwrap()["total"], 0);
 
         // export writes the location into the copy, unless asked not to
         let out = dir.join("out");
@@ -1331,6 +1367,8 @@ mod tests {
             ("make_movie", json!({ "keys": [k], "path": dir.join("library.json").to_string_lossy() })),
             ("get_photo", json!([1, 2])),
             ("show_photo", json!({ "key": k })),
+            ("show_on_map", json!({ "keys": [k] })),
+            ("show_on_map", json!({ "keys": [] })),
             ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),
             ("set_location", json!({ "keys": [k], "latitude": 10 })),
             ("set_location", json!({ "keys": [k], "latitude": "10", "longitude": 0 })),
