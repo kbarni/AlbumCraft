@@ -442,7 +442,7 @@ impl App {
             self.toast(if self.geo.indexing() {
                 "Still looking for GPS positions in your pictures: try again in a moment.".to_string()
             } else {
-                format!("None of these {n} picture(s) has a location yet. Select them and click Location in the photo tray to place them.")
+                format!("None of these {n} picture(s) has a location yet. Select them and click {} (Set location) in the photo tray to place them.", icons::LOCATION)
             });
             return;
         }
@@ -1175,7 +1175,7 @@ impl App {
             let text = if self.geo.indexing() {
                 "Looking for GPS positions in your pictures…".to_string()
             } else {
-                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} Location in the photo tray.", icons::LOCATION)
+                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} (Set location) in the photo tray.", icons::LOCATION)
             };
             let galley = painter.layout(text, egui::FontId::proportional(13.5), t().text, 360.0);
             let r = Rect::from_center_size(rect.center(), galley.size() + egui::vec2(36.0, 28.0));

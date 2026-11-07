@@ -635,17 +635,12 @@ impl App {
                             if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::TAG).size(16.0))).on_hover_text("Tags and people").clicked() {
                                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                             }
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::MAP).size(16.0))).on_hover_text("Show these pictures on the map").clicked() {
-                                // the clicked folder / album / person, else "3 pictures"
-                                let title = match &self.tray_set {
-                                    Some(TraySet::Folder(fi)) => self.folders.get(*fi).map(|f| f.name.clone()),
-                                    Some(TraySet::Album(i)) => self.store.albums.get(*i).map(|a| a.name.clone()),
-                                    Some(TraySet::Person(n)) => Some(n.clone()),
-                                    Some(TraySet::Picks) => Some("Picks".into()),
-                                    None => None,
-                                }
-                                .unwrap_or_else(|| format!("{} picture{}", tray.len(), if tray.len() == 1 { "" } else { "s" }));
-                                self.show_set_on_map(title, &tray);
+                            if ui
+                                .add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::LOCATION).size(16.0)))
+                                .on_hover_text("Set location: where these pictures were taken, on a map")
+                                .clicked()
+                            {
+                                self.start_placing(tray.clone());
                             }
                         });
                     });
@@ -671,9 +666,6 @@ impl App {
                         }
                         if big_button(ui, icons::WEB, "Web page", "Make a web gallery of these pictures").clicked() {
                             self.open_gallery_dialog();
-                        }
-                        if big_button(ui, icons::LOCATION, "Location", "Set where these pictures were taken, on a map").clicked() {
-                            self.start_placing(tray.clone());
                         }
                     });
                 });
