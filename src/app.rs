@@ -13,6 +13,19 @@ use std::sync::{Arc, Mutex};
 
 pub use crate::theme::t;
 
+/// What the library list depends on (its cache key).
+type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter);
+
+/// A word chosen from the search suggestions: matches exactly (any letter case), where typed text
+/// matches anywhere.
+#[derive(Clone, PartialEq, Debug)]
+pub enum SearchTerm {
+    Tag(String),
+    /// A place name set by the user, a city, a region or a country.
+    Place(String),
+    Person(String),
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Source {
     Library,
@@ -268,7 +281,7 @@ pub struct App {
     pub list_rev: u64,
     /// `groups()` for (list_rev, source, search, filter).
     #[allow(clippy::type_complexity)]
-    list_cache: std::cell::RefCell<Option<((u64, Source, String, Filter), Vec<(Option<usize>, Vec<usize>)>)>>,
+    list_cache: std::cell::RefCell<Option<(ListKey, Vec<(Option<usize>, Vec<usize>)>)>>,
 
     pub photos: Vec<Photo>,
     pub folders: Vec<Folder>,
@@ -300,6 +313,14 @@ pub struct App {
     pub view: View,
     pub source: Source,
     pub search: String,
+    /// Words chosen from the suggestions, shown as chips in the search box; all must match.
+    pub search_terms: Vec<SearchTerm>,
+    /// The highlighted suggestion (↑ / ↓), 0 = "search for the typed text".
+    pub search_hl: usize,
+    /// The suggestion list under the search box is open.
+    pub search_popup: bool,
+    /// Tags, places and people with counts, for the suggestions (cached until they change).
+    pub search_index: Option<((u64, u64, usize), Arc<crate::search_box::SearchIndex>)>,
     pub filter: Filter,
     pub selection: BTreeSet<usize>,
     pub anchor: Option<usize>,
@@ -429,6 +450,10 @@ impl App {
             view: View::Library,
             source: Source::Library,
             search: String::new(),
+            search_terms: vec![],
+            search_hl: 0,
+            search_popup: false,
+            search_index: None,
             filter: Filter::default(),
             selection: BTreeSet::new(),
             anchor: None,
@@ -621,6 +646,21 @@ impl App {
                         app.type_map_search("bord");
                     }
                 }
+            }
+            if shot_view == "search" {
+                // places in Scotland and Spain, a few tags, "sc" typed, one tag already chosen
+                let spots = [(56.4907, -4.2026), (55.9533, -3.1883), (57.4778, -4.2247), (43.3614, -5.8593), (43.4623, -3.8100)];
+                let tags = ["Sea", "Castle", "Scenery", "Beach", "Hiking", "Old town"];
+                for id in 0..app.photos.len().min(25) {
+                    let (lat, lon) = spots[id % spots.len()];
+                    let k = app.photos[id].key.clone();
+                    let m = app.store.meta.entry(k).or_default();
+                    m.place = crate::geo::LatLon::new(lat, lon).map(|at| crate::geo::Place::set(at, ""));
+                    m.tags = vec![tags[id % tags.len()].into(), tags[(id / 2) % tags.len()].into()];
+                }
+                app.search_terms = vec![SearchTerm::Tag("Sea".into())];
+                app.search = "sc".into();
+                app.search_popup = true;
             }
             if shot_view == "geometry" && app.photos.len() > 5 {
                 let k = app.photos[5].key.clone();
@@ -818,6 +858,11 @@ impl App {
         self.meta(id).map(|m| m.rating).unwrap_or(0)
     }
 
+    /// A search is on (typed text or chosen words).
+    pub fn searching(&self) -> bool {
+        !self.search.trim().is_empty() || !self.search_terms.is_empty()
+    }
+
     pub fn matches(&self, id: usize) -> bool {
         let (flag, rating) = (self.flag(id), self.rating(id));
         let f = &self.filter;
@@ -825,11 +870,22 @@ impl App {
             return false;
         }
         let m = self.meta(id);
+        let Some(p) = self.photos.get(id) else { return false };
+        let places = self.geo.place_terms.get(&p.key).map(|(_, _, w)| w.as_slice()).unwrap_or(&[]);
+        for term in &self.search_terms {
+            let ok = match term {
+                SearchTerm::Tag(t) => m.is_some_and(|m| m.tags.iter().any(|x| x.eq_ignore_ascii_case(t))),
+                SearchTerm::Person(t) => m.is_some_and(|m| m.people.iter().any(|x| x.eq_ignore_ascii_case(t))),
+                SearchTerm::Place(t) => places.iter().any(|x| x.eq_ignore_ascii_case(t)),
+            };
+            if !ok {
+                return false;
+            }
+        }
         let q = self.search.trim().to_lowercase();
         if q.is_empty() {
             return true;
         }
-        let Some(p) = self.photos.get(id) else { return false };
         let folder = self.folders.get(p.folder).map(|f| f.name.as_str()).unwrap_or("");
         let mut hay = format!("{} {}", p.name, folder).to_lowercase();
         if let Some(m) = m {
@@ -839,10 +895,10 @@ impl App {
                 hay.push(' ');
                 hay.push_str(&t.to_lowercase());
             }
-            if let Some(crate::geo::Place::Set { name, .. }) = &m.place {
-                hay.push(' ');
-                hay.push_str(&name.to_lowercase());
-            }
+        }
+        for w in places {
+            hay.push(' ');
+            hay.push_str(&w.to_lowercase());
         }
         q.split_whitespace().all(|w| hay.contains(w))
     }
@@ -852,7 +908,7 @@ impl App {
     /// Cached: building it walks the whole library, and it is asked for several times a frame.
     pub fn groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
         let mut cache = self.list_cache.borrow_mut();
-        let key = (self.list_rev, self.source.clone(), self.search.clone(), self.filter.clone());
+        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone());
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();

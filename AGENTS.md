@@ -37,6 +37,7 @@ src/                          the egui app (binary `albumcraft`)
   library_view.rs  shared library helpers, menus, context menu, keys
   edit_view.rs     editor UI, compare modes, slideshow
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
+  search_box.rs    the library's search box and its suggestions
   info_panel.rs    editor's info panel (properties, EXIF, location map, tags)
   import_view.rs   Import view (copy from a card, camera or folder into a new library folder)
   online.rs        map tiles as textures (adds to core's online.rs)

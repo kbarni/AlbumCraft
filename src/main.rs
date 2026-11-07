@@ -13,6 +13,7 @@ mod map_view;
 mod online;
 mod print;
 mod print_view;
+mod search_box;
 mod shell;
 mod slides;
 mod theme;

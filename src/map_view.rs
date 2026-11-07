@@ -219,6 +219,12 @@ pub struct GeoState {
     located_key: Option<(u64, u64, usize)>,
     pub map: MapState,
     tiles: Option<Tiles>,
+    /// Words each located picture can be searched by (`geo::place_terms`), by key, with the
+    /// position and place name they were made for.
+    pub place_terms: HashMap<String, (LatLon, String, Vec<String>)>,
+    /// Changes whenever `place_terms` does (part of the library list's cache key).
+    pub place_rev: u64,
+    place_key: Option<(u64, u64, usize)>,
 }
 
 impl GeoState {
@@ -331,6 +337,7 @@ impl App {
     /// Per frame: take GPS positions found by the background index.
     pub fn geo_tick(&mut self) {
         self.geo.poll();
+        self.refresh_place_terms();
         if self.view == View::Map && self.geo.indexing() {
             self.ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }
@@ -370,6 +377,36 @@ impl App {
         paint_pin(&painter, rect.center() + drop, false);
         painter.rect_stroke(rect, 4, Stroke::new(1.0, t().border), StrokeKind::Inside);
         resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Show on the map")
+    }
+
+    /// Keep `place_terms` up to date: only pictures whose position is new or moved are looked up
+    /// (the city lookup takes a few microseconds each).
+    fn refresh_place_terms(&mut self) {
+        let key = (self.list_rev, self.geo.gps_rev, self.photos.len());
+        if self.geo.place_key == Some(key) {
+            return;
+        }
+        self.geo.place_key = Some(key);
+        let mut changed = false;
+        for p in &self.photos {
+            let place = self.store.meta.get(&p.key).and_then(|m| m.place.as_ref());
+            let Some(at) = geo::effective(place, self.geo.file_gps.get(&p.key).copied().flatten()) else {
+                changed |= self.geo.place_terms.remove(&p.key).is_some();
+                continue;
+            };
+            let name = match place {
+                Some(Place::Set { name, .. }) => name.as_str(),
+                _ => "",
+            };
+            let fresh = self.geo.place_terms.get(&p.key).is_some_and(|(was, was_name, _)| *was == at && was_name == name);
+            if !fresh {
+                self.geo.place_terms.insert(p.key.clone(), (at, name.to_string(), geo::place_terms(place, at)));
+                changed = true;
+            }
+        }
+        if changed {
+            self.geo.place_rev += 1;
+        }
     }
 
     /// Open the Places map.

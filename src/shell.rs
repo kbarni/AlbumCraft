@@ -232,29 +232,8 @@ impl App {
                             self.filter.picks = !on;
                         }
                         ui.add_space(4.0);
-                        egui::Frame::new()
-                            .fill(t().surface)
-                            .stroke(Stroke::new(1.0, t().border))
-                            .corner_radius(18)
-                            .inner_margin(egui::Margin::symmetric(12, 3))
-                            .show(ui, |ui| {
-                                let sw = ((wide - 640.0) * 0.5).clamp(70.0, 190.0);
-                                ui.allocate_ui_with_layout(egui::vec2(sw + 52.0, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new(icons::SEARCH).size(13.0).color(t().text_weak));
-                                    let r = ui.add(
-                                        egui::TextEdit::singleline(&mut self.search)
-                                            .hint_text("Search pictures")
-                                            .frame(egui::Frame::NONE)
-                                            .desired_width(sw),
-                                    );
-                                    if r.changed() {
-                                        self.selection.clear();
-                                    }
-                                    if !self.search.is_empty() && ui.add(egui::Label::new(RichText::new("×").size(16.0).color(t().text_weak)).sense(Sense::click())).clicked() {
-                                        self.search.clear();
-                                    }
-                                });
-                            });
+                        let sw = ((wide - 640.0) * 0.5).clamp(70.0, 190.0) + 40.0 * self.search_terms.len().min(3) as f32;
+                        self.library_search(ui, sw);
                     });
                 });
             });
@@ -284,7 +263,7 @@ impl App {
 
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    let all_on = self.source == Source::Library && self.search.is_empty() && self.list_pick.is_none();
+                    let all_on = self.source == Source::Library && !self.searching() && self.list_pick.is_none();
                     if nav_row(ui, icons::PHOTOS, "All pictures", Some(self.photos.len()), all_on).clicked() {
                         self.source = Source::Library;
                         self.selection.clear();
@@ -539,7 +518,7 @@ impl App {
             ui.add_space(ui.available_height() * 0.3);
             let (icon, msg) = if self.scanning {
                 (icons::HOURGLASS, "Looking for pictures…")
-            } else if !self.search.is_empty() || self.filter.is_active() {
+            } else if self.searching() || self.filter.is_active() {
                 (icons::SEARCH, "Nothing matches your search or filter.")
             } else {
                 match self.source {
@@ -552,7 +531,7 @@ impl App {
             ui.label(RichText::new(icon).size(42.0));
             ui.add_space(6.0);
             ui.label(RichText::new(msg).size(15.0).color(t().text_weak));
-            if matches!(self.source, Source::Library) && self.search.is_empty() && !self.scanning {
+            if matches!(self.source, Source::Library) && !self.searching() && !self.scanning {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     // centred: two pills of about 330 px together
