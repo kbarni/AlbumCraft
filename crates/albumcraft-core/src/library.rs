@@ -558,6 +558,23 @@ mod queue_tests {
         assert_eq!(key(q.pop()), "old thumb");
         assert!(q.pop().is_none());
     }
+
+    #[test]
+    fn old_thumbnail_jobs_are_forgotten_others_stay() {
+        let mut q = Queues::default();
+        q.normal.push_back(Job::Dims(vec![]));
+        for i in 0..10 {
+            q.normal.push_back(Job::Thumb { id: i, key: format!("t{i}") });
+        }
+        assert!(q.forget_old_thumbs(10).is_empty());
+        q.normal.push_back(Job::Thumb { id: 10, key: "t10".into() });
+        // 11 waiting, 8 allowed: down to 7, the oldest first
+        let dropped = q.forget_old_thumbs(8);
+        assert_eq!(dropped, vec!["t0", "t1", "t2", "t3", "t4"]);
+        assert_eq!(q.normal.len(), 7);
+        assert!(matches!(q.normal.front(), Some(Job::Dims(_))));
+        assert_eq!(key(q.pop()), "t10");
+    }
 }
 
 #[cfg(test)]
@@ -881,6 +898,8 @@ pub enum Done {
     /// in folders not brought in before (by folder path).
     Scan(Vec<ScannedFolder>, bool, Vec<(String, IniFolder)>),
     Message(String),
+    /// Thumbnail jobs forgotten because too many were waiting (by key): not made, not failed.
+    Dropped(Vec<String>),
     /// A short progress note for the toast.
     Toast(String),
     File { key: String, dim: u32, img: Option<RgbaImage> },
@@ -926,11 +945,39 @@ impl Queues {
     fn pop(&mut self) -> Option<Job> {
         self.urgent.pop_back().or_else(|| self.normal.pop_back())
     }
+
+    /// Keep at most `max` thumbnail jobs waiting in the normal queue: the oldest go. Returns
+    /// their pictures' keys. Other jobs (shapes, import previews) always stay.
+    fn forget_old_thumbs(&mut self, max: usize) -> Vec<String> {
+        let waiting = self.normal.iter().filter(|j| matches!(j, Job::Thumb { .. })).count();
+        if waiting <= max {
+            return vec![];
+        }
+        // down to three quarters, so that this is not done for every job that comes in
+        let mut extra = waiting - max / 4 * 3;
+        let mut dropped = vec![];
+        self.normal.retain(|j| match j {
+            Job::Thumb { key, .. } if extra > 0 => {
+                extra -= 1;
+                dropped.push(key.clone());
+                false
+            }
+            _ => true,
+        });
+        dropped
+    }
 }
+
+/// Most thumbnail jobs kept waiting. When the user scrolls quickly through a large library every
+/// picture passed is asked for; beyond this, the ones asked for longest ago (long out of sight)
+/// are forgotten and reported as `Done::Dropped`, to be asked for again if they come back.
+const MAX_WAITING_THUMBS: usize = 1000;
 
 #[derive(Clone)]
 pub struct Pool {
     queue: Arc<(Mutex<Queues>, Condvar)>,
+    tx: Sender<Done>,
+    wake: Wake,
 }
 
 impl Pool {
@@ -961,7 +1008,7 @@ impl Pool {
                 wake();
             });
         }
-        Self { queue }
+        Self { queue, tx, wake }
     }
 
     pub fn push(&self, job: Job, urgent: bool) {
@@ -972,6 +1019,12 @@ impl Pool {
         } else {
             g.normal.push_back(job);
         }
+        let dropped = g.forget_old_thumbs(MAX_WAITING_THUMBS);
         cv.notify_one();
+        drop(g);
+        if !dropped.is_empty() {
+            let _ = self.tx.send(Done::Dropped(dropped));
+            (self.wake)();
+        }
     }
 }

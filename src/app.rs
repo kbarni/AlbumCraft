@@ -7,10 +7,24 @@ use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
 use image::RgbaImage;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 pub use crate::theme::t;
+
+/// One group of the library list: its folder (None for an album, a person, Picks) and pictures.
+pub type Group = (Option<usize>, Vec<usize>);
+
+/// See `App::sidebar_counts`.
+pub struct SidebarCounts {
+    pub picks: usize,
+    /// Pictures of each album that are in the library, by album index.
+    pub albums: Vec<usize>,
+    pub people: Vec<(String, usize)>,
+    /// Folder indexes by year, newest first.
+    pub by_year: Vec<(i32, Vec<usize>)>,
+}
 
 /// What the library list depends on (its cache key).
 type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter);
@@ -303,8 +317,16 @@ pub struct App {
     /// Bumped whenever the library or its notes may have changed: invalidates `list_cache`.
     pub list_rev: u64,
     /// `groups()` for (list_rev, source, search, filter).
+    list_cache: std::cell::RefCell<Option<(ListKey, Rc<Vec<Group>>)>>,
+    /// `search_hay()` for (list_rev, place_rev).
     #[allow(clippy::type_complexity)]
-    list_cache: std::cell::RefCell<Option<(ListKey, Vec<(Option<usize>, Vec<usize>)>)>>,
+    hay_cache: std::cell::RefCell<Option<((u64, u64), Rc<Vec<String>>)>>,
+    sidebar_cache: Option<(u64, Rc<SidebarCounts>)>,
+    /// Bumped when a picture's shape (width / height) becomes known or changes: the grid's
+    /// row layout is made again.
+    pub shape_rev: u64,
+    /// The grid's rows, kept between frames (shell.rs).
+    pub grid_cache: Option<crate::shell::GridCache>,
 
     pub photos: Vec<Photo>,
     pub folders: Vec<Folder>,
@@ -455,6 +477,10 @@ impl App {
             icon_tex: None,
             control: None,
             list_cache: Default::default(),
+            hay_cache: Default::default(),
+            sidebar_cache: None,
+            shape_rev: 0,
+            grid_cache: None,
             photos: vec![],
             folders: vec![],
             key_index: HashMap::new(),
@@ -837,68 +863,93 @@ impl App {
         !self.search.trim().is_empty() || !self.search_terms.is_empty()
     }
 
-    pub fn matches(&self, id: usize) -> bool {
+    /// Whether a picture passes the filter and the search. `words` is the typed text in lower
+    /// case, split; `hay` the text each picture is searched in (`search_hay`).
+    fn matches(&self, id: usize, words: &[String], hay: &[String]) -> bool {
         let (flag, rating) = (self.flag(id), self.rating(id));
         let f = &self.filter;
         if (f.picks && flag != Flag::Pick) || rating < f.min_rating || (f.hide_rejects && flag == Flag::Reject) {
             return false;
         }
-        let m = self.meta(id);
-        let Some(p) = self.photos.get(id) else { return false };
-        let places = self.geo.place_terms.get(&p.key).map(|(_, _, w)| w.as_slice()).unwrap_or(&[]);
-        for term in &self.search_terms {
-            let ok = match term {
-                SearchTerm::Tag(t) => m.is_some_and(|m| m.tags.iter().any(|x| x.eq_ignore_ascii_case(t))),
-                SearchTerm::Person(t) => m.is_some_and(|m| m.people.iter().any(|x| x.eq_ignore_ascii_case(t))),
-                SearchTerm::Place(t) => places.iter().any(|x| x.eq_ignore_ascii_case(t)),
-            };
-            if !ok {
-                return false;
+        if !self.search_terms.is_empty() {
+            let m = self.meta(id);
+            let Some(p) = self.photos.get(id) else { return false };
+            let places = self.geo.place_terms.get(&p.key).map(|(_, _, w)| w.as_slice()).unwrap_or(&[]);
+            for term in &self.search_terms {
+                let ok = match term {
+                    SearchTerm::Tag(t) => m.is_some_and(|m| m.tags.iter().any(|x| x.eq_ignore_ascii_case(t))),
+                    SearchTerm::Person(t) => m.is_some_and(|m| m.people.iter().any(|x| x.eq_ignore_ascii_case(t))),
+                    SearchTerm::Place(t) => places.iter().any(|x| x.eq_ignore_ascii_case(t)),
+                };
+                if !ok {
+                    return false;
+                }
             }
         }
-        let q = self.search.trim().to_lowercase();
-        if q.is_empty() {
-            return true;
-        }
-        let folder = self.folders.get(p.folder).map(|f| f.name.as_str()).unwrap_or("");
-        let mut hay = format!("{} {}", p.name, folder).to_lowercase();
-        if let Some(m) = m {
-            hay.push(' ');
-            hay.push_str(&m.caption.to_lowercase());
-            for t in m.tags.iter().chain(m.people.iter()) {
-                hay.push(' ');
-                hay.push_str(&t.to_lowercase());
-            }
-        }
-        for w in places {
-            hay.push(' ');
-            hay.push_str(&w.to_lowercase());
-        }
-        q.split_whitespace().all(|w| hay.contains(w))
+        words.is_empty() || hay.get(id).is_some_and(|h| words.iter().all(|w| h.contains(w.as_str())))
     }
 
-    /// Groups shown in the lightbox: (folder index if any, photo ids).
-    /// The visible pictures grouped by folder (or one group for an album, person, Picks).
-    /// Cached: building it walks the whole library, and it is asked for several times a frame.
-    pub fn groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
+    /// What typed text is looked for in, per picture, in lower case: file and folder name,
+    /// caption, tags, people and places. Made once and kept until the notes or places change,
+    /// so that typing in the search box costs one text search per picture.
+    fn search_hay(&self) -> Rc<Vec<String>> {
+        let key = (self.list_rev, self.geo.place_rev);
+        let mut cache = self.hay_cache.borrow_mut();
+        if let Some((k, hay)) = cache.as_ref()
+            && *k == key
+        {
+            return hay.clone();
+        }
+        let hay: Vec<String> = self
+            .photos
+            .iter()
+            .map(|p| {
+                let folder = self.folders.get(p.folder).map(|f| f.name.as_str()).unwrap_or("");
+                let mut text = format!("{} {}", p.name, folder);
+                if let Some(m) = self.store.meta.get(&p.key) {
+                    for t in std::iter::once(&m.caption).chain(m.tags.iter()).chain(m.people.iter()) {
+                        text.push(' ');
+                        text.push_str(t);
+                    }
+                }
+                if let Some((_, _, words)) = self.geo.place_terms.get(&p.key) {
+                    for w in words {
+                        text.push(' ');
+                        text.push_str(w);
+                    }
+                }
+                text.to_lowercase()
+            })
+            .collect();
+        let hay = Rc::new(hay);
+        *cache = Some((key, hay.clone()));
+        hay
+    }
+
+    /// The visible pictures grouped by folder (or one group for an album, person, Picks):
+    /// (folder index if any, photo ids). Cached and shared: building it walks the whole library.
+    pub fn groups(&self) -> Rc<Vec<Group>> {
         let mut cache = self.list_cache.borrow_mut();
         let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone());
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();
             }
-        let groups = self.build_groups();
+        let groups = Rc::new(self.build_groups());
         *cache = Some((key, groups.clone()));
         groups
     }
 
-    fn build_groups(&self) -> Vec<(Option<usize>, Vec<usize>)> {
+    fn build_groups(&self) -> Vec<Group> {
+        let words: Vec<String> = self.search.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let hay = if words.is_empty() { Rc::new(vec![]) } else { self.search_hay() };
+        let shown = |id: &usize| self.matches(*id, &words, &hay);
         match &self.source {
             Source::Library => self
                 .folders
                 .iter()
                 .enumerate()
-                .map(|(fi, f)| (Some(fi), f.photos.iter().copied().filter(|&id| self.matches(id)).collect::<Vec<_>>()))
+                .map(|(fi, f)| (Some(fi), f.photos.iter().copied().filter(shown).collect::<Vec<_>>()))
                 .filter(|(_, v)| !v.is_empty())
                 .collect(),
             Source::Album(i) => {
@@ -906,25 +957,57 @@ impl App {
                     .store
                     .albums
                     .get(*i)
-                    .map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).filter(|&id| self.matches(id)).collect())
+                    .map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).filter(shown).collect())
                     .unwrap_or_default();
                 vec![(None, ids)]
             }
             Source::Person(name) => {
                 let ids = (0..self.photos.len())
-                    .filter(|&id| self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name)) && self.matches(id))
+                    .filter(|&id| self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name)))
+                    .filter(shown)
                     .collect();
                 vec![(None, ids)]
             }
             Source::Picks => {
-                let ids = (0..self.photos.len()).filter(|&id| self.is_picked(id) && self.matches(id)).collect();
+                let ids = (0..self.photos.len()).filter(|&id| self.is_picked(id)).filter(shown).collect();
                 vec![(None, ids)]
             }
         }
     }
 
     pub fn visible_flat(&self) -> Vec<usize> {
-        self.groups().into_iter().flat_map(|(_, v)| v).collect()
+        self.groups().iter().flat_map(|(_, v)| v.iter().copied()).collect()
+    }
+
+    /// How many pictures the list shows.
+    pub fn visible_count(&self) -> usize {
+        self.groups().iter().map(|(_, v)| v.len()).sum()
+    }
+
+    /// What the sidebar counts (picks, pictures per album, people, folders by year), made once
+    /// per change of the library or its notes instead of on every frame.
+    pub fn sidebar_counts(&mut self) -> Rc<SidebarCounts> {
+        if let Some((rev, counts)) = &self.sidebar_cache
+            && *rev == self.list_rev
+        {
+            return counts.clone();
+        }
+        let mut by_year: Vec<(i32, Vec<usize>)> = vec![];
+        for (fi, f) in self.folders.iter().enumerate() {
+            let y = library::local_year(f.date);
+            match by_year.last_mut() {
+                Some((yy, v)) if *yy == y => v.push(fi),
+                _ => by_year.push((y, vec![fi])),
+            }
+        }
+        let counts = Rc::new(SidebarCounts {
+            picks: (0..self.photos.len()).filter(|&i| self.is_picked(i)).count(),
+            albums: self.store.albums.iter().map(|a| a.keys.iter().filter(|k| self.key_index.contains_key(*k)).count()).collect(),
+            people: self.people(),
+            by_year,
+        });
+        self.sidebar_cache = Some((self.list_rev, counts.clone()));
+        counts
     }
 
     pub fn people(&self) -> Vec<(String, usize)> {
@@ -1161,6 +1244,11 @@ impl App {
         if let Some(base) = self.thumb_base.get(&id) {
             let edits = self.edits(id);
             let img = if edits.is_empty() { base.clone() } else { imaging::apply_all(base, &edits) };
+            // a new shape (first seen, turned, cropped): the grid's rows change
+            let shape = img.width() as f32 / img.height().max(1) as f32;
+            if (self.aspect_of(id) / shape - 1.0).abs() > 0.005 {
+                self.shape_rev += 1;
+            }
             let tex = self.ctx.load_texture(format!("thumb{id}"), to_color_image(&img), TextureOptions::LINEAR);
             self.thumbs.insert(id, tex);
         }
@@ -1703,6 +1791,14 @@ impl App {
                     }
                 }
                 Done::Toast(m) => self.toast(m),
+                Done::Dropped(keys) => {
+                    // not made: asked for again when the picture is drawn again
+                    for key in keys {
+                        if let Some(id) = self.key_index.get(&key) {
+                            self.thumb_req.remove(id);
+                        }
+                    }
+                }
                 Done::File { key, dim, img } => {
                     if dim == library::BIG_DIM && self.collage.as_ref().is_some_and(|c| c.bg_key.as_deref() == Some(key.as_str())) {
                         self.on_collage_background(key, img);
@@ -1712,6 +1808,7 @@ impl App {
                 }
                 Done::Dims(found) => {
                     self.dims_pending = false;
+                    self.shape_rev += 1;
                     for (_, key, dims) in found {
                         if let Some(&id) = self.key_index.get(&key) {
                             // unknown (unreadable header): the usual 3:2, and don't ask again

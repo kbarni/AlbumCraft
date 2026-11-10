@@ -1139,34 +1139,47 @@ impl App {
                     }
                 });
                 // filmstrip
-                let list = self.edit.list.clone();
+                // the list is lent out while the strip is drawn (no copy of it per frame)
+                let list = std::mem::take(&mut self.edit.list);
                 let mut go = None;
                 egui::ScrollArea::horizontal().id_salt("filmstrip").max_height(62.0).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        for &pid in &list {
-                            let (rect, resp) = ui.allocate_exact_size(egui::vec2(60.0, 54.0), Sense::click());
-                            if ui.is_rect_visible(rect) {
-                                self.want_thumb(pid);
-                                let p = ui.painter();
-                                if pid == id {
-                                    p.rect_filled(rect, 3, t().accent);
-                                } else if resp.hovered() {
-                                    p.rect_filled(rect, 3, t().hover_wash);
-                                }
-                                paint_thumb(p, rect.shrink(4.0), self.thumbs.get(&pid), false);
+                        // cells all have the same width: only the ones in view are made, with
+                        // empty space for the others
+                        let size = egui::vec2(60.0, 54.0);
+                        let pitch = size.x + ui.spacing().item_spacing.x;
+                        let (left, top) = (ui.cursor().left(), ui.cursor().top());
+                        let clip = ui.clip_rect();
+                        let first = (((clip.left() - left) / pitch).floor().max(0.0) as usize).min(list.len());
+                        let last = (((clip.right() - left) / pitch).ceil().max(0.0) as usize).min(list.len());
+                        // follow the shown picture: centre its thumbnail whenever the picture changes,
+                        // even when it is scrolled out of sight
+                        if self.edit.strip_shown != Some(id) {
+                            self.edit.strip_shown = Some(id);
+                            if let Some(pos) = list.iter().position(|&x| x == id) {
+                                let cell = Rect::from_min_size(Pos2::new(left + pos as f32 * pitch, top), size);
+                                ui.scroll_to_rect(cell, Some(egui::Align::Center));
                             }
-                            // follow the shown picture: centre its thumbnail whenever the picture changes,
-                            // even when it is scrolled out of sight
-                            if pid == id && self.edit.strip_shown != Some(id) {
-                                resp.scroll_to_me(Some(egui::Align::Center));
-                                self.edit.strip_shown = Some(id);
+                        }
+                        ui.add_space(first as f32 * pitch);
+                        for &pid in list.get(first..last).unwrap_or(&[]) {
+                            let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+                            self.want_thumb(pid);
+                            let p = ui.painter();
+                            if pid == id {
+                                p.rect_filled(rect, 3, t().accent);
+                            } else if resp.hovered() {
+                                p.rect_filled(rect, 3, t().hover_wash);
                             }
+                            paint_thumb(p, rect.shrink(4.0), self.thumbs.get(&pid), false);
                             if resp.clicked() {
                                 go = Some(pid);
                             }
                         }
+                        ui.add_space((list.len() - last) as f32 * pitch);
                     });
                 });
+                self.edit.list = list;
                 if let Some(pid) = go
                     && pid != id {
                         self.edit_go(PendingLeave::Photo(pid));
