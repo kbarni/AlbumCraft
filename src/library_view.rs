@@ -1,35 +1,10 @@
 //! Parts of the Library view shared with other views: the app menu, the per-picture context menu,
-//! keys, the photo tray and the status bar, and small painted widgets (stars, flags, buttons).
+//! keys, the selection bar and the status bar, and small painted widgets (stars, flags, buttons).
 
 use crate::icons;
 use crate::app::*;
 use crate::library::{fmt_bytes, Flag, MAX_RATING};
-use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
-
-/// A big tray button: icon above a label.
-pub fn big_button(ui: &mut egui::Ui, icon: &str, label: &str, tip: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(62.0, 60.0), Sense::click());
-    let p = ui.painter();
-    if resp.hovered() {
-        p.rect_filled(rect, 6, t().hover_wash);
-        p.rect_stroke(rect, 6, Stroke::new(1.0, t().select_border), StrokeKind::Inside);
-    }
-    p.text(
-        rect.center_top() + egui::vec2(0.0, 20.0),
-        egui::Align2::CENTER_CENTER,
-        icon,
-        egui::FontId::proportional(24.0),
-        t().text,
-    );
-    p.text(
-        rect.center_bottom() - egui::vec2(0.0, 10.0),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(12.0),
-        t().text,
-    );
-    resp.on_hover_text(tip)
-}
+use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
 /// A five-pointed star drawn with shapes (the UI font has no star glyph).
 pub fn paint_star(p: &egui::Painter, c: Pos2, r: f32, fill: Color32, outline: Color32) {
@@ -81,6 +56,16 @@ pub fn pick_button(ui: &mut egui::Ui, on: bool, size: Vec2) -> egui::Response {
     let (fill, outline) = if on { (t().pick, t().pick) } else { (Color32::TRANSPARENT, t().text_weak) };
     paint_flag(ui.painter(), resp.rect.center(), size.y.min(size.x) * 0.3, fill, outline);
     resp
+}
+
+/// Height of the selection bar under the grid.
+pub const SELECTION_BAR_H: f32 = 48.0;
+/// The size of the selection bar's square buttons.
+const BAR_SQUARE: Vec2 = egui::vec2(34.0, 30.0);
+
+/// A square icon button of the selection bar.
+fn bar_icon(ui: &mut egui::Ui, icon: &str, tip: &str) -> egui::Response {
+    ui.add_sized(BAR_SQUARE, egui::Button::new(RichText::new(icon).size(17.0))).on_hover_text(tip)
 }
 
 /// A square button showing the reject mark, coloured when on.
@@ -284,7 +269,7 @@ impl App {
             let t = self.tray();
             self.rotate(&t, if ctrl_r { 1 } else { -1 });
         }
-        if !self.selection.is_empty() || !self.held.is_empty() {
+        if !self.selection.is_empty() {
             let t = self.tray();
             self.flag_rating_keys(ctx, &t);
             let (copy, paste) = edit_clipboard_keys(ctx);
@@ -341,6 +326,10 @@ impl App {
             }
             self.flag_rating_menu(ui, &tray);
         });
+        if ui.button("Move rejected pictures to the trash…").on_hover_text("Remove the files of the rejected pictures from their folders, after a confirmation").clicked() {
+            self.ask_trash_rejects();
+            ui.close();
+        }
         if ui.add_enabled(!tray.is_empty(), egui::Button::new("Contact sheet…")).on_hover_text("Pages of small pictures with a title and their file names, to print or save as PDF").clicked() {
             self.open_collage(true);
             ui.close();
@@ -442,170 +431,103 @@ impl App {
             });
     }
 
-    pub fn tray_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::bottom("tray")
-            .exact_size(112.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(t().tray_bg)
-                    .inner_margin(egui::Margin::symmetric(8, 8))
-                    .stroke(Stroke::new(1.0, t().border)),
-            )
+    /// The selection bar: what is selected and what can be done with it, shown only while pictures
+    /// are selected (one by one, or a folder / album / person as a whole). In a narrow window the
+    /// buttons lose their labels, then the bar scrolls sideways: nothing overlaps.
+    pub fn selection_bar(&mut self, ui: &mut egui::Ui) {
+        let tray = self.tray();
+        if tray.is_empty() {
+            return;
+        }
+        egui::Panel::bottom("selection_bar")
+            .exact_size(SELECTION_BAR_H)
+            .frame(egui::Frame::new().fill(t().tray_bg).inner_margin(egui::Margin::symmetric(10, 6)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let tray = self.tray();
-                    // the tray well
-                    let (well, _) = ui.allocate_exact_size(egui::vec2(236.0, 94.0), Sense::hover());
-                    let p = ui.painter().clone();
-                    p.rect_filled(well, 6, t().tray_well);
-                    let whole_set = if self.held.is_empty() && self.selection.is_empty() { self.tray_set.clone() } else { None };
-                    if let Some(set) = whole_set.clone().filter(|_| !tray.is_empty()) {
-                        // a pile of the set's first pictures with a label, like a
-                        // "Folder selected - 29 photos"
-                        let c = well.center() + egui::vec2(0.0, -4.0);
-                        for (k, &id) in tray.iter().take(3).enumerate().rev() {
-                            let off = egui::vec2(k as f32 * 5.0 - 5.0, k as f32 * -4.0 + 4.0);
-                            let r = Rect::from_center_size(c + off, egui::vec2(52.0, 52.0));
-                            p.rect_filled(r.expand(2.0), 2, t().surface);
-                            paint_thumb(&p, r, self.thumbs.get(&id), false);
-                            self.want_thumb(id);
-                        }
-                        let what = match set {
-                            TraySet::Folder(_) => "Folder selected",
-                            TraySet::Album(_) => "Album selected",
-                            TraySet::Person(_) => "Person selected",
-                            TraySet::Picks => "Picks selected",
+                let width = ui.available_width();
+                let labels = width > 1180.0;
+                egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded).show(ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let start = ui.cursor().left();
+                        // what is selected
+                        let n = tray.len();
+                        let pictures = if n == 1 { "1 picture".to_string() } else { format!("{} pictures", crate::app::fmt_count(n)) };
+                        let what = match self.tray_set.as_ref().filter(|_| self.selection.is_empty()) {
+                            Some(TraySet::Folder(fi)) => format!("{} · {pictures}", self.folders.get(*fi).map(|f| f.name.as_str()).unwrap_or("Folder")),
+                            Some(TraySet::Album(i)) => format!("{} · {pictures}", self.store.albums.get(*i).map(|a| a.name.as_str()).unwrap_or("Album")),
+                            Some(TraySet::Person(name)) => format!("{name} · {pictures}"),
+                            Some(TraySet::Picks) => format!("Picks · {pictures}"),
+                            None => format!("{pictures} selected"),
                         };
-                        let text = format!("{what} - {} photo{}", tray.len(), if tray.len() == 1 { "" } else { "s" });
-                        let galley = p.layout_no_wrap(text, egui::FontId::proportional(12.5), Color32::WHITE);
-                        let pill = Rect::from_center_size(c + egui::vec2(0.0, 10.0), galley.size() + egui::vec2(14.0, 6.0));
-                        p.rect_filled(pill, 3, Color32::from_rgba_unmultiplied(70, 120, 170, 225));
-                        p.galley(pill.min + egui::vec2(7.0, 3.0), galley, Color32::WHITE);
-                    }
-                    let label = if whole_set.is_some() {
-                        String::new()
-                    } else if tray.is_empty() {
-                        "Photo tray: nothing selected".to_string()
-                    } else if self.held.is_empty() {
-                        format!("Selection: {} picture(s)", tray.len())
-                    } else {
-                        format!("Held: {}  Selected: {}", self.held.len(), tray.len() - self.held.len())
-                    };
-                    p.text(well.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(12.0), Color32::from_rgb(230, 232, 236));
-                    let cell = 34.0;
-                    let mut x = well.left() + 8.0;
-                    let mut y = well.top() + 24.0;
-                    let singles: &[usize] = if whole_set.is_some() { &[] } else { &tray };
-                    for (i, &id) in singles.iter().enumerate() {
-                        if i >= 12 {
-                            p.text(
-                                Pos2::new(well.right() - 8.0, well.bottom() - 6.0),
-                                egui::Align2::RIGHT_BOTTOM,
-                                format!("+{}", tray.len() - 12),
-                                egui::FontId::proportional(12.0),
-                                Color32::WHITE,
-                            );
-                            break;
-                        }
-                        let r = Rect::from_min_size(Pos2::new(x, y), egui::vec2(cell, cell));
-                        // also when its row in the grid is out of sight
-                        self.want_thumb(id);
-                        let ir = paint_thumb(&p, r, self.thumbs.get(&id), false);
-                        if self.held.contains(&id) {
-                            p.rect_stroke(ir, 0, Stroke::new(1.5, Color32::from_rgb(255, 210, 90)), StrokeKind::Outside);
-                        }
-                        x += cell + 4.0;
-                        if x + cell > well.right() - 4.0 {
-                            x = well.left() + 8.0;
-                            y += cell + 4.0;
-                        }
-                    }
-
-                    ui.vertical(|ui| {
-                        ui.set_width(112.0);
-                        if ui.add_sized([108.0, 24.0], egui::Button::new(format!("{} Hold", icons::PIN))).on_hover_text("Keep these pictures in the tray while you browse").clicked() {
-                            for id in tray.clone() {
-                                if !self.held.contains(&id) {
-                                    self.held.push(id);
-                                }
-                            }
-                            self.tray_set = None;
-                        }
-                        if ui.add_sized([108.0, 24.0], egui::Button::new(format!("{} Clear", icons::CLOSE))).on_hover_text("Empty the tray").clicked() {
-                            self.held.clear();
+                        ui.label(RichText::new(what).size(13.5).strong().color(t().text_strong));
+                        if ui.add(egui::Button::new(RichText::new(icons::CLOSE).size(16.0)).frame(false)).on_hover_text("Clear the selection (Esc)").clicked() {
                             self.selection.clear();
                             self.tray_set = None;
+                            self.list_pick = None;
                         }
-                        self.album_menu(ui, format!("{} To album…", icons::ALBUM), &tray);
-                    });
-
-                    // culling: pick, reject and stars for the whole tray
-                    ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            let picked = !tray.is_empty() && tray.iter().all(|&id| self.is_picked(id));
-                            if pick_button(ui, picked, egui::vec2(36.0, 30.0)).on_hover_text("Pick / unpick (P)").clicked() {
-                                self.toggle_flag(&tray, Flag::Pick);
-                            }
-                            let rejected = !tray.is_empty() && tray.iter().all(|&id| self.flag(id) == Flag::Reject);
-                            if reject_button(ui, rejected, egui::vec2(36.0, 30.0)).on_hover_text("Reject / unreject (X)").clicked() {
-                                self.toggle_flag(&tray, Flag::Reject);
-                            }
-                        });
-                        // the stars show the rating when all the tray's pictures share it
+                        ui.separator();
+                        // culling
+                        let picked = tray.iter().all(|&id| self.is_picked(id));
+                        if pick_button(ui, picked, BAR_SQUARE).on_hover_text("Pick / unpick (P)").clicked() {
+                            self.toggle_flag(&tray, Flag::Pick);
+                        }
+                        let rejected = tray.iter().all(|&id| self.flag(id) == Flag::Reject);
+                        if reject_button(ui, rejected, BAR_SQUARE).on_hover_text("Reject / unreject (X)").clicked() {
+                            self.toggle_flag(&tray, Flag::Reject);
+                        }
+                        // the stars show the rating when all the selected pictures share it
                         let first = tray.first().map(|&id| self.rating(id)).unwrap_or(0);
                         let shared = if tray.iter().all(|&id| self.rating(id) == first) { first } else { 0 };
-                        ui.add_enabled_ui(!tray.is_empty(), |ui| {
-                            if let Some(n) = rating_input(ui, ui.make_persistent_id("tray_stars"), shared, 6.5).filter(|_| !tray.is_empty()) {
-                                self.set_rating(&tray, n);
-                            }
-                        })
-                        .response
-                        .on_hover_text("Rating (0–5)");
-                    });
-                    ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(18.0))).on_hover_text("Rotate left").clicked() {
-                                self.rotate(&tray, -1);
-                            }
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(18.0))).on_hover_text("Rotate right").clicked() {
-                                self.rotate(&tray, 1);
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            if ui.add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::TAG).size(16.0))).on_hover_text("Tags and people").clicked() {
-                                self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
-                            }
-                            if ui
-                                .add_sized([36.0, 30.0], egui::Button::new(RichText::new(icons::LOCATION).size(16.0)))
-                                .on_hover_text("Set location: where these pictures were taken, on a map")
-                                .clicked()
-                            {
-                                self.start_placing(tray.clone());
-                            }
-                        });
-                    });
-
-                    ui.separator();
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        if big_button(ui, icons::MOVIE, "Movie", "Make a movie from the tray").clicked() {
-                            self.dialog = Some(Dialog::Movie { hd: false });
+                        if let Some(r) = rating_input(ui, ui.make_persistent_id("bar_stars"), shared, 6.5) {
+                            self.set_rating(&tray, r);
                         }
-                        if big_button(ui, icons::COLLAGE, "Collage", "Make a collage or a contact sheet from the tray").clicked() {
-                            self.open_collage(false);
+                        ui.separator();
+                        // changes
+                        if bar_icon(ui, icons::ROTATE_LEFT, "Rotate left (Ctrl+[)").clicked() {
+                            self.rotate(&tray, -1);
                         }
-                        if big_button(ui, icons::EXPORT, "Export", "Save edited copies to a folder").clicked() {
-                            self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
+                        if bar_icon(ui, icons::ROTATE_RIGHT, "Rotate right (Ctrl+])").clicked() {
+                            self.rotate(&tray, 1);
                         }
-                        if crate::print::available() && big_button(ui, icons::PRINT, "Print", "Print the pictures in the tray (Ctrl+P)").clicked() {
-                            self.open_print();
+                        if bar_icon(ui, icons::TAG, "Tags and people").clicked() {
+                            self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                         }
-                        if big_button(ui, icons::MAIL, "Email", "Send pictures by email").clicked() {
-                            self.dialog = Some(Dialog::Export { max_dim: 800, quality: 85 });
-                            self.toast("Export small copies, then attach them to an email.");
+                        if bar_icon(ui, icons::LOCATION, "Set location: where these pictures were taken, on a map").clicked() {
+                            self.start_placing(tray.clone());
                         }
-                        if big_button(ui, icons::WEB, "Web page", "Make a web gallery of these pictures").clicked() {
-                            self.open_gallery_dialog();
+                        self.album_menu(ui, if labels { format!("{}  To album", icons::ALBUM) } else { icons::ALBUM.to_string() }, &tray);
+                        ui.separator();
+                        // making something from them: on the right when there is room
+                        let outputs: Vec<(&str, &str, &str)> = [
+                            Some((icons::WEB, "Web page", "Make a web gallery of these pictures")),
+                            Some((icons::MAIL, "Email", "Small copies, attached to a new message in your mail program")),
+                            crate::print::available().then_some((icons::PRINT, "Print", "Print these pictures (Ctrl+P)")),
+                            Some((icons::EXPORT, "Export", "Save edited copies to a folder")),
+                            Some((icons::COLLAGE, "Collage", "Make a collage or a contact sheet")),
+                            Some((icons::MOVIE, "Movie", "Make a movie")),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect();
+                        let each = if labels { 104.0 } else { BAR_SQUARE.x + 6.0 };
+                        let room = width - (ui.cursor().left() - start) - each * outputs.len() as f32;
+                        if room > 0.0 {
+                            ui.add_space(room);
+                        }
+                        for (icon, label, tip) in outputs {
+                            let text = if labels { format!("{icon}  {label}") } else { icon.to_string() };
+                            let size = if labels { egui::vec2(each - 6.0, BAR_SQUARE.y) } else { BAR_SQUARE };
+                            let tip = if labels { tip.to_string() } else { format!("{label}: {tip}") };
+                            if ui.add_sized(size, egui::Button::new(RichText::new(text).size(15.0))).on_hover_text(tip).clicked() {
+                                match label {
+                                    "Web page" => self.open_gallery_dialog(),
+                                    "Email" => self.email(&tray),
+                                    "Print" => self.open_print(),
+                                    "Export" => self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 }),
+                                    "Collage" => self.open_collage(false),
+                                    _ => self.dialog = Some(Dialog::Movie { hd: false }),
+                                }
+                            }
                         }
                     });
                 });
@@ -639,14 +561,6 @@ impl App {
             }
             if ui.button(format!("{} Rotate right", icons::ROTATE_RIGHT)).clicked() {
                 self.rotate(&tray, 1);
-                ui.close();
-            }
-            if ui.button(format!("{} Hold in tray", icons::PIN)).clicked() {
-                for &t in &tray {
-                    if !self.held.contains(&t) {
-                        self.held.push(t);
-                    }
-                }
                 ui.close();
             }
             self.album_menu(ui, format!("{} Add to album", icons::ALBUM), &tray);

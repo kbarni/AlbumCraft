@@ -22,3 +22,9 @@ serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
 jpeg-decoder = "0.3"
+# moving rejected pictures to the system trash (freedesktop trash on Linux, Recycle Bin, macOS Trash)
+trash = "5.3"
+
+# Simple MAPI for Email (mail.rs): the same windows crate version as the app's printing
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_Mapi"] }

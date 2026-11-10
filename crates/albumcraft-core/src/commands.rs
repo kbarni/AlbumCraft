@@ -313,6 +313,11 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "email_pictures",
+            description: "Open a new message in the user's mail program with small copies (1600 px, JPEG) of the pictures attached, for the user to address and send. Nothing is sent by this command. Where no mail program can take attachments, the reply says where the copies are.",
+            schema: || keys_schema(json!({ "subject": { "type": "string", "required": false } })),
+        },
+        Spec {
             name: "make_gallery",
             description: "Make a web gallery (index.html, pictures, thumbnails) in a new folder inside `folder`; returns the page's path.",
             schema: || {
@@ -1083,6 +1088,17 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 Ok(Reply::json(json!({ "written": done, "failed": failed })))
             })))
         }
+        "email_pictures" => {
+            let ids = ids(host, args)?;
+            let subject = opt_str(args, "subject").unwrap_or("Pictures").to_string();
+            let with_location = host.store().export_location;
+            let jobs: Vec<ExportJob> = ids.iter().map(|&id| export_job(host, id)).collect();
+            Ok(Outcome::Later(Box::new(move || {
+                let r = crate::mail::email(&jobs, &subject, with_location, &|_, _| true);
+                let folder = r.show.as_ref().map(|p| p.to_string_lossy().to_string());
+                if r.ok { Ok(Reply::json(json!({ "message": r.text, "folder": folder }))) } else { Err(r.text) }
+            })))
+        }
         "make_gallery" => {
             let ids = ids(host, args)?;
             let parent = existing_dir(str_arg(args, "folder")?)?;
@@ -1587,6 +1603,7 @@ mod tests {
             ("show_photo", json!({ "key": k })),
             ("show_on_map", json!({ "keys": [k] })),
             ("show_on_map", json!({ "keys": [] })),
+            ("email_pictures", json!({ "keys": [] })),
             ("set_sort_order", json!({ "order": "colour" })),
             ("set_sort_order", json!({})),
             ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),

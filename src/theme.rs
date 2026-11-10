@@ -17,9 +17,8 @@ pub struct Tokens {
     /// Folder header strips, status bar.
     pub header_bg: Color32,
     pub status_bg: Color32,
-    /// The photo tray at the bottom and the dark well that holds its thumbnails.
+    /// The selection bar at the bottom.
     pub tray_bg: Color32,
-    pub tray_well: Color32,
     /// Cards, inputs, popups.
     pub surface: Color32,
     pub surface_hover: Color32,
@@ -57,7 +56,6 @@ const LIGHT: Tokens = Tokens {
     header_bg: Color32::from_rgb(241, 243, 247),
     status_bg: Color32::from_rgb(244, 245, 248),
     tray_bg: Color32::from_rgb(236, 238, 243),
-    tray_well: Color32::from_rgb(58, 62, 72),
     surface: Color32::from_rgb(255, 255, 255),
     surface_hover: Color32::from_rgb(236, 240, 248),
     border: Color32::from_rgb(218, 222, 230),
@@ -90,7 +88,6 @@ const DARK: Tokens = Tokens {
     header_bg: Color32::from_rgb(38, 39, 44),
     status_bg: Color32::from_rgb(34, 35, 39),
     tray_bg: Color32::from_rgb(40, 41, 46),
-    tray_well: Color32::from_rgb(22, 23, 26),
     surface: Color32::from_rgb(46, 47, 53),
     surface_hover: Color32::from_rgb(58, 60, 68),
     border: Color32::from_rgb(58, 60, 68),

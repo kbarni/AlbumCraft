@@ -31,11 +31,10 @@ impl App {
             let k = self.photos[5].key.clone();
             self.store.meta.entry(k).or_default().people.push("Grandma".into());
             if shot_view == "tray" {
-                // a clicked folder with nothing held: the whole folder in the tray
+                // a clicked folder: the whole folder in the tray
                 self.pick_set(TraySet::Folder(1));
             } else {
                 self.selection.extend([1usize, 2, 4]);
-                self.held.push(9);
             }
         }
         // Developer aid: ALBUMCRAFT_SHOT_VIEW=edit pictures the editor instead of the library.
@@ -61,13 +60,11 @@ impl App {
         }
         if shot_view == "print" && self.photos.len() > 5 {
             self.selection = [0usize, 1, 2, 3, 5].into_iter().collect();
-            self.held.clear();
             self.store.print.layout = crate::print::PrintLayout::Cm9x13;
             self.open_print();
         }
         if matches!(shot_view.as_str(), "collage" | "sheet") && self.photos.len() > 12 {
             self.selection = (0..12usize).collect();
-            self.held.clear();
             if shot_view == "collage" {
                 self.store.collage.style = std::env::var("ALBUMCRAFT_SHOT_STYLE").ok().and_then(|s| crate::collage::Style::from_id(&s)).unwrap_or(crate::collage::Style::Pile);
                 self.store.collage.border = self.store.collage.style.natural_border();
@@ -263,6 +260,19 @@ impl App {
             let ok_after = !self.key_index.contains_key(&first) && self.scanned;
             self.store.roots.clear();
             eprintln!("cache check: {}", if ok_before && ok_after { "ok" } else { "WRONG" });
+        }
+        if shot_view == "trash" {
+            self.dialog = Some(Dialog::TrashRejects { keys: vec!["/home/me/Pictures/a.jpg".into(); 14], bytes: 61_000_000 });
+        }
+        if shot_view == "open" && self.photos.len() > 12 {
+            // several pictures selected, one opened: the editor steps through those, and the
+            // selection is still there after stepping
+            self.selection = [3usize, 7, 12].into_iter().collect();
+            self.open_editor(7);
+            let list = self.edit.list.clone();
+            self.set_edit_photo(12);
+            let ok = list == [3, 7, 12] && self.selection.len() == 3;
+            eprintln!("open check: {}", if ok { "kept" } else { "LOST" });
         }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);

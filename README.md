@@ -17,7 +17,7 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 - **Import** from a memory card, a camera or any folder: pictures grouped by time, the ones already in your library left out, copied into a new folder you name. Nothing is ever overwritten and the originals stay as they are. (Adding a folder to the library, by contrast, copies nothing.)
 - Pick or reject pictures, give them 1–5 stars, captions, tags and people; filter by any of those.
 - **One search box** for everything: words in names and captions, tags, people, albums, folders and places, with suggestions as you type. Places are found by city, region or country, also for pictures that only have the camera's GPS position.
-- Albums, a photo tray for collecting pictures across folders, and keyboard culling in the grid and the editor (`P` pick, `X` reject, `U` clear, `0`–`5` stars).
+- Albums (drag pictures onto one), selection with the mouse, a box or the arrow keys, and keyboard culling in the grid and the editor (`P` pick, `X` reject, `U` clear, `0`–`5` stars); rejected pictures can be moved to the system's trash.
 - Camera raw files (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF, …) are shown through the full-size preview the camera embeds in them.
 - Picture notes made with the classic per-folder `.picasa.ini` files are brought in (read only).
 - **Places**: a map of where your pictures were taken (GPS from phones and cameras is read automatically). Set the location of any picture by searching a city or address or by dropping a pin on the map; exported copies carry it in their EXIF (optional). Show a folder or an album on the map.

@@ -50,7 +50,6 @@ icons! {
     PAUSE = "pause" "\u{e034}";
     PERSON = "person" "\u{f0d3}";
     PHOTOS = "photo_library" "\u{e413}";
-    PIN = "keep" "\u{f027}";
     PLAY = "play_arrow" "\u{e037}";
     PRINT = "print" "\u{e8ad}";
     REDEYE = "remove_red_eye" "\u{e8f4}";

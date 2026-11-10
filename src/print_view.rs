@@ -441,7 +441,6 @@ impl App {
             let _ = tx.send(Done::Report(report));
             ctx.request_repaint();
         });
-        self.arm_tray_check();
     }
 
     fn print_preview(&mut self, ui: &mut egui::Ui) {

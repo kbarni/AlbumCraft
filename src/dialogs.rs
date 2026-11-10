@@ -25,7 +25,7 @@ impl App {
             Dialog::About => "About AlbumCraft".into(),
             Dialog::OnlineMaps => "Maps".into(),
             Dialog::PrintReview { .. } => "Review".into(),
-            Dialog::ClearTray { .. } => "Photo tray".into(),
+            Dialog::TrashRejects { .. } => "Move to the trash".into(),
         };
         let targets = self.targets();
         #[allow(deprecated)]
@@ -47,7 +47,7 @@ impl App {
                     let r = ui.text_edit_singleline(name);
                     r.request_focus();
                     if !targets.is_empty() {
-                        ui.label(format!("The {} picture(s) in the tray will be added.", targets.len()));
+                        ui.label(format!("The {} selected picture(s) will be added.", targets.len()));
                     }
                     ui.horizontal(|ui| {
                         if (ui.button("Create").clicked() || enter) && !name.trim().is_empty() {
@@ -81,7 +81,7 @@ impl App {
                     });
                 }
                 Dialog::Tag { tags, people } => {
-                    ui.label(format!("Add to the {} picture(s) in the tray. Separate words with commas.", targets.len()));
+                    ui.label(format!("Add to the {} selected picture(s). Separate words with commas.", targets.len()));
                     egui::Grid::new("tagdlg").num_columns(2).show(ui, |ui| {
                         ui.label("Tags:");
                         ui.text_edit_singleline(tags);
@@ -272,17 +272,22 @@ impl App {
                         }
                     });
                 }
-                Dialog::ClearTray { old } => {
-                    ui.label(MSG_CLEAR_TRAY);
-                    ui.add_space(6.0);
+                Dialog::TrashRejects { keys, bytes } => {
+                    let n = keys.len();
+                    let what = if n == 1 { "the rejected picture".to_string() } else { format!("the {} rejected pictures", crate::app::fmt_count(n)) };
+                    ui.label(format!(
+                        "Move {what} ({}) to the trash?\n\nThe files are removed from their folders. You can get them back from the system's trash until it is emptied.",
+                        crate::library::fmt_bytes(*bytes)
+                    ));
+                    ui.add_space(8.0);
+                    // no Enter here: this one removes files
                     ui.horizontal(|ui| {
-                        // "Clear Tray" removes only the pictures held before; the
-                        // new ones stay
-                        if ui.button(BTN_CLEAR_TRAY).clicked() {
-                            self.held.retain(|id| !old.contains(id));
+                        if ui.button("Move to the trash").clicked() {
+                            let keys = std::mem::take(keys);
+                            self.trash_files(keys);
                             close = true;
                         }
-                        if ui.button(BTN_DONT_CLEAR).clicked() {
+                        if ui.button("Cancel").clicked() {
                             close = true;
                         }
                     });
