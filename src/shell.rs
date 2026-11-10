@@ -435,6 +435,14 @@ impl App {
                         let aspects: Vec<f32> = ids.iter().map(|&id| self.aspect_of(id)).collect();
                         for (a, b, h) in justify(&aspects, width, target) {
                             let (row, _) = ui.allocate_exact_size(egui::vec2(width, h), Sense::hover());
+                            // back from the editor: bring the picture's row into view, also when
+                            // it is far off screen (rows out of sight are skipped below)
+                            if let Some(target) = self.scroll_to_photo
+                                && ids.get(a..b).is_some_and(|r| r.contains(&target))
+                            {
+                                ui.scroll_to_rect(row, Some(egui::Align::Center));
+                                self.scroll_to_photo = None;
+                            }
                             if !ui.is_rect_visible(row) {
                                 continue;
                             }
@@ -446,10 +454,6 @@ impl App {
                                 let rect = Rect::from_min_size(Pos2::new(x, row.top()), egui::vec2(w, h));
                                 x += w + GAP;
                                 self.want_thumb(id);
-                                if self.scroll_to_photo == Some(id) {
-                                    ui.scroll_to_rect(rect, Some(egui::Align::Center));
-                                    self.scroll_to_photo = None;
-                                }
                                 let resp = ui.interact(rect, egui::Id::new(("tile", id)), Sense::click());
                                 let hovered = resp.contains_pointer();
                                 self.paint_tile(ui, rect, id, hovered);
@@ -477,6 +481,10 @@ impl App {
                         }
                         ui.add_space(14.0);
                     }
+                    // not in the list (hidden by a search or a filter): forget the request, so
+                    // that the grid doesn't jump there later
+                    self.scroll_to_photo = None;
+                    self.scroll_to_folder = None;
                     let rest = ui.available_rect_before_wrap();
                     if rest.height() > 10.0 && ui.allocate_rect(rest, Sense::click()).clicked() {
                         background_click = true;

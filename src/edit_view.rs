@@ -1484,6 +1484,11 @@ impl App {
             };
             let tex = self.big_texture(id, &extra).or_else(|| self.thumbs.get(&id).cloned());
             let Some(tex) = tex else {
+                if self.big_failed.contains(&id) {
+                    // neither a preview nor a thumbnail: say so instead of waiting forever
+                    ui.painter().text(area.center(), egui::Align2::CENTER_CENTER, "This picture can't be read.", egui::FontId::proportional(15.0), Color32::WHITE);
+                    return;
+                }
                 self.want_thumb(id);
                 ui.put(Rect::from_center_size(area.center(), Vec2::splat(40.0)), egui::Spinner::new().size(32.0));
                 return;
@@ -1539,7 +1544,8 @@ impl App {
             p.rect_filled(img_rect.translate(egui::vec2(3.0, 3.0)), 0, Color32::from_black_alpha(90));
             p.image(tex.id(), img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
             if !self.big.contains_key(&id) {
-                p.text(img_rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, "Loading full picture…", egui::FontId::proportional(13.0), Color32::WHITE);
+                let note = if self.big_failed.contains(&id) { "The full picture can't be read." } else { "Loading full picture…" };
+                p.text(img_rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, note, egui::FontId::proportional(13.0), Color32::WHITE);
             }
             if self.edit.tool == Tool::None && ui.input(|i| i.time) < self.edit.grid_until {
                 paint_grid(p, img_rect);
