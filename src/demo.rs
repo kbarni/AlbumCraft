@@ -206,6 +206,11 @@ impl App {
             let ok = self.view == View::Edit && key(self, self.edit.id) == open && kept.len() == 3 && chosen.iter().all(|k| kept.contains(k));
             eprintln!("rescan check: {}", if ok { "kept" } else { "LOST" });
         }
+        if shot_view == "scroll" {
+            // large pictures, scrolled to the last one: rows above the window are skipped
+            self.store.thumb_size = 256.0;
+            self.scroll_to_photo = self.photos.len().checked_sub(1);
+        }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }

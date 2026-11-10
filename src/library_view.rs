@@ -482,6 +482,8 @@ impl App {
                             break;
                         }
                         let r = Rect::from_min_size(Pos2::new(x, y), egui::vec2(cell, cell));
+                        // also when its row in the grid is out of sight
+                        self.want_thumb(id);
                         let ir = paint_thumb(&p, r, self.thumbs.get(&id), false);
                         if self.held.contains(&id) {
                             p.rect_stroke(ir, 0, Stroke::new(1.5, Color32::from_rgb(255, 210, 90)), StrokeKind::Outside);

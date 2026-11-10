@@ -7,12 +7,43 @@
 
 use crate::icons;
 use crate::app::*;
-use crate::library::{fmt_date, local_year};
+use crate::library::fmt_date;
 use crate::library::{Flag, MAX_RATING};
 use crate::library_view::{paint_flag, paint_rating, paint_reject, paint_star};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 const GAP: f32 = 4.0;
+/// The height of a folder's header before it was drawn once (name line and spacing).
+const HEADER_H: f32 = 48.0;
+
+/// The grid's layout, kept between frames (`App::grid_rows`).
+pub struct GridCache {
+    /// The list it was made for.
+    groups: Rc<Vec<Group>>,
+    /// Every picture of the list in order (Shift+click ranges, asking for shapes).
+    flat: Rc<Vec<usize>>,
+    /// How far into `flat` shapes were asked for.
+    shapes_asked: usize,
+    /// (width, row height aimed at, `App::shape_rev`) the rows were made for.
+    key: Option<(u32, u32, u64)>,
+    layout: Vec<GroupRows>,
+    /// Heights of the folder headers as last drawn, by folder.
+    header_h: HashMap<usize, f32>,
+}
+
+/// The rows of one group.
+struct GroupRows {
+    /// Width / height of each picture.
+    aspects: Vec<f32>,
+    /// (first picture, one past the last, height) of each row.
+    rows: Vec<(usize, usize, f32)>,
+    /// Each row's distance from the top of the group's pictures.
+    tops: Vec<f32>,
+    /// All rows with the gaps after them.
+    height: f32,
+}
 const PAD: i8 = 24;
 
 // ---------------------------------------------------------------------------------------------
@@ -85,6 +116,9 @@ fn chip_with_flag(ui: &mut egui::Ui, label: &str, on: bool, flag: bool) -> egui:
 /// One row of the sidebar.
 fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
     let p = ui.painter();
     if selected {
         p.rect_filled(rect, 9, t().select_bg);
@@ -177,7 +211,7 @@ impl App {
                 ui.painter().hline(ui.max_rect().x_range().expand(PAD as f32), bottom, Stroke::new(1.0, t().border));
                 let wide = ui.available_width();
                 ui.horizontal_centered(|ui| {
-                    let shown = self.visible_flat().len();
+                    let shown = self.visible_count();
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         ui.label(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong));
@@ -278,8 +312,8 @@ impl App {
                         self.tray_set = None;
                         self.list_pick = None;
                     }
-                    let npicks = (0..self.photos.len()).filter(|&i| self.is_picked(i)).count();
-                    let r = nav_row(ui, "", "Picks", Some(npicks), self.source == Source::Picks);
+                    let counts = self.sidebar_counts();
+                    let r = nav_row(ui, "", "Picks", Some(counts.picks), self.source == Source::Picks);
                     paint_flag(ui.painter(), Pos2::new(r.rect.left() + 18.0, r.rect.center().y), 7.0, t().pick, t().pick);
                     if r.clicked() {
                         self.source = Source::Picks;
@@ -301,9 +335,9 @@ impl App {
                     });
                     let mut delete = None;
                     for i in 0..self.store.albums.len() {
-                        let a = &self.store.albums[i];
-                        let n = a.keys.iter().filter(|k| self.key_index.contains_key(*k)).count();
-                        let r = nav_row(ui, icons::ALBUM, &a.name.clone(), Some(n), self.source == Source::Album(i));
+                        let n = counts.albums.get(i).copied().unwrap_or(0);
+                        let name = self.store.albums[i].name.clone();
+                        let r = nav_row(ui, icons::ALBUM, &name, Some(n), self.source == Source::Album(i));
                         if r.clicked() {
                             self.source = Source::Album(i);
                             self.pick_set(TraySet::Album(i));
@@ -339,38 +373,31 @@ impl App {
                     }
 
                     caption(ui, "People");
-                    let people = self.people();
+                    let people = &counts.people;
                     if people.is_empty() {
                         ui.label(RichText::new("Tag people from the selection bar.").size(12.0).color(t().text_weak));
                     }
                     for (name, n) in people {
                         let sel = self.source == Source::Person(name.clone());
-                        if nav_row(ui, icons::PERSON, &name, Some(n), sel).clicked() {
+                        if nav_row(ui, icons::PERSON, name, Some(*n), sel).clicked() {
                             self.source = Source::Person(name.clone());
-                            self.pick_set(TraySet::Person(name));
+                            self.pick_set(TraySet::Person(name.clone()));
                         }
                     }
 
                     caption(ui, "Folders");
-                    let mut by_year: Vec<(i32, Vec<usize>)> = vec![];
-                    for (fi, f) in self.folders.iter().enumerate() {
-                        let y = local_year(f.date);
-                        match by_year.last_mut() {
-                            Some((yy, v)) if *yy == y => v.push(fi),
-                            _ => by_year.push((y, vec![fi])),
-                        }
-                    }
                     let current_folder = match &self.list_pick {
                         Some(TraySet::Folder(fi)) if self.selection.is_empty() => Some(*fi),
                         _ => self.selection.iter().next().map(|&id| self.photos[id].folder),
                     };
-                    for (year, fis) in by_year {
+                    for (year, fis) in &counts.by_year {
+                        let year = *year;
                         egui::CollapsingHeader::new(RichText::new(year.to_string()).size(13.0).strong().color(t().text))
                             .id_salt(("year", year))
                             .default_open(true)
                             .show(ui, |ui| {
-                                for fi in fis {
-                                    let f = &self.folders[fi];
+                                for &fi in fis {
+                                    let Some(f) = self.folders.get(fi) else { continue };
                                     let r = nav_row(ui, icons::FOLDER, &f.name.clone(), Some(f.photos.len()), current_folder == Some(fi) && self.source == Source::Library);
                                     if r.clicked() {
                                         self.source = Source::Library;
@@ -386,7 +413,7 @@ impl App {
     }
 
     /// Width / height of a picture as far as it is known.
-    fn aspect_of(&self, id: usize) -> f32 {
+    pub fn aspect_of(&self, id: usize) -> f32 {
         if let Some(tex) = self.thumbs.get(&id) {
             let [w, h] = tex.size();
             return w as f32 / h.max(1) as f32;
@@ -400,6 +427,64 @@ impl App {
         1.5
     }
 
+    /// The grid's rows for this list, width and picture size: kept from the last frame when
+    /// nothing they depend on changed, made again otherwise (a walk over every picture shown).
+    fn grid_rows(&mut self, groups: &Rc<Vec<Group>>, width: f32, target: f32) -> GridCache {
+        let mut cache = match self.grid_cache.take() {
+            Some(c) if Rc::ptr_eq(&c.groups, groups) => c,
+            _ => GridCache {
+                groups: groups.clone(),
+                flat: Rc::new(groups.iter().flat_map(|(_, v)| v.iter().copied()).collect()),
+                shapes_asked: 0,
+                key: None,
+                layout: vec![],
+                header_h: HashMap::new(),
+            },
+        };
+        let key = (width.to_bits(), target.to_bits(), self.shape_rev);
+        if cache.key != Some(key) {
+            cache.key = Some(key);
+            cache.layout = groups
+                .iter()
+                .map(|(_, ids)| {
+                    let aspects: Vec<f32> = ids.iter().map(|&id| self.aspect_of(id)).collect();
+                    let rows = justify(&aspects, width, target);
+                    let mut tops = Vec::with_capacity(rows.len());
+                    let mut height = 0.0;
+                    for &(_, _, h) in &rows {
+                        tops.push(height);
+                        height += h + GAP;
+                    }
+                    GroupRows { aspects, rows, tops, height }
+                })
+                .collect();
+        }
+        cache
+    }
+
+    /// Learn the real shape of pictures whose thumbnail is not loaded yet, in the background, a
+    /// batch at a time (reading headers from a slow disk must not hold up the window). The list
+    /// is walked once, a little further each time, not from its start on every frame.
+    fn ask_for_shapes(&mut self, cache: &mut GridCache) {
+        if self.dims_pending {
+            return;
+        }
+        let mut batch: Vec<(usize, String)> = vec![];
+        while batch.len() < 128 {
+            let Some(&id) = cache.flat.get(cache.shapes_asked) else { break };
+            cache.shapes_asked += 1;
+            if !self.thumbs.contains_key(&id) && !self.thumb_aspect.contains_key(&id) && !self.real_dims.contains_key(&id)
+                && let Some(p) = self.photos.get(id)
+            {
+                batch.push((id, p.key.clone()));
+            }
+        }
+        if !batch.is_empty() {
+            self.dims_pending = true;
+            self.lib.request(crate::library::Job::Dims(batch), false);
+        }
+    }
+
     fn grid(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().lightbox_bg)).show(ui, |ui| {
             let groups = self.groups();
@@ -407,58 +492,63 @@ impl App {
                 self.empty_state(ui);
                 return;
             }
-            let flat: Vec<usize> = groups.iter().flat_map(|(_, v)| v.iter().copied()).collect();
-            // learn the real shape of pictures whose thumbnail is not loaded yet, in the background
-            // (a batch at a time: reading headers from a slow disk must not hold up the window)
-            if !self.dims_pending {
-                let batch: Vec<(usize, String)> = flat
-                    .iter()
-                    .filter(|id| !self.thumbs.contains_key(id) && !self.thumb_aspect.contains_key(id) && !self.real_dims.contains_key(id))
-                    .filter_map(|&id| self.photos.get(id).map(|p| (id, p.key.clone())))
-                    .take(32)
-                    .collect();
-                if !batch.is_empty() {
-                    self.dims_pending = true;
-                    self.lib.request(crate::library::Job::Dims(batch), false);
-                }
-            }
-
             let target = (self.store.thumb_size * 1.25).clamp(90.0, 320.0);
             let mut open: Option<usize> = None;
             let mut clicked: Option<(usize, egui::Modifiers)> = None;
             let mut background_click = false;
+            let mut flat: Rc<Vec<usize>> = Rc::new(vec![]);
 
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 egui::Frame::new().inner_margin(egui::Margin { left: PAD, right: PAD, top: 8, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                     let width = ui.available_width();
-                    for (folder, ids) in &groups {
+                    let mut cache = self.grid_rows(&groups, width, target);
+                    self.ask_for_shapes(&mut cache);
+                    flat = cache.flat.clone();
+                    // only what is in view is laid out and drawn; the rest is empty space of
+                    // the height the rows would take
+                    let clip = ui.clip_rect();
+                    // where to scroll to, if asked (dropped when it is not in the list)
+                    let to_photo = self.scroll_to_photo.take();
+                    let to_folder = self.scroll_to_folder.take();
+                    for (gi, (folder, ids)) in groups.iter().enumerate() {
+                        let Some(rows) = cache.layout.get(gi) else { break };
+                        let (left, top) = (ui.cursor().left(), ui.cursor().top());
+                        // a header not drawn yet is taken to be one line high
+                        let head = folder.map_or(0.0, |fi| cache.header_h.get(&fi).copied().unwrap_or(HEADER_H) + GAP);
+                        let total = head + rows.height + 14.0;
+                        if folder.is_some() && to_folder == *folder {
+                            ui.scroll_to_rect(Rect::from_min_size(Pos2::new(left, top), egui::vec2(width, head.max(1.0))), Some(egui::Align::TOP));
+                        }
+                        if let Some(k) = to_photo.and_then(|id| ids.iter().position(|&x| x == id))
+                            && let Some(r) = rows.rows.iter().position(|&(a, b, _)| a <= k && k < b)
+                        {
+                            let row = Rect::from_min_size(Pos2::new(left, top + head + rows.tops[r]), egui::vec2(width, rows.rows[r].2));
+                            ui.scroll_to_rect(row, Some(egui::Align::Center));
+                        }
+                        if top + total < clip.top() || top > clip.bottom() {
+                            ui.add_space(total);
+                            continue;
+                        }
                         if let Some(fi) = folder {
                             let r = self.group_header(ui, *fi, ids);
-                            if self.scroll_to_folder == Some(*fi) {
-                                r.scroll_to_me(Some(egui::Align::TOP));
-                                self.scroll_to_folder = None;
-                            }
+                            cache.header_h.insert(*fi, r.rect.height());
                         }
-                        let aspects: Vec<f32> = ids.iter().map(|&id| self.aspect_of(id)).collect();
-                        for (a, b, h) in justify(&aspects, width, target) {
+                        let body = ui.cursor().top();
+                        let n = rows.rows.len();
+                        let first = (0..n).find(|&r| body + rows.tops[r] + rows.rows[r].2 >= clip.top()).unwrap_or(n);
+                        let last = (first..n).find(|&r| body + rows.tops[r] > clip.bottom()).unwrap_or(n);
+                        if first > 0 {
+                            ui.add_space(rows.tops.get(first).copied().unwrap_or(rows.height));
+                        }
+                        for r in first..last {
+                            let (a, b, h) = rows.rows[r];
                             let (row, _) = ui.allocate_exact_size(egui::vec2(width, h), Sense::hover());
-                            // back from the editor: bring the picture's row into view, also when
-                            // it is far off screen (rows out of sight are skipped below)
-                            if let Some(target) = self.scroll_to_photo
-                                && ids.get(a..b).is_some_and(|r| r.contains(&target))
-                            {
-                                ui.scroll_to_rect(row, Some(egui::Align::Center));
-                                self.scroll_to_photo = None;
-                            }
-                            if !ui.is_rect_visible(row) {
-                                continue;
-                            }
                             // when the row is the last, stretched or not, pictures keep their own width
                             let mut x = row.left();
                             for k in a..b {
-                                let id = ids[k];
-                                let w = aspects[k] * h;
+                                let (Some(&id), Some(&aspect)) = (ids.get(k), rows.aspects.get(k)) else { continue };
+                                let w = aspect * h;
                                 let rect = Rect::from_min_size(Pos2::new(x, row.top()), egui::vec2(w, h));
                                 x += w + GAP;
                                 self.want_thumb(id);
@@ -482,17 +572,15 @@ impl App {
                                 } else if resp.clicked() {
                                     clicked = Some((id, ui.input(|i| i.modifiers)));
                                 }
-                                let name = self.photos[id].name.clone();
-                                let resp = resp.on_hover_text(name);
+                                let resp = if resp.hovered() { resp.on_hover_text(self.photos[id].name.as_str()) } else { resp };
                                 self.cell_menu(&resp, id);
                             }
                         }
-                        ui.add_space(14.0);
+                        // the rows below the window, and the gap before the next folder
+                        let drawn = if last < n { rows.tops[last] } else { rows.height };
+                        ui.add_space(rows.height - drawn + 14.0);
                     }
-                    // not in the list (hidden by a search or a filter): forget the request, so
-                    // that the grid doesn't jump there later
-                    self.scroll_to_photo = None;
-                    self.scroll_to_folder = None;
+                    self.grid_cache = Some(cache);
                     let rest = ui.available_rect_before_wrap();
                     if rest.height() > 10.0 && ui.allocate_rect(rest, Sense::click()).clicked() {
                         background_click = true;
