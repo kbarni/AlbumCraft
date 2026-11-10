@@ -107,6 +107,8 @@ pub struct Album {
 #[serde(default)]
 pub struct Store {
     pub roots: Vec<String>,
+    /// Notes by picture (file path). Notes on the built-in sample pictures are not saved.
+    #[serde(serialize_with = "without_samples")]
     pub meta: HashMap<String, Meta>,
     pub albums: Vec<Album>,
     pub folder_notes: HashMap<String, String>,
@@ -136,6 +138,10 @@ pub struct Store {
     pub collage: crate::collage::CollageSettings,
     /// Last used contact sheet settings.
     pub contact_sheet: crate::collage::SheetSettings,
+}
+
+fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
+    s.collect_map(meta.iter().filter(|(key, _)| !key.starts_with(SAMPLE_PREFIX)))
 }
 
 impl Default for Store {
@@ -605,11 +611,14 @@ mod store_tests {
         let mut store = Store::default();
         store.meta.insert("a.jpg".into(), Meta { flag: Flag::Pick, rating: 4, ..Default::default() });
         store.meta.insert("empty.jpg".into(), Meta::default());
+        store.meta.insert(format!("{SAMPLE_PREFIX}3"), Meta { rating: 5, ..Default::default() });
         store.save_to(&path).unwrap();
         assert!(!path.with_extension("json.tmp").exists());
         let Loaded::Store(back) = Store::load_from(&path) else { panic!("not loaded") };
         assert_eq!((back.meta["a.jpg"].flag, back.meta["a.jpg"].rating), (Flag::Pick, 4));
         assert!(!back.meta.contains_key("empty.jpg"));
+        // notes on the sample pictures stay in the window, not in the file
+        assert!(store.meta.contains_key(&format!("{SAMPLE_PREFIX}3")) && back.meta.len() == 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -868,8 +877,9 @@ pub enum Done {
     Big { id: usize, key: String, img: Option<RgbaImage> },
     /// `unedited_width` is the width of the loaded picture before edits (to know its scale).
     Zoom { id: usize, key: String, ops: Vec<EditOp>, img: Option<RgbaImage>, unedited_width: u32 },
-    /// Scanned folders, and whether the scan stopped at SCAN_LIMIT.
-    Scan(Vec<ScannedFolder>, bool),
+    /// Scanned folders, whether the scan stopped at SCAN_LIMIT, and the `.picasa.ini` notes read
+    /// in folders not brought in before (by folder path).
+    Scan(Vec<ScannedFolder>, bool, Vec<(String, IniFolder)>),
     Message(String),
     /// A short progress note for the toast.
     Toast(String),

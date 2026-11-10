@@ -192,6 +192,20 @@ impl App {
             self.edit.aspect = CropAspect::ThreeTwo;
             self.start_crop();
         }
+        if shot_view == "rescan" && self.photos.len() > 12 {
+            // a scan that finds one folder less while a picture is open and others are selected:
+            // the editor stays on the same picture, the selection on the same pictures
+            self.open_editor(12);
+            self.selection.extend([10usize, 11, 2]);
+            let key = |app: &App, id: usize| app.photos.get(id).map(|p| p.key.clone());
+            let (open, chosen): (_, Vec<_>) = (key(self, 12), [10usize, 11].iter().map(|&id| key(self, id)).collect());
+            let gone = self.folders.first().map(|f| f.path.clone()).unwrap_or_default();
+            let rest: Vec<_> = library::sample_folders().into_iter().filter(|(path, _)| *path != gone).collect();
+            self.set_library(rest, true);
+            let kept: Vec<_> = self.selection.iter().map(|&id| key(self, id)).collect();
+            let ok = self.view == View::Edit && key(self, self.edit.id) == open && kept.len() == 3 && chosen.iter().all(|k| kept.contains(k));
+            eprintln!("rescan check: {}", if ok { "kept" } else { "LOST" });
+        }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }

@@ -251,7 +251,7 @@ impl App {
         if !self.info_section(ui, "location", "Location", true) {
             return;
         }
-        let at = self.location(id);
+        let at = self.location_now(id);
         let by_user = self.meta(id).is_some_and(|m| matches!(m.place, Some(Place::Set { .. })));
         let mut modify = false;
         let mut show = false;

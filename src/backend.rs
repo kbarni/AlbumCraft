@@ -41,7 +41,9 @@ pub trait Library {
     fn tidy(&self);
 
     /// Look for pictures in these folders; the result arrives as `Done::Scan`.
-    fn scan(&self, roots: Vec<String>);
+    /// `ini_done`: folders whose `.picasa.ini` was brought in already; for the others the scan
+    /// reads that file (read only, never written) and sends what it holds along.
+    fn scan(&self, roots: Vec<String>, ini_done: Vec<String>);
     /// A thumbnail, preview or sharp render; the result arrives as `Done::Thumb`/`Big`/`Zoom`.
     fn request(&self, job: Job, urgent: bool);
     /// The picture's real size in pixels, as shown (from the file header).
@@ -52,8 +54,6 @@ pub trait Library {
     fn file_gps(&self, key: &str) -> Option<LatLon>;
     /// Start reading the GPS positions of these pictures in the background, until `stop`.
     fn index_gps(&self, files: Vec<FileStamp>, stop: Arc<AtomicBool>) -> GpsBatches;
-    /// The notes saved in a folder's `.picasa.ini` file (read only, never written).
-    fn folder_ini(&self, folder: &str) -> Option<IniFolder>;
     /// Reads pictures for output made by the window (print pages, collages).
     fn pictures(&self) -> Pictures;
 
@@ -149,11 +149,21 @@ impl Library for LocalLibrary {
         std::thread::spawn(crate::thumbcache::prune);
     }
 
-    fn scan(&self, roots: Vec<String>) {
+    fn scan(&self, roots: Vec<String>, ini_done: Vec<String>) {
         let send = self.sender();
         std::thread::spawn(move || {
-            let (found, truncated) = std::panic::catch_unwind(|| library::scan_roots(&roots, library::SCAN_LIMIT)).unwrap_or_default();
-            send(Done::Scan(found, truncated));
+            let (found, truncated, inis) = std::panic::catch_unwind(|| {
+                let (found, truncated) = library::scan_roots(&roots, library::SCAN_LIMIT);
+                let done: std::collections::HashSet<&str> = ini_done.iter().map(String::as_str).collect();
+                let inis: Vec<(String, IniFolder)> = found
+                    .iter()
+                    .filter(|(path, _)| !done.contains(path.as_str()))
+                    .filter_map(|(path, _)| Some((path.clone(), library::read_picasa_ini(Path::new(path))?)))
+                    .collect();
+                (found, truncated, inis)
+            })
+            .unwrap_or_default();
+            send(Done::Scan(found, truncated, inis));
         });
     }
 
@@ -178,10 +188,6 @@ impl Library for LocalLibrary {
         let cache = geo::gps_cache_path();
         std::thread::spawn(move || geo::index_files(files, cache, tx, stop));
         rx
-    }
-
-    fn folder_ini(&self, folder: &str) -> Option<IniFolder> {
-        library::read_picasa_ini(Path::new(folder))
     }
 
     fn pictures(&self) -> Pictures {
@@ -312,8 +318,8 @@ mod tests {
         // a missing picture still gets an answer, so the window never waits forever
         lib.request(Job::Big { id: 1, key: "/no/such/picture.jpg".into() }, true);
         assert!(matches!(next(&rx), Done::Big { id: 1, img: None, .. }));
-        lib.scan(vec!["/no/such/folder".into()]);
-        assert!(matches!(next(&rx), Done::Scan(found, false) if found.is_empty()));
+        lib.scan(vec!["/no/such/folder".into()], vec![]);
+        assert!(matches!(next(&rx), Done::Scan(found, false, inis) if found.is_empty() && inis.is_empty()));
         assert!(lib.pictures()(&key, 50).is_some_and(|i| i.width().max(i.height()) == 50));
         assert!(lib.camera_info(&key).is_none() && lib.source_dims("/no/such/picture.jpg").is_none());
     }

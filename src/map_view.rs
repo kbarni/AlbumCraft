@@ -326,16 +326,27 @@ impl App {
         self.geo.located.clone()
     }
 
-    /// A picture's position: its place, else its file's GPS (when the index has seen it).
+    /// A picture's position: its place, else its file's GPS as far as the background index has
+    /// read it. Never reads a file, so it is safe for many pictures at once and in every frame.
     pub fn location(&self, id: usize) -> Option<LatLon> {
         let p = self.photos.get(id)?;
         let place = self.store.meta.get(&p.key).and_then(|m| m.place.as_ref());
-        let file = match self.geo.file_gps.get(&p.key) {
-            Some(g) => *g,
-            None if place.is_none() => self.lib.file_gps(&p.key),
-            None => None,
-        };
-        geo::effective(place, file)
+        geo::effective(place, self.geo.file_gps.get(&p.key).copied().flatten())
+    }
+
+    /// The position of one picture the user is looking at: when the index has not reached its
+    /// file yet, the file is read now (once; the answer is kept).
+    pub fn location_now(&mut self, id: usize) -> Option<LatLon> {
+        if let Some(p) = self.photos.get(id)
+            && !p.is_sample()
+            && !self.geo.file_gps.contains_key(&p.key)
+            && self.store.meta.get(&p.key).is_none_or(|m| m.place.is_none())
+        {
+            let found = self.lib.file_gps(&p.key);
+            self.geo.file_gps.insert(p.key.clone(), found);
+            self.geo.gps_rev += 1;
+        }
+        self.location(id)
     }
 
     /// "Bordeaux, France", or None without a position.
@@ -461,7 +472,7 @@ impl App {
 
     /// Open the Places map on one picture, with it selected.
     pub fn show_on_map(&mut self, id: usize) {
-        let Some(at) = self.location(id) else { return };
+        let Some(at) = self.location_now(id) else { return };
         self.open_places();
         let m = &mut self.geo.map;
         m.center = geo::to_world(at);
