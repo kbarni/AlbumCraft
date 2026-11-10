@@ -6,7 +6,7 @@
 //! The edit pipeline is `albumcraft-edit`; its modules are re-exported here, and `imaging` adds
 //! reading pictures from files to it.
 
-pub use albumcraft_edit::{decor, develop, looks};
+pub use albumcraft_edit::{decor, develop, looks, steps};
 
 pub mod commands;
 pub mod control;

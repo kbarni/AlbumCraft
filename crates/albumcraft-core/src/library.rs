@@ -115,7 +115,8 @@ pub struct Store {
     pub thumb_size: f32,
     /// Folders whose .picasa.ini was already imported once.
     pub imported_ini: Vec<String>,
-    /// "Don't ask again, always use the selected image" when leaving the two-version view.
+    /// No longer used (a question of the two-version view, removed); kept so that older
+    /// libraries load.
     pub dont_ask_end_2up: bool,
     /// Last used print layout, fit, border, text, copies and printer.
     pub print: crate::print::PrintSettings,

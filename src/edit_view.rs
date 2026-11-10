@@ -137,28 +137,15 @@ fn tool_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
 }
 
 impl App {
-    /// The Advanced settings being edited: the last edit step when it is an adjustment.
+    /// The picture's adjustment (the Advanced sliders): all neutral when it has none.
     fn current_adjust(&self, id: usize) -> Adjust {
-        match self.meta(id).and_then(|m| m.edits.last()) {
-            Some(EditOp::Adjust(a)) => *a,
-            _ => Adjust::default(),
-        }
+        crate::steps::adjust_of(self.meta(id).map(|m| m.edits.as_slice()).unwrap_or(&[]))
     }
 
-    /// Change the current adjustment step (or start one). Moving sliders again right after
-    /// changes the same step, so Undo takes all of it back at once; all-neutral removes it.
-    fn set_adjust(&mut self, id: usize, a: Adjust) {
-        let a = a.clamped();
-        let m = self.meta_mut(id);
-        match m.edits.last_mut() {
-            Some(EditOp::Adjust(cur)) => *cur = a,
-            _ => m.edits.push(EditOp::Adjust(a)),
-        }
-        if a.is_neutral() {
-            m.edits.pop();
-        }
-        self.edit.redo.clear();
-        self.refresh_thumb(id);
+    /// Change the picture's adjustment where it stands in the edit list (or start one); all
+    /// neutral removes it. One Undo step per slider movement (`gesture`).
+    fn set_adjust(&mut self, id: usize, a: Adjust, gesture: &'static str) {
+        self.change_edits(id, gesture, |e| crate::steps::set_adjust(e, a));
     }
 
     /// The picture as edited so far, without the current adjustment step (what the automatic fixes
@@ -166,9 +153,7 @@ impl App {
     fn analysis_image(&self, id: usize) -> Option<image::RgbaImage> {
         let base = self.big.get(&id).map(|b| &b.base).or_else(|| self.thumb_base.get(&id))?;
         let mut ops = self.edits(id);
-        if matches!(ops.last(), Some(EditOp::Adjust(_))) {
-            ops.pop();
-        }
+        crate::steps::set_adjust(&mut ops, Adjust::default());
         Some(imaging::apply_all(base, &ops))
     }
 
@@ -189,7 +174,8 @@ impl App {
                 match develop::auto_straighten(&img) {
                     Some(angle) if angle.abs() >= 0.2 => {
                         let angle = (angle * 10.0).round() / 10.0;
-                        self.push_edit(id, EditOp::Straighten(angle));
+                        let total = (self.current_geometry(id).0 + angle).clamp(-45.0, 45.0);
+                        self.set_geometry(id, EditOp::Straighten(total), "");
                         self.toast(format!("Straightened by {angle:+.1}°."));
                     }
                     Some(_) => self.toast("This picture already looks level."),
@@ -198,7 +184,7 @@ impl App {
                 return;
             }
         }
-        self.set_adjust(id, a);
+        self.set_adjust(id, a, "");
     }
 
     /// White balance from a clicked point that should be neutral gray (`pos` 0…1 on the picture).
@@ -220,7 +206,7 @@ impl App {
         let avg = sum.map(|v| (v / n.max(1)) as u8);
         let mut a = self.current_adjust(id);
         (a.temp, a.tint) = develop::neutralize(avg);
-        self.set_adjust(id, a);
+        self.set_adjust(id, a, "");
     }
 
     fn step_photo(&mut self, delta: i32) {
@@ -324,6 +310,12 @@ impl App {
             self.view = View::Library;
             return;
         }
+        // set again below for as long as the Original button or its key is held
+        self.edit.show_original = false;
+        // a slider let go: the next change is a new Undo step
+        if !ui.ctx().input(|i| i.pointer.any_down()) && !self.text_focused() {
+            self.edit.gesture = None;
+        }
         self.edit_keys(ui.ctx());
         let id = self.edit.id;
         self.tick_zoom_anim(ui.ctx());
@@ -369,15 +361,21 @@ impl App {
                                 self.swap_2up_focus();
                             }
                         }
-                        for (mode, label, tip) in [
-                            (CompareMode::BeforeAfter, "A | A'", "Before and after: two versions of this picture; the second starts as the original"),
-                            (CompareMode::TwoPhotos, "A | B", "Two pictures side by side"),
-                            (CompareMode::Single, " A ", "One picture"),
-                        ] {
-                            let r = ui.add(egui::Button::new(RichText::new(label).monospace().size(12.5)).selected(self.edit.compare == mode));
-                            if r.on_hover_text(tip).clicked() {
-                                self.set_compare(mode);
-                            }
+                        let two = self.edit.compare == CompareMode::TwoPhotos;
+                        if ui
+                            .add(egui::Button::new(RichText::new("Compare").size(12.5)).selected(two))
+                            .on_hover_text("This picture next to another one, side by side")
+                            .clicked()
+                        {
+                            self.set_compare(if two { CompareMode::Single } else { CompareMode::TwoPhotos });
+                        }
+                        // the picture without its edits, for as long as the button (or O) is held
+                        let has_edits = self.meta(id).is_some_and(|m| !m.edits.is_empty());
+                        let r = ui
+                            .add_enabled(has_edits, egui::Button::new(RichText::new("Original").size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
+                            .on_hover_text("Hold to see the picture without your edits (or hold O)");
+                        if r.is_pointer_button_down_on() {
+                            self.edit.show_original = true;
                         }
                         ui.separator();
                         if ui.button(format!("{} Slideshow", icons::PLAY)).clicked() {
@@ -408,15 +406,21 @@ impl App {
         if self.dialog.is_some() || self.text_focused() {
             return;
         }
-        let (left, right, esc, undo, redo) = ctx.input(|i| {
+        let (left, right, esc, enter, undo, redo, original) = ctx.input(|i| {
+            let z = i.modifiers.command && i.key_pressed(egui::Key::Z);
             (
                 i.key_pressed(egui::Key::ArrowLeft),
                 i.key_pressed(egui::Key::ArrowRight),
                 i.key_pressed(egui::Key::Escape),
-                i.modifiers.command && i.key_pressed(egui::Key::Z),
-                i.modifiers.command && i.key_pressed(egui::Key::Y),
+                i.key_pressed(egui::Key::Enter),
+                z && !i.modifiers.shift,
+                (z && i.modifiers.shift) || (i.modifiers.command && i.key_pressed(egui::Key::Y)),
+                !i.modifiers.command && (i.key_down(egui::Key::O) || i.key_down(egui::Key::Backslash)),
             )
         });
+        if original {
+            self.edit.show_original = true;
+        }
         if esc {
             if self.edit.tool != Tool::None {
                 self.edit.tool = Tool::None;
@@ -424,6 +428,9 @@ impl App {
             } else {
                 self.edit_go(PendingLeave::Library);
             }
+        }
+        if enter {
+            self.apply_tool();
         }
         if self.edit.tool == Tool::None {
             if left {
@@ -475,15 +482,10 @@ impl App {
                 egui::Panel::bottom("history").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6))).show(ui, |ui| {
                     let edits = self.edits(id);
                     ui.horizontal(|ui| {
-                        let last = edits.last().map(|e| e.label());
-                        if ui
-                            .add_enabled(last.is_some(), egui::Button::new(format!("{} Undo {}", icons::UNDO, last.clone().unwrap_or_default())))
-                            .clicked()
-                        {
+                        if ui.add_enabled(!self.edit.undo.is_empty(), egui::Button::new(format!("{} Undo", icons::UNDO))).on_hover_text("Take back the last change (Ctrl+Z)").clicked() {
                             self.undo();
                         }
-                        let next = self.edit.redo.last().map(|e| e.label());
-                        if ui.add_enabled(next.is_some(), egui::Button::new(format!("{} Redo", icons::REDO))).on_hover_text(next.unwrap_or_default()).clicked() {
+                        if ui.add_enabled(!self.edit.redo.is_empty(), egui::Button::new(format!("{} Redo", icons::REDO))).on_hover_text("Ctrl+Shift+Z").clicked() {
                             self.redo();
                         }
                     });
@@ -495,17 +497,23 @@ impl App {
                     // to size itself can get stuck at the panel's first, tiny height (one line)
                     let row = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(12.0))) + ui.spacing().item_spacing.y;
                     let h = row * edits.len().clamp(0, 6) as f32;
+                    let mut back_to = None;
                     egui::ScrollArea::vertical().id_salt("edit_steps").min_scrolled_height(h).max_height(h).show(ui, |ui| {
                         for (i, e) in edits.iter().enumerate() {
                             let t = RichText::new(format!("{}. {}", i + 1, e.label())).size(12.0);
-                            ui.label(if i + 1 == edits.len() { t.strong() } else { t });
+                            let last = i + 1 == edits.len();
+                            let r = ui.add(egui::Label::new(if last { t.strong() } else { t }).truncate().sense(Sense::click()));
+                            if !last && r.on_hover_text(format!("{}\nClick to go back to this step (the later ones are removed; Undo brings them back)", e.label())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                back_to = Some(i + 1);
+                            }
                         }
                     });
+                    if let Some(n) = back_to {
+                        self.change_edits(id, "", |e| e.truncate(n));
+                    }
                     ui.horizontal(|ui| {
                         if !edits.is_empty() && ui.small_button("Undo all edits").clicked() {
-                            let all = std::mem::take(&mut self.meta_mut(id).edits);
-                            self.edit.redo.extend(all.into_iter().rev());
-                            self.refresh_thumb(id);
+                            self.change_edits(id, "", |e| e.clear());
                         }
                         if !edits.is_empty() && ui.small_button("Copy edits").on_hover_text("Copy these edits to paste them on other pictures (Ctrl+Shift+C)").clicked() {
                             self.copy_edits(id);
@@ -550,7 +558,7 @@ impl App {
             }
             Tool::Crop => {
                 ui.label(RichText::new("Crop").strong().size(15.0));
-                ui.label("Drag on the picture to draw what to keep; drag inside the box to move it.");
+                ui.label("Drag the box's edges or corners, drag inside it to move it, or draw a new box. Enter applies.");
                 ui.add_space(4.0);
                 ui.label(RichText::new("Shape").size(12.5).color(t().text_weak));
                 let before = self.edit.aspect;
@@ -580,12 +588,15 @@ impl App {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
-                        if let Some(s) = self.edit.sel.take() {
-                            self.push_edit(id, EditOp::Crop(s));
-                        }
-                        self.edit.tool = Tool::None;
+                        self.apply_tool();
                     }
                     if ui.button("Cancel").clicked() {
+                        self.edit.tool = Tool::None;
+                        self.edit.sel = None;
+                    }
+                    let has_crop = self.meta(id).is_some_and(|m| crate::steps::crop_of(&m.edits).is_some());
+                    if has_crop && ui.button("Remove crop").on_hover_text("Show the whole picture again").clicked() {
+                        self.change_edits(id, "", |e| crate::steps::set_crop(e, None));
                         self.edit.tool = Tool::None;
                         self.edit.sel = None;
                     }
@@ -596,10 +607,7 @@ impl App {
                 ui.label("Drag a box around the red eyes. Only red pupils inside the box are darkened.");
                 ui.horizontal(|ui| {
                     if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
-                        if let Some(s) = self.edit.sel.take() {
-                            self.push_edit(id, EditOp::Redeye(s));
-                        }
-                        self.edit.tool = Tool::None;
+                        self.apply_tool();
                     }
                     if ui.button("Cancel").clicked() {
                         self.edit.tool = Tool::None;
@@ -613,12 +621,7 @@ impl App {
                 ui.add(egui::Slider::new(&mut self.edit.angle, -12.0..=12.0).suffix("°").step_by(0.1));
                 ui.horizontal(|ui| {
                     if ui.button(format!("{} Apply", icons::CHECK)).clicked() {
-                        if self.edit.angle.abs() > 0.01 {
-                            let a = self.edit.angle;
-                            self.push_edit(id, EditOp::Straighten(a));
-                        }
-                        self.edit.tool = Tool::None;
-                        self.edit.angle = 0.0;
+                        self.apply_tool();
                     }
                     if ui.button("Cancel").clicked() {
                         self.edit.tool = Tool::None;
@@ -730,14 +733,13 @@ impl App {
         slider(ui, "Sharpen", &mut a.sharpen, 0.0..=100.0, "Crisper fine detail");
         slider(ui, "Noise", &mut a.noise, 0.0..=100.0, "Noise reduction: smooths grain while keeping edges");
         if a != before {
-            self.set_adjust(id, a);
+            self.set_adjust(id, a, "adjust");
         }
 
         ui.add_space(8.0);
         if ui.add_enabled(!a.is_neutral(), egui::Button::new("Reset all")).clicked() {
-            self.set_adjust(id, Adjust::default());
+            self.set_adjust(id, Adjust::default(), "");
         }
-        ui.label(RichText::new("Moving a slider again right after changes the same step, so Undo takes it back in one go.").size(11.5).weak());
     }
 
     /// Crop, straighten and perspective, at the top of the Advanced tab (the most used fixes). The
@@ -748,16 +750,11 @@ impl App {
         ui.label(RichText::new("GEOMETRY").size(12.0).strong().color(t().text_weak));
         let has_crop = self.meta(id).is_some_and(|m| m.edits.iter().any(|e| matches!(e, EditOp::Crop(_))));
         ui.horizontal(|ui| {
-            if ui.button(format!("{}  Crop…", icons::CROP)).on_hover_text("Choose what part of the picture to keep").clicked() {
+            if ui.button(format!("{}  Crop…", icons::CROP)).on_hover_text("Choose what part of the picture to keep, or change the crop").clicked() {
                 self.start_crop();
             }
             if has_crop && ui.button("Remove crop").on_hover_text("Show the whole picture again").clicked() {
-                let m = self.meta_mut(id);
-                if let Some(i) = m.edits.iter().rposition(|e| matches!(e, EditOp::Crop(_))) {
-                    m.edits.remove(i);
-                }
-                self.edit.redo.clear();
-                self.refresh_thumb(id);
+                self.change_edits(id, "", |e| crate::steps::set_crop(e, None));
             }
         });
         let (mut angle, mut persp) = self.current_geometry(id);
@@ -773,10 +770,10 @@ impl App {
         geo_slider(ui, "Horizontal", &mut ph, -100.0..=100.0, 0, "", "Perspective: right makes the right side taller, for a wall seen at an angle");
         persp = (pv / 100.0, ph / 100.0);
         if angle != angle0 {
-            self.set_geometry(id, EditOp::Straighten(angle));
+            self.set_geometry(id, EditOp::Straighten(angle), "straighten");
         }
         if persp != persp0 {
-            self.set_geometry(id, EditOp::Perspective { vertical: persp.0, horizontal: persp.1 });
+            self.set_geometry(id, EditOp::Perspective { vertical: persp.0, horizontal: persp.1 }, "perspective");
         }
         if in_use {
             // the grid stays a moment after the slider is let go
@@ -786,81 +783,83 @@ impl App {
         }
     }
 
-    /// Start the crop tool; the box is wide or tall like the picture.
+    /// Start the crop tool. It shows the picture uncropped with the crop box it has (to change
+    /// it), or without a box; a chosen shape then starts as the largest box of that shape.
     pub fn start_crop(&mut self) {
         let id = self.edit.id;
+        if id >= self.photos.len() {
+            return;
+        }
+        // quarter turns made after the crop go before it (the picture stays the same), so that
+        // the tool shows the picture the way up it is
+        crate::steps::turns_before_crop(&mut self.meta_mut(id).edits);
         let tall = self.thumbs.get(&id).map(|t| t.size()).is_some_and(|[w, h]| h > w);
+        let current = self.meta(id).and_then(|m| crate::steps::crop_of(&m.edits));
         self.edit.tool = Tool::Crop;
-        self.edit.sel = None;
-        self.edit.sel_moving = None;
+        self.edit.sel = current;
+        self.edit.crop_grip = None;
+        // the thumbnail shows the picture as cropped so far: its shape is the box's
         self.edit.crop_portrait = tall;
-        self.edit.crop_autofit = self.edit.aspect != CropAspect::Manual;
+        self.edit.crop_autofit = current.is_none() && self.edit.aspect != CropAspect::Manual;
     }
 
-    /// The picture's straighten angle and perspective (vertical, horizontal): its latest steps of
-    /// those kinds, or zero.
-    fn current_geometry(&self, id: usize) -> (f32, (f32, f32)) {
-        let edits = self.meta(id).map(|m| m.edits.as_slice()).unwrap_or(&[]);
-        let angle = edits.iter().rev().find_map(|e| if let EditOp::Straighten(a) = e { Some(*a) } else { None }).unwrap_or(0.0);
-        let persp = edits
-            .iter()
-            .rev()
-            .find_map(|e| if let EditOp::Perspective { vertical, horizontal } = e { Some((*vertical, *horizontal)) } else { None })
-            .unwrap_or((0.0, 0.0));
-        (angle, persp)
-    }
-
-    /// Set the straighten or perspective step: the latest step of that kind is changed in place
-    /// (so moving the slider never stacks rotations), or one is added; back to zero removes it.
-    fn set_geometry(&mut self, id: usize, op: EditOp) {
-        let neutral = match op {
-            EditOp::Straighten(a) => a.abs() < 0.05,
-            EditOp::Perspective { vertical, horizontal } => vertical.abs() < 0.005 && horizontal.abs() < 0.005,
-            _ => return,
-        };
-        let same_kind = |e: &EditOp| std::mem::discriminant(e) == std::mem::discriminant(&op);
-        let m = self.meta_mut(id);
-        match m.edits.iter().rposition(same_kind) {
-            Some(i) if neutral => {
-                m.edits.remove(i);
+    /// Apply what the tool in use has ready (the Apply button, or Enter).
+    pub fn apply_tool(&mut self) {
+        let id = self.edit.id;
+        match self.edit.tool {
+            Tool::Crop => {
+                if let Some(s) = self.edit.sel.take() {
+                    // the whole picture is no crop at all
+                    let whole = s[0] <= 0.002 && s[1] <= 0.002 && s[2] >= 0.998 && s[3] >= 0.998;
+                    self.change_edits(id, "", |e| crate::steps::set_crop(e, (!whole).then_some(s)));
+                    self.edit.tool = Tool::None;
+                }
             }
-            Some(i) => m.edits[i] = op,
-            None if neutral => {}
-            None => m.edits.push(op),
+            Tool::Redeye => {
+                if let Some(s) = self.edit.sel.take() {
+                    self.push_edit(id, EditOp::Redeye(s));
+                    self.edit.tool = Tool::None;
+                }
+            }
+            Tool::Straighten => {
+                if self.edit.angle.abs() > 0.01 {
+                    let angle = (self.current_geometry(id).0 + self.edit.angle).clamp(-45.0, 45.0);
+                    self.set_geometry(id, EditOp::Straighten(angle), "");
+                }
+                self.edit.tool = Tool::None;
+                self.edit.angle = 0.0;
+            }
+            Tool::PickNeutral | Tool::None => {}
         }
-        self.edit.redo.clear();
-        self.refresh_thumb(id);
     }
 
-    /// The preset look being edited: the last edit step when it is a look.
+    /// The picture's straighten angle and perspective (vertical, horizontal), or zero.
+    fn current_geometry(&self, id: usize) -> (f32, (f32, f32)) {
+        crate::steps::geometry_of(self.meta(id).map(|m| m.edits.as_slice()).unwrap_or(&[]))
+    }
+
+    /// Set the straighten or perspective step: changed where it stands (so moving the slider
+    /// never stacks rotations), or added before the crop; back to zero removes it.
+    fn set_geometry(&mut self, id: usize, op: EditOp, gesture: &'static str) {
+        self.change_edits(id, gesture, |e| crate::steps::set_geometry(e, op));
+    }
+
+    /// The picture's preset look and its intensity.
     fn current_look(&self, id: usize) -> Option<(Look, f32)> {
-        match self.meta(id).and_then(|m| m.edits.last()) {
-            Some(EditOp::Look { look, amount }) => Some((*look, *amount)),
-            _ => None,
-        }
+        crate::steps::look_of(self.meta(id).map(|m| m.edits.as_slice()).unwrap_or(&[]))
     }
 
-    /// Choose a look: it replaces the look chosen just before (so trying presets doesn't stack
-    /// them), otherwise it is added at full strength.
-    fn set_look(&mut self, id: usize, look: Look, amount: f32) {
-        let op = EditOp::Look { look, amount: amount.clamp(0.0, 1.0) };
-        let m = self.meta_mut(id);
-        match m.edits.last_mut() {
-            Some(last @ EditOp::Look { .. }) => *last = op,
-            _ => m.edits.push(op),
-        }
-        self.edit.redo.clear();
-        self.refresh_thumb(id);
+    /// Choose a look: it takes the place of the picture's look (so trying presets doesn't
+    /// stack them). None removes it.
+    fn set_look(&mut self, id: usize, look: Option<(Look, f32)>, gesture: &'static str) {
+        self.change_edits(id, gesture, |e| crate::steps::set_look(e, look));
     }
 
     fn presets_tab(&mut self, ui: &mut egui::Ui) {
         let id = self.edit.id;
         let current = self.current_look(id);
         // previews start from the picture before the current look, so they show the alternatives
-        let mut start = self.edits(id);
-        if current.is_some() {
-            start.pop();
-        }
+        let start = crate::steps::without_look(&self.edits(id));
         let fresh = matches!(&self.look_previews, Some((pid, e, _)) if *pid == id && *e == start);
         if !fresh {
             if let Some(base) = self.thumb_base.get(&id) {
@@ -888,11 +887,11 @@ impl App {
                 let mut pct = amount * 100.0;
                 if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).suffix(" %").max_decimals(0)).changed() {
                     amount = pct / 100.0;
-                    self.set_look(id, look, amount);
+                    self.set_look(id, Some((look, amount)), "look");
                 }
             });
             if ui.button("Remove preset").clicked() {
-                self.undo();
+                self.set_look(id, None, "");
             }
             ui.separator();
         } else {
@@ -925,7 +924,7 @@ impl App {
         });
         if let Some(l) = chosen {
             let amount = current.map_or(1.0, |(_, a)| a);
-            self.set_look(id, l, amount);
+            self.set_look(id, Some((l, amount)), "");
         }
     }
 
@@ -939,13 +938,10 @@ impl App {
 
     /// Change the last effect when it is of the same kind, otherwise add this one.
     fn set_decor(&mut self, id: usize, d: Decor) {
-        let m = self.meta_mut(id);
-        match m.edits.last_mut() {
+        self.change_edits(id, "decor", |e| match e.last_mut() {
             Some(EditOp::Decor(cur)) if cur.same_kind(&d) => *cur = d,
-            _ => m.edits.push(EditOp::Decor(d)),
-        }
-        self.edit.redo.clear();
-        self.refresh_thumb(id);
+            _ => e.push(EditOp::Decor(d)),
+        });
     }
 
     fn effects_tab(&mut self, ui: &mut egui::Ui) {
@@ -1213,29 +1209,19 @@ impl App {
         let (a_rect, b_rect) = if self.edit.focus_second { (second, first) } else { (first, second) };
 
         let a_tex = self.big_texture(id, &[]).or_else(|| self.thumbs.get(&id).cloned());
-        let (b_tex, b_label) = match self.edit.compare {
-            CompareMode::BeforeAfter => {
-                let alt = self.edit.alt_edits.clone();
-                let label = if alt.is_empty() { "Original".to_string() } else { "Other version".to_string() };
-                (self.big_version_texture(id, &alt), label)
+        let (b_tex, b_label) = match self.compare_partner() {
+            Some(o) => {
+                self.want_thumb(o);
+                let t = self.big_texture(o, &[]).or_else(|| self.thumbs.get(&o).cloned());
+                (t, self.photos[o].name.clone())
             }
-            _ => match self.compare_partner() {
-                Some(o) => {
-                    self.want_thumb(o);
-                    let t = self.big_texture(o, &[]).or_else(|| self.thumbs.get(&o).cloned());
-                    (t, self.photos[o].name.clone())
-                }
-                None => (None, "No other picture in this folder".to_string()),
-            },
+            None => (None, "No other picture in this folder".to_string()),
         };
         let a_label = "Selected";
         // same zoom and position on both sides, so details line up
         let ppp = ui.ctx().pixels_per_point();
         let r_a = if self.big.contains_key(&id) { self.real_scale(id) } else { None };
-        let r_b = match self.edit.compare {
-            CompareMode::BeforeAfter => r_a,
-            _ => self.compare_partner().filter(|o| self.big.contains_key(o)).and_then(|o| self.real_scale(o)),
-        };
+        let r_b = self.compare_partner().filter(|o| self.big.contains_key(o)).and_then(|o| self.real_scale(o));
         if let (Some(t), Some(r)) = (&a_tex, r_a) {
             self.edit.fit_zoom = fit_rect(a_rect.shrink(10.0), t.size()).width() * ppp / (t.size()[0] as f32 * r);
         }
@@ -1290,11 +1276,8 @@ impl App {
         draw(b_rect, b_tex.as_ref(), r_b, &b_label, false);
 
         // clicking the other side moves the focus there
-        let tip = match self.edit.compare {
-            CompareMode::BeforeAfter => "Click to edit this version instead",
-            _ => "Click to edit this picture instead",
-        };
-        let has_other = self.edit.compare == CompareMode::BeforeAfter || self.compare_partner().is_some();
+        let tip = "Click to edit this picture instead";
+        let has_other = self.compare_partner().is_some();
         if has_other && resp_b.on_hover_text(tip).clicked() {
             self.swap_2up_focus();
         }
@@ -1386,7 +1369,7 @@ impl App {
     fn zoomed_canvas(&mut self, ui: &mut egui::Ui, canvas: Rect, id: usize, preview: egui::TextureHandle, r_prev: f32, z: f32) {
         let ppp = ui.ctx().pixels_per_point();
         let ops = self.edits(id);
-        let magnified = r_prev * z / ppp > 1.05;
+        let magnified = r_prev * z / ppp > 1.05 && !self.edit.show_original;
         if magnified {
             self.want_zoom_render(id, &ops);
         }
@@ -1454,7 +1437,17 @@ impl App {
             } else {
                 vec![]
             };
-            let tex = self.big_texture(id, &extra).or_else(|| self.thumbs.get(&id).cloned());
+            let original = self.edit.show_original && self.edit.tool == Tool::None;
+            let tex = if self.edit.tool == Tool::Crop {
+                // the picture uncropped, to draw or change the box on (never the thumbnail,
+                // which is cropped already)
+                let view = crate::steps::crop_view(&self.edits(id));
+                self.big_ops_texture(id, &view)
+            } else if original {
+                self.big_version_texture(id, &[])
+            } else {
+                self.big_texture(id, &extra).or_else(|| self.thumbs.get(&id).cloned())
+            };
             let Some(tex) = tex else {
                 if self.big_failed.contains(&id) {
                     // neither a preview nor a thumbnail: say so instead of waiting forever
@@ -1515,6 +1508,13 @@ impl App {
             let p = ui.painter();
             p.rect_filled(img_rect.translate(egui::vec2(3.0, 3.0)), 0, Color32::from_black_alpha(90));
             p.image(tex.id(), img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+            if original {
+                let font = egui::FontId::proportional(14.0);
+                let galley = p.layout_no_wrap("Original".to_string(), font, Color32::WHITE);
+                let pill = Rect::from_min_size(Pos2::new(img_rect.right() - galley.size().x - 34.0, img_rect.top() + 14.0), galley.size() + egui::vec2(20.0, 10.0));
+                p.rect_filled(pill, 4, Color32::from_rgba_unmultiplied(45, 45, 45, 215));
+                p.galley(pill.min + egui::vec2(10.0, 5.0), galley, Color32::WHITE);
+            }
             if !self.big.contains_key(&id) {
                 let note = if self.big_failed.contains(&id) { "The full picture can't be read." } else { "Loading full picture…" };
                 p.text(img_rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, note, egui::FontId::proportional(13.0), Color32::WHITE);
@@ -1526,68 +1526,68 @@ impl App {
             match self.edit.tool {
                 Tool::Straighten => paint_grid(p, img_rect),
                 Tool::Crop | Tool::Redeye => {
-                    let to_norm = |pos: Pos2| -> Pos2 {
-                        Pos2::new(
-                            ((pos.x - img_rect.left()) / img_rect.width()).clamp(0.0, 1.0),
-                            ((pos.y - img_rect.top()) / img_rect.height()).clamp(0.0, 1.0),
-                        )
+                    use crate::steps::{self, Grip};
+                    let raw = |pos: Pos2| Pos2::new((pos.x - img_rect.left()) / img_rect.width(), (pos.y - img_rect.top()) / img_rect.height());
+                    let to_norm = |pos: Pos2| {
+                        let p = raw(pos);
+                        Pos2::new(p.x.clamp(0.0, 1.0), p.y.clamp(0.0, 1.0))
                     };
-                    // the crop box's shape (width / height on screen), None = free
                     let crop = self.edit.tool == Tool::Crop;
-                    let box_ratio = self
-                        .edit
-                        .aspect
-                        .ratio(img_rect.width() / img_rect.height().max(1.0))
-                        .filter(|_| crop)
-                        .map(|r| if self.edit.crop_portrait { 1.0 / r } else { r });
+                    // the crop box's shape (width / height on screen), None = free
+                    let picture = img_rect.width() / img_rect.height().max(1.0);
+                    let box_ratio = self.edit.aspect.ratio(picture).filter(|_| crop).map(|r| if self.edit.crop_portrait { 1.0 / r } else { r });
+                    // the same shape in fractions of the picture's sides
+                    let shape = box_ratio.map(|r| r / picture.max(0.001));
                     if crop && self.edit.crop_autofit {
                         self.edit.crop_autofit = false;
                         self.edit.sel = box_ratio.map(|r| largest_box(r, img_rect.width(), img_rect.height()));
                     }
+                    // how near an edge of the box counts as taking hold of it: 10 points
+                    let reach = (10.0 / img_rect.width().max(1.0), 10.0 / img_rect.height().max(1.0));
+                    let grip_under = |sel: Option<[f32; 4]>, pos: Option<Pos2>| -> Option<Grip> {
+                        let (s, p) = (sel.filter(|_| crop)?, raw(pos?));
+                        steps::grip_at(s, (p.x, p.y), reach)
+                    };
                     if resp.drag_started() {
-                        let start = resp.interact_pointer_pos().map(to_norm);
-                        self.edit.drag_start = start;
-                        // dragging inside the crop box moves it
-                        self.edit.sel_moving = match (crop, self.edit.sel, start) {
-                            (true, Some(s), Some(a)) if a.x > s[0] && a.x < s[2] && a.y > s[1] && a.y < s[3] => Some(s),
+                        let at = resp.interact_pointer_pos();
+                        self.edit.drag_start = at.map(to_norm);
+                        // an edge, a corner or the inside of the box: change it; elsewhere: a new box
+                        self.edit.crop_grip = match (grip_under(self.edit.sel, at), self.edit.sel, at) {
+                            (Some(g), Some(s), Some(at)) => Some((g, s, to_norm(at))),
                             _ => None,
                         };
                     }
-                    if resp.drag_stopped() {
-                        self.edit.sel_moving = None;
-                    }
                     if resp.dragged()
-                        && let (Some(a), Some(pos)) = (self.edit.drag_start, resp.interact_pointer_pos()) {
-                            let mut b = to_norm(pos);
-                            if let Some(s) = self.edit.sel_moving {
-                                let (w, h) = (s[2] - s[0], s[3] - s[1]);
-                                let x = (s[0] + b.x - a.x).clamp(0.0, 1.0 - w);
-                                let y = (s[1] + b.y - a.y).clamp(0.0, 1.0 - h);
-                                self.edit.sel = Some([x, y, x + w, y + h]);
-                            } else {
-                                if let Some(ratio) = box_ratio {
-                                    // keep the chosen shape
-                                    let wpx = (b.x - a.x) * img_rect.width();
-                                    let hpx = wpx.abs() / ratio * (b.y - a.y).signum();
-                                    b.y = (a.y + hpx / img_rect.height()).clamp(0.0, 1.0);
-                                }
-                                if (b.x - a.x).abs() > 0.01 && (b.y - a.y).abs() > 0.01 {
-                                    self.edit.sel = Some([a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y)]);
-                                }
-                            }
-                        }
-                    if crop
-                        && let (Some(s), Some(h)) = (self.edit.sel, resp.hover_pos().map(to_norm))
-                        && h.x > s[0] && h.x < s[2] && h.y > s[1] && h.y < s[3]
+                        && let (Some(a), Some(pos)) = (self.edit.drag_start, resp.interact_pointer_pos())
                     {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                        let b = to_norm(pos);
+                        if let Some((grip, start, at)) = self.edit.crop_grip {
+                            self.edit.sel = Some(steps::drag_box(start, grip, (b.x - at.x, b.y - at.y), shape));
+                        } else if let Some(r) = steps::drawn_box((a.x, a.y), (b.x, b.y), shape) {
+                            self.edit.sel = Some(r);
+                        }
+                    }
+                    if resp.drag_stopped() {
+                        self.edit.crop_grip = None;
+                    }
+                    let shown_grip = self.edit.crop_grip.map(|(g, _, _)| g).or_else(|| grip_under(self.edit.sel, resp.hover_pos()));
+                    match shown_grip {
+                        Some(Grip::Inside) => ui.ctx().set_cursor_icon(egui::CursorIcon::Grab),
+                        Some(Grip::Sides { left, top, right, bottom }) => ui.ctx().set_cursor_icon(match (left || right, top || bottom) {
+                            (true, false) => egui::CursorIcon::ResizeHorizontal,
+                            (false, true) => egui::CursorIcon::ResizeVertical,
+                            _ if (left && top) || (right && bottom) => egui::CursorIcon::ResizeNwSe,
+                            _ => egui::CursorIcon::ResizeNeSw,
+                        }),
+                        None if resp.hovered() => ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair),
+                        None => {}
                     }
                     if let Some(s) = self.edit.sel {
                         let r = Rect::from_min_max(
                             Pos2::new(img_rect.left() + s[0] * img_rect.width(), img_rect.top() + s[1] * img_rect.height()),
                             Pos2::new(img_rect.left() + s[2] * img_rect.width(), img_rect.top() + s[3] * img_rect.height()),
                         );
-                        if self.edit.tool == Tool::Crop {
+                        if crop {
                             let dim = Color32::from_black_alpha(150);
                             p.rect_filled(Rect::from_min_max(img_rect.min, Pos2::new(img_rect.right(), r.top())), 0, dim);
                             p.rect_filled(Rect::from_min_max(Pos2::new(img_rect.left(), r.bottom()), img_rect.max), 0, dim);
@@ -1601,6 +1601,13 @@ impl App {
                                 let y = r.top() + r.height() * k;
                                 p.line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], thin);
                                 p.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], thin);
+                            }
+                            // handles: the corners and the middle of each edge
+                            let c = r.center();
+                            for h in [r.left_top(), r.right_top(), r.left_bottom(), r.right_bottom(), Pos2::new(c.x, r.top()), Pos2::new(c.x, r.bottom()), Pos2::new(r.left(), c.y), Pos2::new(r.right(), c.y)] {
+                                let handle = Rect::from_center_size(h, Vec2::splat(9.0));
+                                p.rect_filled(handle, 2, Color32::WHITE);
+                                p.rect_stroke(handle, 2, Stroke::new(1.0, Color32::from_black_alpha(140)), StrokeKind::Outside);
                             }
                         } else {
                             p.rect_stroke(r, 0, Stroke::new(2.0, Color32::from_rgb(255, 80, 80)), StrokeKind::Outside);
@@ -1636,8 +1643,12 @@ impl App {
                     );
                 }
                 Tool::None => {
-                    if resp.double_clicked() {
-                        self.edit_go(PendingLeave::Library);
+                    // a double-click goes to 100 % (and back to Fit when zoomed in); Esc or
+                    // Back to Library leave the editor
+                    if resp.double_clicked() && r_prev.is_some() && self.edit.zoom_anim.is_none() {
+                        let fit = self.edit.fit_zoom;
+                        let to = if fit < 1.0 { 1.0 } else { (fit * 2.0).min(ZOOM_MAX.max(fit)) };
+                        self.start_zoom_anim(ui.ctx(), Some(to));
                     }
                 }
             }

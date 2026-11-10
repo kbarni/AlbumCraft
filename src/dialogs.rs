@@ -24,7 +24,6 @@ impl App {
             Dialog::Movie { .. } => "Movie".into(),
             Dialog::About => "About AlbumCraft".into(),
             Dialog::OnlineMaps => "Maps".into(),
-            Dialog::ChooseEdits { .. } => "Choose Edits".into(),
             Dialog::PrintReview { .. } => "Review".into(),
             Dialog::ClearTray { .. } => "Photo tray".into(),
         };
@@ -272,30 +271,6 @@ impl App {
                             close = true;
                         }
                     });
-                }
-                Dialog::ChooseEdits { then, dont_ask } => {
-                    ui.label("The same image has two different edits.  Which one would you like to keep?");
-                    ui.add_space(6.0);
-                    let (first, second) = if self.edit.vertical { ("Top", "Bottom") } else { ("Left", "Right") };
-                    let then = *then;
-                    let mut keep = None;
-                    ui.horizontal(|ui| {
-                        if ui.button(first).clicked() {
-                            keep = Some(false);
-                        }
-                        if ui.button(second).clicked() {
-                            keep = Some(true);
-                        }
-                    });
-                    ui.checkbox(dont_ask, "Don't ask again, always use the selected image");
-                    if let Some(second) = keep {
-                        if *dont_ask {
-                            self.store.dont_ask_end_2up = true;
-                            self.dirty = true;
-                        }
-                        self.keep_2up_side(second, then);
-                        close = true;
-                    }
                 }
                 Dialog::ClearTray { old } => {
                     ui.label(MSG_CLEAR_TRAY);

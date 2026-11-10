@@ -210,8 +210,6 @@ pub enum Dialog {
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
     About,
-    /// "Choose Edits" when leaving A|A with two different versions.
-    ChooseEdits { then: PendingLeave, dont_ask: bool },
     /// "Would you like to clear your old held items from the tray?"
     ClearTray { old: Vec<usize> },
     /// Print review: (picture, name, pixels per inch, grade 0 bad / 1 good / 2 best).
@@ -220,10 +218,9 @@ pub enum Dialog {
     OnlineMaps,
 }
 
-/// What to do after the A|A view has ended.
+/// Where the editor goes next.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PendingLeave {
-    Mode(CompareMode),
     Library,
     Photo(usize),
 }
@@ -239,24 +236,29 @@ pub struct EditState {
     pub angle: f32,
     pub drag_start: Option<egui::Pos2>,
     pub sel: Option<[f32; 4]>,
-    /// Moving the crop box: where it was when the drag started.
-    pub sel_moving: Option<[f32; 4]>,
     /// The crop box is upright (taller than wide) for shapes other than square.
     pub crop_portrait: bool,
     /// Draw the largest box of the chosen shape, centred, at the next frame.
     pub crop_autofit: bool,
     /// Show the alignment grid on the picture until this time (geometry sliders in use).
     pub grid_until: f64,
-    pub redo: Vec<EditOp>,
+    /// The picture's edit lists as they were before each change made here, oldest first (Undo).
+    pub undo: Vec<Vec<EditOp>>,
+    /// The lists taken back by Undo, to put back with Redo.
+    pub redo: Vec<Vec<EditOp>>,
+    /// What the user is in the middle of (dragging a slider…): further changes of the same kind
+    /// belong to the same Undo step. Cleared when the mouse button is let go.
+    pub gesture: Option<&'static str>,
+    /// Show the picture without its edits (the Original button or the O key, while held).
+    pub show_original: bool,
+    /// The crop box being dragged: what was taken hold of, the box and the pointer then.
+    pub crop_grip: Option<(crate::steps::Grip, [f32; 4], egui::Pos2)>,
     pub tag_buf: String,
     pub person_buf: String,
     /// "A", "A|B" or "A|A" view: the three buttons at the top of the editor.
     pub compare: CompareMode,
     /// One picture above the other instead of side by side.
     pub vertical: bool,
-    /// In A|A: the second version of the same picture. The version that has the focus lives in
-    /// the picture's normal edit list; the other one is kept here.
-    pub alt_edits: Vec<EditOp>,
     /// The focus ("Selected", where edits go) is on the right / bottom side (swap_2up_focus).
     pub focus_second: bool,
     /// The picture the thumbnail strip was last scrolled to.
@@ -295,8 +297,6 @@ pub enum CompareMode {
     Single,
     /// The edited picture next to another picture of the folder.
     TwoPhotos,
-    /// The edited picture next to the same picture without edits (before / after).
-    BeforeAfter,
 }
 
 pub type Histogram = [[u32; 256]; 3];
@@ -328,6 +328,9 @@ pub struct Slideshow {
 
 pub struct BigEntry {
     pub base: RgbaImage,
+    /// The picture after the first steps of its edit list (those steps, the result): while one
+    /// step is being changed, only it and the ones after it are applied again.
+    pub stage: Option<(Vec<EditOp>, RgbaImage)>,
     pub tex: Option<(Vec<EditOp>, TextureHandle)>,
     /// The picture without any edits (the "before" side).
     pub alt_tex: Option<(Vec<EditOp>, TextureHandle)>,
@@ -385,6 +388,10 @@ pub struct App {
     /// Every tag of the library, sorted, and the `list_rev` it was made at (info panel).
     pub tag_cache: Option<(u64, Arc<Vec<String>>)>,
     pub thumb_failed: HashSet<usize>,
+    /// Thumbnails to make again because their picture's edits changed (`refresh_thumb`).
+    pub stale_thumbs: HashSet<usize>,
+    /// How many of them may still be made in this frame.
+    thumb_budget: u32,
     pub big: HashMap<usize, BigEntry>,
     pub big_order: VecDeque<usize>,
     pub big_req: HashSet<usize>,
@@ -539,6 +546,8 @@ impl App {
             thumb_aspect: HashMap::new(),
             tag_cache: None,
             thumb_failed: HashSet::new(),
+            stale_thumbs: HashSet::new(),
+            thumb_budget: 0,
             big: HashMap::new(),
             big_order: VecDeque::new(),
             big_req: HashSet::new(),
@@ -574,17 +583,19 @@ impl App {
                 advanced: false,
                 tool: Tool::None,
                 aspect: CropAspect::Manual,
-                sel_moving: None,
                 crop_portrait: false,
                 crop_autofit: false,
                 grid_until: 0.0,
                 angle: 0.0,
                 drag_start: None,
                 sel: None,
+                undo: vec![],
                 redo: vec![],
+                gesture: None,
+                show_original: false,
+                crop_grip: None,
                 compare: CompareMode::Single,
                 vertical: false,
-                alt_edits: vec![],
                 focus_second: false,
                 strip_shown: None,
                 zoom: None,
@@ -737,6 +748,7 @@ impl App {
         self.big_order = self.big_order.iter().filter_map(|&id| keep(id)).filter(|id| self.big.contains_key(id)).collect();
         // answers on their way are matched by file path when they arrive (`process_results`)
         set_of(&mut self.thumb_req, keep);
+        set_of(&mut self.stale_thumbs, keep);
         set_of(&mut self.big_req, keep);
         // a file that could not be read may be readable now
         self.thumb_failed.clear();
@@ -774,23 +786,15 @@ impl App {
         match to(self.edit.id) {
             Some(id) => {
                 self.edit.id = id;
-                if let Some(Dialog::ChooseEdits { then, .. }) = &mut self.dialog
-                    && let PendingLeave::Photo(next) = *then
-                {
-                    *then = to(next).map_or(PendingLeave::Library, PendingLeave::Photo);
-                }
             }
             None => {
                 // the open picture is gone
                 self.edit.id = 0;
+                self.edit.undo.clear();
                 self.edit.redo.clear();
-                self.edit.alt_edits.clear();
                 self.edit.focus_second = false;
                 self.edit.tool = Tool::None;
                 self.edit.sel = None;
-                if matches!(self.dialog, Some(Dialog::ChooseEdits { .. })) {
-                    self.dialog = None;
-                }
                 if self.view == View::Edit {
                     self.view = View::Library;
                 }
@@ -1179,12 +1183,40 @@ impl App {
 
     // ----------------------------------------------------------------- edits
 
-    pub fn push_edit(&mut self, id: usize, op: EditOp) {
-        self.meta_mut(id).edits.push(op);
+    /// Change a picture's edit steps. Every change made in the window goes through here: for
+    /// the picture open in the editor the list as it was is kept for Undo, the thumbnail is
+    /// made again, and the library is marked as changed.
+    ///
+    /// `gesture` names what the user is in the middle of ("adjust" while a slider of the
+    /// adjustment is dragged…): changes with the same name made until the mouse button is let
+    /// go are one Undo step. "" is a change on its own (a button).
+    pub fn change_edits(&mut self, id: usize, gesture: &'static str, change: impl FnOnce(&mut Vec<EditOp>)) {
+        if id >= self.photos.len() {
+            return;
+        }
+        let before = self.edits(id);
+        let mut after = before.clone();
+        change(&mut after);
+        if after == before {
+            return;
+        }
+        self.meta_mut(id).edits = after;
         if self.edit.id == id {
+            let same = !gesture.is_empty() && self.edit.gesture == Some(gesture);
+            if !same {
+                self.edit.undo.push(before);
+                if self.edit.undo.len() > 200 {
+                    self.edit.undo.remove(0);
+                }
+            }
+            self.edit.gesture = (!gesture.is_empty()).then_some(gesture);
             self.edit.redo.clear();
         }
         self.refresh_thumb(id);
+    }
+
+    pub fn push_edit(&mut self, id: usize, op: EditOp) {
+        self.change_edits(id, "", |e| e.push(op));
     }
 
     /// Copy a picture's edits (all but red-eye fixes, which belong to that picture's eyes).
@@ -1208,11 +1240,7 @@ impl App {
         };
         let ids: Vec<usize> = ids.iter().copied().filter(|&id| id < self.photos.len()).collect();
         for &id in &ids {
-            self.meta_mut(id).edits.extend(ops.iter().cloned());
-            if self.edit.id == id {
-                self.edit.redo.clear();
-            }
-            self.refresh_thumb(id);
+            self.change_edits(id, "", |e| e.extend(ops.iter().cloned()));
         }
         let n = ids.len();
         self.toast(format!("Pasted the edits onto {n} picture{}.", if n == 1 { "" } else { "s" }));
@@ -1220,23 +1248,16 @@ impl App {
 
     pub fn rotate(&mut self, ids: &[usize], dir: i32) {
         for &id in ids {
-            if id >= self.photos.len() {
-                continue;
-            }
-            // a new edit: what was undone before it can't be redone on top of it
-            if self.edit.id == id {
-                self.edit.redo.clear();
-            }
-            let m = self.meta_mut(id);
-            if let Some(EditOp::Rotate(n)) = m.edits.last_mut() {
-                *n += dir;
-                if n.rem_euclid(4) == 0 {
-                    m.edits.pop();
+            self.change_edits(id, "", |e| {
+                if let Some(EditOp::Rotate(n)) = e.last_mut() {
+                    *n += dir;
+                    if n.rem_euclid(4) == 0 {
+                        e.pop();
+                    }
+                } else {
+                    e.push(EditOp::Rotate(dir));
                 }
-            } else {
-                m.edits.push(EditOp::Rotate(dir));
-            }
-            self.refresh_thumb(id);
+            });
         }
     }
 
@@ -1266,13 +1287,16 @@ impl App {
         }
     }
 
+    /// Take back the last change made to the open picture's edits in this editing session.
     pub fn undo(&mut self) {
         let id = self.edit.id;
         if id >= self.photos.len() {
             return;
         }
-        if let Some(op) = self.meta_mut(id).edits.pop() {
-            self.edit.redo.push(op);
+        if let Some(list) = self.edit.undo.pop() {
+            let now = std::mem::replace(&mut self.meta_mut(id).edits, list);
+            self.edit.redo.push(now);
+            self.edit.gesture = None;
             self.refresh_thumb(id);
         }
     }
@@ -1282,13 +1306,31 @@ impl App {
         if id >= self.photos.len() {
             return;
         }
-        if let Some(op) = self.edit.redo.pop() {
-            self.meta_mut(id).edits.push(op);
+        if let Some(list) = self.edit.redo.pop() {
+            let now = std::mem::replace(&mut self.meta_mut(id).edits, list);
+            self.edit.undo.push(now);
+            self.edit.gesture = None;
             self.refresh_thumb(id);
         }
     }
 
+    /// The picture's edits changed: its thumbnail has to be made again. Without edits that is
+    /// done at once; with edits, when the thumbnail is next drawn (`want_thumb`), a few per
+    /// frame, so that pasting edits onto many pictures does not hold up the window.
     pub fn refresh_thumb(&mut self, id: usize) {
+        if !self.thumb_base.contains_key(&id) {
+            return;
+        }
+        if self.meta(id).is_none_or(|m| m.edits.is_empty()) {
+            self.stale_thumbs.remove(&id);
+            self.render_thumb(id);
+        } else {
+            self.stale_thumbs.insert(id);
+            self.ctx.request_repaint();
+        }
+    }
+
+    fn render_thumb(&mut self, id: usize) {
         if let Some(base) = self.thumb_base.get(&id) {
             let edits = self.edits(id);
             let img = if edits.is_empty() { base.clone() } else { imaging::apply_all(base, &edits) };
@@ -1305,7 +1347,18 @@ impl App {
     /// A thumbnail about to be drawn: remember it is in use, and ask for it when it is missing.
     pub fn want_thumb(&mut self, id: usize) {
         self.thumb_seen.insert(id, self.ctx.input(|i| i.time));
-        if !self.thumbs.contains_key(&id) {
+        if self.stale_thumbs.contains(&id) {
+            // not while a slider of this picture is being dragged: once it is let go
+            let dragging = self.view == View::Edit && id == self.edit.id && self.edit.gesture.is_some();
+            if !dragging && self.thumb_budget > 0 {
+                self.thumb_budget -= 1;
+                self.stale_thumbs.remove(&id);
+                self.render_thumb(id);
+            } else {
+                self.ctx.request_repaint();
+            }
+        }
+        if !self.thumbs.contains_key(&id) && !self.stale_thumbs.contains(&id) {
             self.request_thumb(id);
         }
     }
@@ -1327,6 +1380,7 @@ impl App {
                 self.thumb_aspect.insert(id, w as f32 / h.max(1) as f32);
             }
             self.thumb_base.remove(&id);
+            self.stale_thumbs.remove(&id);
             self.thumb_req.remove(&id);
             self.thumb_seen.remove(&id);
         }
@@ -1348,23 +1402,46 @@ impl App {
 
     /// The large, edited picture for the editor or slideshow (None while it loads).
     pub fn big_texture(&mut self, id: usize, extra: &[EditOp]) -> Option<TextureHandle> {
-        self.request_big(id, true);
         let mut ops = self.edits(id);
         ops.extend_from_slice(extra);
+        self.big_ops_texture(id, &ops)
+    }
+
+    /// The large picture with these edit steps. The picture as it is before the first step that
+    /// differs from the last render is kept, so that changing one step (a slider being dragged)
+    /// applies only that step and the ones after it, not the whole list.
+    pub fn big_ops_texture(&mut self, id: usize, ops: &[EditOp]) -> Option<TextureHandle> {
+        self.request_big(id, true);
         let entry = self.big.get_mut(&id)?;
-        if let Some((cached, tex)) = &entry.tex
-            && *cached == ops {
+        let mut same = 0;
+        if let Some((cached, tex)) = &entry.tex {
+            if cached.as_slice() == ops {
                 return Some(tex.clone());
             }
-        let img = imaging::apply_all(&entry.base, &ops);
+            same = cached.iter().zip(ops).take_while(|(a, b)| a == b).count();
+        }
+        // never the whole list: the last step is always applied to the kept picture
+        let same = same.min(ops.len().saturating_sub(1));
+        let img = if same == 0 {
+            entry.stage = None;
+            imaging::apply_all(&entry.base, ops)
+        } else {
+            if !entry.stage.as_ref().is_some_and(|(steps, _)| steps.as_slice() == &ops[..same]) {
+                entry.stage = Some((ops[..same].to_vec(), imaging::apply_all(&entry.base, &ops[..same])));
+            }
+            match &entry.stage {
+                Some((_, stage)) => imaging::apply_all(stage, &ops[same..]),
+                None => imaging::apply_all(&entry.base, ops),
+            }
+        };
         entry.hist = Some(histogram(&img));
         let tex = self.ctx.load_texture(format!("big{id}"), to_color_image(&img), TextureOptions::LINEAR);
-        entry.tex = Some((ops, tex.clone()));
+        entry.tex = Some((ops.to_vec(), tex.clone()));
         Some(tex)
     }
 
-    /// The large picture with a given edit list: the second version in A|A
-    /// (an empty list = the picture as it is on disk, the "before").
+    /// The large picture with a given edit list, next to the edited one (an empty list = the
+    /// picture as it is on disk: the original shown while its button is held).
     pub fn big_version_texture(&mut self, id: usize, ops: &[EditOp]) -> Option<TextureHandle> {
         self.request_big(id, true);
         let entry = self.big.get_mut(&id)?;
@@ -1378,24 +1455,14 @@ impl App {
         Some(tex)
     }
 
-    // ------------------------------------------------------- 2up view (A|B, A|A)
+    // ------------------------------------------------------- two pictures side by side
 
-    /// Switch the comparison view (A|A and A|B are
-    /// exclusive toggles; entering A|A starts the second version from the picture as on disk).
+    /// One picture, or two side by side.
     pub fn set_compare(&mut self, mode: CompareMode) {
         if self.edit.compare == mode {
             return;
         }
-        if self.edit.compare == CompareMode::BeforeAfter {
-            self.request_leave_2up(PendingLeave::Mode(mode));
-            return;
-        }
-        self.apply_compare(mode);
-    }
-
-    fn apply_compare(&mut self, mode: CompareMode) {
         self.edit.compare = mode;
-        self.edit.alt_edits.clear();
         self.edit.focus_second = false;
         if mode != CompareMode::Single {
             self.edit.tool = Tool::None;
@@ -1403,66 +1470,23 @@ impl App {
         }
     }
 
-    /// Move the focus ("Selected", where edits go) to the other side (swap_2up_focus).
+    /// With two pictures shown: edit the other one.
     pub fn swap_2up_focus(&mut self) {
-        match self.edit.compare {
-            CompareMode::BeforeAfter => {
-                let id = self.edit.id;
-                let other = std::mem::take(&mut self.edit.alt_edits);
-                let current = std::mem::replace(&mut self.meta_mut(id).edits, other);
-                self.edit.alt_edits = current;
-                self.edit.focus_second = !self.edit.focus_second;
-                self.edit.redo.clear();
-                self.refresh_thumb(id);
-            }
-            CompareMode::TwoPhotos => {
-                if let Some(o) = self.compare_partner() {
-                    let cur = self.edit.id;
-                    self.set_edit_photo(o);
-                    self.edit.other = Some(cur);
-                    self.edit.focus_second = !self.edit.focus_second;
-                }
-            }
-            CompareMode::Single => {}
+        if self.edit.compare == CompareMode::TwoPhotos
+            && let Some(o) = self.compare_partner()
+        {
+            let cur = self.edit.id;
+            self.set_edit_photo(o);
+            self.edit.other = Some(cur);
+            self.edit.focus_second = !self.edit.focus_second;
         }
     }
 
-    /// The two versions of the same picture differ and both carry edits: ask
-    /// "Choose Edits" when the 2up view ends.
-    pub fn twoup_conflict(&self) -> bool {
-        self.edit.compare == CompareMode::BeforeAfter
-            && !self.edit.alt_edits.is_empty()
-            && self.edit.alt_edits != self.edits(self.edit.id)
-    }
-
-    /// Leave A|A (change view, change picture, back to the library), asking which version to keep.
-    pub fn request_leave_2up(&mut self, then: PendingLeave) {
-        if self.twoup_conflict() && !self.store.dont_ask_end_2up {
-            self.dialog = Some(Dialog::ChooseEdits { then, dont_ask: false });
-            return;
-        }
-        // "always use the selected image": the focused version is already the picture's edit list
-        self.finish_leave(then);
-    }
-
-    /// Keep the version on the given side (false = left/top, true = right/bottom), then continue.
-    pub fn keep_2up_side(&mut self, second: bool, then: PendingLeave) {
-        if second != self.edit.focus_second {
-            let id = self.edit.id;
-            let other = std::mem::take(&mut self.edit.alt_edits);
-            self.meta_mut(id).edits = other;
-            self.refresh_thumb(id);
-        }
-        self.finish_leave(then);
-    }
-
-    fn finish_leave(&mut self, then: PendingLeave) {
-        self.edit.alt_edits.clear();
+    /// Go to another picture or back to the library.
+    pub fn edit_go(&mut self, then: PendingLeave) {
         self.edit.focus_second = false;
         match then {
-            PendingLeave::Mode(m) => self.apply_compare(m),
             PendingLeave::Library => {
-                self.apply_compare(self.edit.compare);
                 self.view = View::Library;
                 self.edit.tool = Tool::None;
                 self.scroll_to_photo = Some(self.edit.id);
@@ -1471,15 +1495,6 @@ impl App {
                 self.set_edit_photo(id);
                 self.edit.other = None;
             }
-        }
-    }
-
-    /// Go to another picture or back to the library, passing through the A|A rules.
-    pub fn edit_go(&mut self, then: PendingLeave) {
-        if self.edit.compare == CompareMode::BeforeAfter {
-            self.request_leave_2up(then);
-        } else {
-            self.finish_leave(then);
         }
     }
 
@@ -1547,8 +1562,6 @@ impl App {
         }
         self.edit.list = list;
         self.set_edit_photo(id);
-        // a new editing session starts a fresh second version in A|A
-        self.edit.alt_edits.clear();
         self.edit.focus_second = false;
         self.edit.other = None;
         self.view = View::Edit;
@@ -1556,8 +1569,12 @@ impl App {
 
     pub fn set_edit_photo(&mut self, id: usize) {
         if self.edit.id != id {
+            // Undo is per picture, for as long as it is open
+            self.edit.undo.clear();
             self.edit.redo.clear();
         }
+        self.edit.gesture = None;
+        self.edit.crop_grip = None;
         self.edit.id = id;
         self.edit.tool = Tool::None;
         self.edit.sel = None;
@@ -1855,7 +1872,7 @@ impl App {
                     if let Some(&id) = self.key_index.get(&key) {
                         self.big_req.remove(&id);
                         if let Some(img) = img {
-                            self.big.insert(id, BigEntry { base: img, tex: None, alt_tex: None, hist: None });
+                            self.big.insert(id, BigEntry { base: img, stage: None, tex: None, alt_tex: None, hist: None });
                             self.big_order.push_back(id);
                             while self.big_order.len() > 8 {
                                 if let Some(old) = self.big_order.pop_front() {
@@ -2087,6 +2104,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::theme::apply(ctx, crate::theme::Mode::from_name(&self.store.theme), false);
         let t0 = std::time::Instant::now();
+        self.thumb_budget = 8;
         self.process_results();
         library::trace_since("frame: results", t0, 30);
         self.trim_thumbs();

@@ -28,7 +28,7 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 - *Advanced*: geometry first (crop to a free or fixed shape, straighten, vertical and horizontal perspective, with an alignment grid while you adjust), then white balance (presets, temperature, tint), exposure, highlights, shadows, blacks, contrast, saturation, vibrance, clarity, sharpening and noise reduction, with a live histogram and clipping warning.
 - *Presets*: 17 looks (vivid slide film, soft film, instant print, cross process, lomo, matte, teal & orange, high key, dramatic black & white, sepia, soft focus, …), each with an intensity slider.
 - *Effects*: vignette, borders and an instant-print frame, drop shadow, rounded corners, text.
-- Copy the edits of one picture and paste them onto many; compare before and after side by side.
+- Every change can be undone step by step; hold **Original** (or `O`) to see the picture without your edits; copy the edits of one picture and paste them onto many; compare two pictures side by side.
 
 **Share**
 - Export edited copies (any size, JPEG quality), collages (photo pile, mosaic, centre stage, grid, film strip, clothesline, fan, heart / circle / star, multiple exposure; colour, gradient or picture background; drag pictures to arrange them), contact sheets (title, file names, several pages, PDF), prints (Windows printing, or CUPS on Linux and macOS).
