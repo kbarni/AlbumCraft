@@ -2211,7 +2211,7 @@ impl App {
                     ui.add_space(4.0);
                     ui.label("Without online maps, AlbumCraft uses its built-in world map and list of cities, and makes no internet connections.");
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("You can change this later on the map, or in the main menu: Tools › Online maps.").size(12.0).weak());
+                    ui.label(egui::RichText::new("You can change this later on the map, or in the main menu: Online maps.").size(12.0).weak());
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.add(egui::Button::new(egui::RichText::new("Use online maps").color(Color32::WHITE).strong()).fill(t().accent)).clicked() {

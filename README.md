@@ -104,7 +104,7 @@ contributors (human or AI); `new_features.md` is the plan and its status.
   under 500 MB; GPS positions read from your pictures: `AlbumCraft/gps.json`. Both safe to delete.
 
 AlbumCraft makes no network connections unless you turn on **online maps** (it asks once, at the
-first start; change it later in the main menu, Tools › Online maps, or on the map). Then, and only
+first start; change it later in the main menu or on the map). Then, and only
 while you use the map, it downloads map pictures from OpenStreetMap and sends the places you
 search for to OpenStreetMap's search service. Your pictures and their locations are never sent.
 Without online maps, the map and place search use the built-in world map and city list.

@@ -699,7 +699,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let as_json = |f: &geo::Found| json!({ "name": f.name, "short_name": f.short, "latitude": f.at.lat, "longitude": f.at.lon });
             if opt_bool(args, "online")?.unwrap_or(false) {
                 if host.store().online_maps != Some(true) {
-                    return Err("online maps are turned off in AlbumCraft (main menu › Tools › Online maps); search without `online`".into());
+                    return Err("online maps are turned off in AlbumCraft (main menu › Online maps); search without `online`".into());
                 }
                 return Ok(Outcome::Later(Box::new(move || {
                     let found = crate::online::search(&query)?;
