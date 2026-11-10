@@ -433,50 +433,6 @@ mod cups {
         }
         Ok(n)
     }
-
-    /// A PDF with one page per JPEG, each placed on the printable area of `paper`.
-    pub(super) fn pdf_of_pages(pages: &[(Vec<u8>, u32, u32)], paper: &Paper) -> Vec<u8> {
-        let pt = |mm: f32| mm / 25.4 * 72.0;
-        let (sw, sh) = (pt(paper.sheet_w), pt(paper.sheet_h));
-        let (ax, aw, ah) = (pt(paper.area_x), pt(paper.area_w), pt(paper.area_h));
-        // PDF puts the origin at the bottom left
-        let ay = sh - pt(paper.area_y) - ah;
-        let mut out: Vec<u8> = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
-        let mut offsets: Vec<usize> = vec![];
-        let n = pages.len();
-        // objects: 1 catalog, 2 pages, then per page: page, content, image
-        let page_obj = |i: usize| 3 + i * 3;
-        let obj = |out: &mut Vec<u8>, offsets: &mut Vec<usize>, body: &[u8]| {
-            offsets.push(out.len());
-            out.extend_from_slice(format!("{} 0 obj\n", offsets.len()).as_bytes());
-            out.extend_from_slice(body);
-            out.extend_from_slice(b"\nendobj\n");
-        };
-        obj(&mut out, &mut offsets, b"<< /Type /Catalog /Pages 2 0 R >>");
-        let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", page_obj(i))).collect();
-        obj(&mut out, &mut offsets, format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")).as_bytes());
-        for (i, (jpeg, w, h)) in pages.iter().enumerate() {
-            let (content, image) = (page_obj(i) + 1, page_obj(i) + 2);
-            obj(
-                &mut out,
-                &mut offsets,
-                format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {sw:.2} {sh:.2}] /Resources << /XObject << /Im0 {image} 0 R >> >> /Contents {content} 0 R >>").as_bytes(),
-            );
-            let draw = format!("q {aw:.2} 0 0 {ah:.2} {ax:.2} {ay:.2} cm /Im0 Do Q");
-            obj(&mut out, &mut offsets, format!("<< /Length {} >>\nstream\n{draw}\nendstream", draw.len()).as_bytes());
-            let mut body = format!("<< /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n", jpeg.len()).into_bytes();
-            body.extend_from_slice(jpeg);
-            body.extend_from_slice(b"\nendstream");
-            obj(&mut out, &mut offsets, &body);
-        }
-        let xref = out.len();
-        out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
-        for o in &offsets {
-            out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
-        }
-        out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", offsets.len() + 1).as_bytes());
-        out
-    }
 }
 #[cfg(not(windows))]
 pub use cups::{default_printer, paper, paper_sizes, print_pages, printers, setup_dialog};

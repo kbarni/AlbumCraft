@@ -31,7 +31,7 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 - Copy the edits of one picture and paste them onto many; compare before and after side by side.
 
 **Share**
-- Export edited copies (any size, JPEG quality), collages, prints (Windows printing, or CUPS on Linux and macOS).
+- Export edited copies (any size, JPEG quality), collages (photo pile, mosaic, centre stage, grid, film strip, clothesline, fan, heart / circle / star, multiple exposure; colour, gradient or picture background; drag pictures to arrange them), contact sheets (title, file names, several pages, PDF), prints (Windows printing, or CUPS on Linux and macOS).
 - Full-screen slideshow with crossfades, slow pan and zoom, and music.
 - A web gallery: a self-contained folder with an `index.html` (three styles, lightbox), ready to open or upload anywhere.
 - A slideshow movie (MP4, 720p or 1080p, with music) when [FFmpeg](https://ffmpeg.org/download.html) is installed.
