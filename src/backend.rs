@@ -95,14 +95,19 @@ impl LocalLibrary {
         LocalLibrary { pool, tx, wake, saving: None, saved: None }
     }
 
+    /// Sends an answer to the window and wakes it; for use on any thread.
+    fn sender(&self) -> impl Fn(Done) + Send + 'static {
+        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        move |d: Done| {
+            let _ = tx.send(d);
+            wake();
+        }
+    }
+
     /// Run `work` on its own thread (a panic becomes `failed`) and send what it returns.
     fn in_background(&self, failed: &'static str, work: impl FnOnce(&dyn Fn(Done)) -> String + Send + 'static) {
-        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let send = self.sender();
         std::thread::spawn(move || {
-            let send = |d: Done| {
-                let _ = tx.send(d);
-                wake();
-            };
             let msg = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&send))).unwrap_or_else(|_| failed.to_string());
             send(Done::Message(msg));
         });
@@ -145,11 +150,10 @@ impl Library for LocalLibrary {
     }
 
     fn scan(&self, roots: Vec<String>) {
-        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let send = self.sender();
         std::thread::spawn(move || {
             let (found, truncated) = std::panic::catch_unwind(|| library::scan_roots(&roots, library::SCAN_LIMIT)).unwrap_or_default();
-            let _ = tx.send(Done::Scan(found, truncated));
-            wake();
+            send(Done::Scan(found, truncated));
         });
     }
 
@@ -255,21 +259,17 @@ impl Library for LocalLibrary {
     }
 
     fn list_import(&self, source: PathBuf, library: Vec<(String, u64)>) {
-        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let send = self.sender();
         std::thread::spawn(move || {
             let (items, truncated) = std::panic::catch_unwind(|| crate::import::list(&source, &library)).unwrap_or_default();
-            let _ = tx.send(Done::ImportList { source, items, truncated });
-            wake();
+            send(Done::ImportList { source, items, truncated });
         });
     }
 
     fn import(&self, files: Vec<String>, dest: PathBuf, stop: Arc<AtomicBool>) {
-        let (tx, wake) = (self.tx.clone(), self.wake.clone());
+        let send = self.sender();
         std::thread::spawn(move || {
-            let progress = |done, total| {
-                let _ = tx.send(Done::ImportProgress { done, total });
-                wake();
-            };
+            let progress = |done, total| send(Done::ImportProgress { done, total });
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::import::copy_into(&files, &dest, &progress, &stop)));
             let done = match result {
                 Ok(Ok(r)) => Done::ImportDone {
@@ -281,8 +281,7 @@ impl Library for LocalLibrary {
                 Ok(Err(e)) => Done::ImportDone { dest, summary: e, copied: 0, problems: true },
                 Err(_) => Done::ImportDone { dest, summary: "The import stopped unexpectedly.".into(), copied: 0, problems: true },
             };
-            let _ = tx.send(done);
-            wake();
+            send(done);
         });
     }
 }

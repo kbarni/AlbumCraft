@@ -1,4 +1,5 @@
-//! The Library view: menu, toolbar, folder list, lightbox of thumbnails and the photo tray.
+//! Parts of the Library view shared with other views: the app menu, the per-picture context menu,
+//! keys, the photo tray and the status bar, and small painted widgets (stars, flags, buttons).
 
 use crate::icons;
 use crate::app::*;
@@ -126,17 +127,17 @@ impl App {
     pub fn flag_rating_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
         let all = |f: Flag| !ids.is_empty() && ids.iter().all(|&id| self.flag(id) == f);
         let (picked, rejected) = (all(Flag::Pick), all(Flag::Reject));
-        if ui.button(if picked { "Unpick              P" } else { "Pick                P" }).clicked() {
+        if ui.add(egui::Button::new(if picked { "Unpick" } else { "Pick" }).shortcut_text("P")).clicked() {
             self.toggle_flag(ids, Flag::Pick);
             ui.close();
         }
-        if ui.button(if rejected { "Unreject            X" } else { "Reject              X" }).clicked() {
+        if ui.add(egui::Button::new(if rejected { "Unreject" } else { "Reject" }).shortcut_text("X")).clicked() {
             self.toggle_flag(ids, Flag::Reject);
             ui.close();
         }
         ui.menu_button("Rating", |ui| {
             for n in (0..=MAX_RATING).rev() {
-                if ui.button(format!("{:<12}  {n}", rating_label(n))).clicked() {
+                if ui.add(egui::Button::new(rating_label(n)).shortcut_text(n.to_string())).clicked() {
                     self.set_rating(ids, n);
                     ui.close();
                 }
@@ -144,19 +145,44 @@ impl App {
         });
     }
 
+    /// A menu button listing the albums, to add `ids` to one of them, and "New album…" (which
+    /// takes the tray, see `Dialog::NewAlbum`).
+    pub fn album_menu(&mut self, ui: &mut egui::Ui, label: String, ids: &[usize]) {
+        let mut add_to: Option<usize> = None;
+        let mut new_album = false;
+        ui.menu_button(label, |ui| {
+            for (i, a) in self.store.albums.iter().enumerate() {
+                if ui.button(&a.name).clicked() {
+                    add_to = Some(i);
+                    ui.close();
+                }
+            }
+            if ui.button(format!("{} New album…", icons::ADD)).clicked() {
+                new_album = true;
+                ui.close();
+            }
+        });
+        if let Some(i) = add_to {
+            self.add_to_album(i, ids);
+        }
+        if new_album {
+            self.dialog = Some(Dialog::NewAlbum { name: String::new() });
+        }
+    }
+
     /// "Copy edits" (from a single picture) and "Paste edits" (onto `ids`).
     pub fn edit_clipboard_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
         let one = if let [one] = ids { Some(*one) } else { None };
         let has = one.is_some_and(|id| !crate::imaging::copyable_edits(&self.edits(id)).is_empty());
-        if ui.add_enabled(has, egui::Button::new("Copy edits          Ctrl+Shift+C")).clicked() {
+        if ui.add_enabled(has, egui::Button::new("Copy edits").shortcut_text("Ctrl+Shift+C")).clicked() {
             if let Some(id) = one {
                 self.copy_edits(id);
             }
             ui.close();
         }
         let n = self.copied_edits.as_ref().map_or(0, |e| e.len());
-        let label = if n > 0 { format!("Paste {n} edit{}       Ctrl+Shift+V", if n == 1 { "" } else { "s" }) } else { "Paste edits         Ctrl+Shift+V".into() };
-        if ui.add_enabled(n > 0 && !ids.is_empty(), egui::Button::new(label)).clicked() {
+        let label = if n > 0 { format!("Paste {n} edit{}", if n == 1 { "" } else { "s" }) } else { "Paste edits".to_string() };
+        if ui.add_enabled(n > 0 && !ids.is_empty(), egui::Button::new(label).shortcut_text("Ctrl+Shift+V")).clicked() {
             self.paste_edits(ids);
             ui.close();
         }
@@ -295,21 +321,21 @@ impl App {
             ui.close();
         }
         ui.separator();
-        if ui.button("Select all          Ctrl+A").clicked() {
+        if ui.add(egui::Button::new("Select all").shortcut_text("Ctrl+A")).clicked() {
             self.selection = self.visible_flat().into_iter().collect();
             ui.close();
         }
-        if ui.button("Select none         Esc").clicked() {
+        if ui.add(egui::Button::new("Select none").shortcut_text("Esc")).clicked() {
             self.selection.clear();
             ui.close();
         }
         ui.separator();
         ui.add_enabled_ui(!tray.is_empty(), |ui| {
-            if ui.button("Rotate left         Ctrl+[").clicked() {
+            if ui.add(egui::Button::new("Rotate left").shortcut_text("Ctrl+[")).clicked() {
                 self.rotate(&tray, -1);
                 ui.close();
             }
-            if ui.button("Rotate right        Ctrl+]").clicked() {
+            if ui.add(egui::Button::new("Rotate right").shortcut_text("Ctrl+]")).clicked() {
                 self.rotate(&tray, 1);
                 ui.close();
             }
@@ -482,26 +508,7 @@ impl App {
                             self.selection.clear();
                             self.tray_set = None;
                         }
-                        let mut add_to: Option<usize> = None;
-                        let mut new_album = false;
-                        ui.menu_button(format!("{} To album…", icons::ALBUM), |ui| {
-                            for (i, a) in self.store.albums.iter().enumerate() {
-                                if ui.button(&a.name).clicked() {
-                                    add_to = Some(i);
-                                    ui.close();
-                                }
-                            }
-                            if ui.button(format!("{} New album…", icons::ADD)).clicked() {
-                                new_album = true;
-                                ui.close();
-                            }
-                        });
-                        if let Some(i) = add_to {
-                            self.add_to_album(i, &tray);
-                        }
-                        if new_album {
-                            self.dialog = Some(Dialog::NewAlbum { name: String::new() });
-                        }
+                        self.album_menu(ui, format!("{} To album…", icons::ALBUM), &tray);
                     });
 
                     // culling: pick, reject and stars for the whole tray
@@ -614,22 +621,7 @@ impl App {
                 }
                 ui.close();
             }
-            ui.menu_button(format!("{} Add to album", icons::ALBUM), |ui| {
-                let mut chosen = None;
-                for (i, a) in self.store.albums.iter().enumerate() {
-                    if ui.button(&a.name).clicked() {
-                        chosen = Some(i);
-                        ui.close();
-                    }
-                }
-                if ui.button(format!("{} New album…", icons::ADD)).clicked() {
-                    self.dialog = Some(Dialog::NewAlbum { name: String::new() });
-                    ui.close();
-                }
-                if let Some(i) = chosen {
-                    self.add_to_album(i, &tray);
-                }
-            });
+            self.album_menu(ui, format!("{} Add to album", icons::ALBUM), &tray);
             if let Source::Album(ai) = self.source
                 && ui.button("Remove from album").clicked() {
                     let keys: Vec<String> = tray.iter().map(|&t| self.photos[t].key.clone()).collect();

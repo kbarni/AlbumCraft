@@ -3,6 +3,8 @@
 mod app;
 mod backend;
 mod basemap;
+mod demo;
+mod dialogs;
 mod display;
 mod edit_view;
 mod icons;
@@ -17,6 +19,7 @@ mod print_view;
 mod search_box;
 mod shell;
 mod slides;
+mod slideshow_view;
 mod theme;
 
 // Everything without a window lives in the albumcraft-core and albumcraft-edit crates. Their

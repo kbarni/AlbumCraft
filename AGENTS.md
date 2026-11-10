@@ -32,11 +32,12 @@ crates/albumcraft-core/src/   everything without a window (native: desktop app, 
   collage.rs       collage styles and contact sheets: layouts, rendering, PDF / picture files
 src/                          the egui app (binary `albumcraft`)
   main.rs          entry point, --screenshot, --mcp; uses the core modules under their old names (crate::library, …)
-  app.rs           App state + eframe update loop, dialogs, screenshot capture
+  app.rs           App state + eframe update loop, screenshot capture
+  dialogs.rs       the dialogs and the toast; demo.rs: the demo state behind --screenshot
   backend.rs       the Library interface: how App reads pictures and saves notes (LocalLibrary today)
   shell.rs         library UI (top bar, sidebar, justified grid, tray, status bar)
   library_view.rs  shared library helpers, menus, context menu, keys
-  edit_view.rs     editor UI, compare modes, slideshow
+  edit_view.rs     editor UI, compare modes; slideshow_view.rs: the full-screen slideshow
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
   search_box.rs    the library's search box and its suggestions
   info_panel.rs    editor's info panel (properties, EXIF, location map, tags)
