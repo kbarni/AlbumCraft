@@ -818,11 +818,7 @@ impl Job {
     fn run(self) -> Done {
         match self {
             Job::Thumb { id, key } => {
-                let img = crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
-                    let img = imaging::load_thumbnail(&key, THUMB_DIM)?;
-                    crate::thumbcache::put(&key, THUMB_DIM, &img);
-                    Some(img)
-                });
+                let img = cached_thumbnail(&key);
                 Done::Thumb { id, key, img }
             }
             Job::Big { id, key } => {
@@ -836,15 +832,7 @@ impl Job {
                 Done::Zoom { id, key, ops, img, unedited_width }
             }
             Job::File { key, dim } => {
-                let img = if dim == THUMB_DIM {
-                    crate::thumbcache::get(&key, THUMB_DIM).or_else(|| {
-                        let img = imaging::load_thumbnail(&key, THUMB_DIM)?;
-                        crate::thumbcache::put(&key, THUMB_DIM, &img);
-                        Some(img)
-                    })
-                } else {
-                    imaging::load_source(&key, dim)
-                };
+                let img = if dim == THUMB_DIM { cached_thumbnail(&key) } else { imaging::load_source(&key, dim) };
                 Done::File { key, dim, img }
             }
             Job::Dims(batch) => Done::Dims(batch.into_iter().map(|(id, key)| {
@@ -864,6 +852,15 @@ impl Job {
             Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), None)).collect()),
         }
     }
+}
+
+/// A picture's thumbnail: from the disk cache, else made from the file and put in the cache.
+fn cached_thumbnail(key: &str) -> Option<RgbaImage> {
+    crate::thumbcache::get(key, THUMB_DIM).or_else(|| {
+        let img = imaging::load_thumbnail(key, THUMB_DIM)?;
+        crate::thumbcache::put(key, THUMB_DIM, &img);
+        Some(img)
+    })
 }
 
 pub enum Done {

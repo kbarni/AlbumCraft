@@ -1,9 +1,7 @@
-//! The modern Library shell: slim top bar, navigation sidebar, justified photo grid and a floating
-//! selection bar. Replaces the old menu bar / toolbar / tray / status bar layout.
-//!
-//! Ideas borrowed from today's photo apps: no menu bar (everything sits behind one menu button),
-//! pictures keep their real shape in tight rows, selection is a check circle on the picture, and the
-//! actions for the selection float over the grid instead of living in a permanent tray.
+//! The Library view: top bar (title, search, filters, picture size, Folders, Import), sidebar
+//! (menu button, Picks, Places, albums, people, folders by year) and the grid of pictures in
+//! justified rows, each keeping its real shape. The tray and the status bar under the grid are in
+//! `library_view.rs`.
 
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
@@ -115,6 +113,16 @@ fn caption(ui: &mut egui::Ui, text: &str) {
     ui.add_space(14.0);
     ui.label(RichText::new(text.to_uppercase()).size(11.0).strong().color(t().text_weak));
     ui.add_space(2.0);
+}
+
+/// A soft shade over `rect`, from `top` to `bottom` (behind the buttons drawn on a picture).
+fn shade(p: &egui::Painter, rect: Rect, top: Color32, bottom: Color32) {
+    let mut mesh = egui::Mesh::default();
+    for (pos, color) in [(rect.left_top(), top), (rect.right_top(), top), (rect.right_bottom(), bottom), (rect.left_bottom(), bottom)] {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color });
+    }
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    p.add(egui::Shape::mesh(mesh));
 }
 
 /// Splits `aspects` into rows that fill `width`: (start, end, row height).
@@ -622,25 +630,13 @@ impl App {
         if hovered || selected {
             // soft shade behind the check circle and star
             let strip = Rect::from_min_size(img.min + egui::vec2(2.0, 1.0), egui::vec2(img.width() - 4.0, 48.0_f32.min(img.height())));
-            let mut mesh = egui::Mesh::default();
-            let (top, clear) = (Color32::from_black_alpha(80), Color32::TRANSPARENT);
-            for (pos, col) in [(strip.left_top(), top), (strip.right_top(), top), (strip.right_bottom(), clear), (strip.left_bottom(), clear)] {
-                mesh.vertices.push(egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color: col });
-            }
-            mesh.indices.extend([0, 1, 2, 0, 2, 3]);
-            p.add(egui::Shape::mesh(mesh));
+            shade(p, strip, Color32::from_black_alpha(80), Color32::TRANSPARENT);
         }
         let stars_shown = hovered && img.width() >= 110.0 && img.height() >= 80.0;
         if stars_shown {
             // the same shade at the bottom, behind the stars to click
             let strip = Rect::from_min_max(Pos2::new(img.left() + 2.0, img.bottom() - 40.0), Pos2::new(img.right() - 2.0, img.bottom() - 1.0));
-            let mut mesh = egui::Mesh::default();
-            let (bottom, clear) = (Color32::from_black_alpha(90), Color32::TRANSPARENT);
-            for (pos, col) in [(strip.left_top(), clear), (strip.right_top(), clear), (strip.right_bottom(), bottom), (strip.left_bottom(), bottom)] {
-                mesh.vertices.push(egui::epaint::Vertex { pos, uv: egui::epaint::WHITE_UV, color: col });
-            }
-            mesh.indices.extend([0, 1, 2, 0, 2, 3]);
-            p.add(egui::Shape::mesh(mesh));
+            shade(p, strip, Color32::TRANSPARENT, Color32::from_black_alpha(90));
         }
         if !selected && hovered {
             p.rect_filled(img, radius, Color32::from_white_alpha(14));
