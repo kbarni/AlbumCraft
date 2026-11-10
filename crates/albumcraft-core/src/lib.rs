@@ -8,6 +8,7 @@
 
 pub use albumcraft_edit::{decor, develop, looks, steps};
 
+pub mod catalogue;
 pub mod commands;
 pub mod control;
 pub mod exifinfo;

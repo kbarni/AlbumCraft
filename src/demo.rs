@@ -238,6 +238,32 @@ impl App {
             self.start_crop();
             eprintln!("recrop check: {}", if kept && self.edit.sel == Some([0.2, 0.15, 0.8, 0.75]) { "kept" } else { "LOST" });
         }
+        if shot_view == "sort" {
+            // highest rating first in every folder: the first folder's picks lead it
+            self.store.sort = library::Sort::Rating;
+            let rating = |app: &App, id: usize| app.meta(id).map(|m| m.rating).unwrap_or(0);
+            let groups = self.groups();
+            let ok = groups.iter().all(|(_, ids)| ids.windows(2).all(|w| rating(self, w[0]) >= rating(self, w[1])))
+                && groups.first().and_then(|(_, ids)| ids.first()).is_some_and(|&id| rating(self, id) == 5);
+            eprintln!("sort check: {}", if ok { "ok" } else { "WRONG" });
+        }
+        if shot_view == "cached" {
+            // the catalogue cache is shown until the first scan's result, never after it
+            let folders = library::sample_folders();
+            let first = folders.first().and_then(|(_, files)| files.first()).map(|f| f.0.clone()).unwrap_or_default();
+            let known = vec![(first.clone(), crate::catalogue::Details { dims: Some((40, 30)), taken: Some(7) })];
+            self.store.roots = vec!["/demo".into()];
+            let _ = self.tx.send(library::Done::Cached(folders.clone(), known.clone()));
+            self.process_results();
+            let shown = self.key_index.get(&first).copied();
+            let ok_before = shown.is_some_and(|id| self.taken.get(&id) == Some(&7) && self.real_dims.get(&id) == Some(&(40, 30)));
+            let _ = self.tx.send(library::Done::Scan(folders[1..].to_vec(), false, vec![]));
+            let _ = self.tx.send(library::Done::Cached(folders, known));
+            self.process_results();
+            let ok_after = !self.key_index.contains_key(&first) && self.scanned;
+            self.store.roots.clear();
+            eprintln!("cache check: {}", if ok_before && ok_after { "ok" } else { "WRONG" });
+        }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }
