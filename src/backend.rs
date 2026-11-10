@@ -73,6 +73,11 @@ pub trait Library {
     /// Export edited copies into `dir`. Like the three below: progress arrives as
     /// `Done::Progress`, the end as `Done::Report`, both with the task's number.
     fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool);
+    /// Move these picture files to the system's trash (`library::move_to_trash`).
+    fn trash(&self, task: Task, files: Vec<String>);
+    /// Small copies of these pictures, attached to a new message in the mail program
+    /// (`mail::email`).
+    fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool);
     /// Make a web gallery in a new folder inside `parent`.
     fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options);
     /// Make a movie file.
@@ -284,6 +289,14 @@ impl Library for LocalLibrary {
             let report = if failed.is_empty() { Report::done(msg) } else { Report::failed(msg) };
             if ok > 0 { report.showing(dir) } else { report }
         });
+    }
+
+    fn trash(&self, task: Task, files: Vec<String>) {
+        self.run_task(task, "Could not move the pictures to the trash: unexpected error.", move |step| library::move_to_trash(&files, step));
+    }
+
+    fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool) {
+        self.run_task(task, "Could not prepare the email: unexpected error.", move |step| crate::mail::email(&jobs, &subject, with_location, step));
     }
 
     fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options) {

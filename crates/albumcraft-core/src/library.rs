@@ -663,6 +663,31 @@ mod store_tests {
         dir
     }
 
+    /// Only real files are moved; nothing else is touched (the real trash is not used here:
+    /// `trash_real_file` does that, by hand).
+    #[test]
+    fn only_real_files_go_to_the_trash() {
+        let report = move_to_trash(&[format!("{SAMPLE_PREFIX}1"), "/no/such/picture.jpg".into()], &|_, _| true);
+        assert!(!report.ok);
+        assert!(report.text.starts_with("Moved 0 pictures") && report.text.contains("picture.jpg: not found"));
+        let stopped = move_to_trash(&["/no/such/a.jpg".into()], &|_, _| false);
+        assert!(stopped.text.contains("Stopped"));
+    }
+
+    /// `XDG_DATA_HOME=<empty dir> cargo test -p albumcraft-core trash_real_file -- --ignored`
+    /// (Linux): a real file goes to that folder's trash.
+    #[test]
+    #[ignore]
+    fn trash_real_file() {
+        let dir = temp_dir("trash-real");
+        let f = dir.join("reject.jpg");
+        std::fs::write(&f, b"not a picture").unwrap();
+        let report = move_to_trash(&[f.to_string_lossy().to_string()], &|_, _| true);
+        assert!(report.ok, "{}", report.text);
+        assert!(!f.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn missing_file_is_a_first_start() {
         let dir = temp_dir("store-missing");
@@ -992,6 +1017,64 @@ impl Report {
     pub fn showing(mut self, path: impl Into<PathBuf>) -> Report {
         self.show = Some(path.into());
         self
+    }
+}
+
+/// Move these picture files to the system's trash (where the user can get them back until it is
+/// emptied): the one place where AlbumCraft removes original files, after the user confirmed it.
+/// Sample pictures and files that are not there are left alone. `step(done, total)` says how far
+/// it is and answers false when the user stopped it.
+pub fn move_to_trash(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Report {
+    trash_files(files, step).report()
+}
+
+/// What `trash_files` did.
+pub struct Trashed {
+    pub moved: usize,
+    /// "file name: why" for each file left where it was.
+    pub failed: Vec<String>,
+    pub stopped: bool,
+}
+
+/// Move these files to the system's trash (see `move_to_trash`).
+pub fn trash_files(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Trashed {
+    let mut t = Trashed { moved: 0, failed: vec![], stopped: false };
+    for (i, f) in files.iter().enumerate() {
+        if !step(i, files.len()) {
+            t.stopped = true;
+            break;
+        }
+        let name = f.rsplit(['/', '\\']).next().unwrap_or(f);
+        if f.starts_with(SAMPLE_PREFIX) || !Path::new(f).is_file() {
+            t.failed.push(format!("{name}: not found"));
+            continue;
+        }
+        match trash::delete(f) {
+            Ok(()) => t.moved += 1,
+            Err(e) => t.failed.push(format!("{name}: {e}")),
+        }
+    }
+    t
+}
+
+impl Trashed {
+    pub fn report(&self) -> Report {
+        let (moved, failed, stopped) = (self.moved, &self.failed, self.stopped);
+        let mut text = if moved == 1 { "Moved 1 picture to the trash.".to_string() } else { format!("Moved {moved} pictures to the trash.") };
+    if stopped {
+        text.push_str("\nStopped before the end.");
+    }
+    if !failed.is_empty() {
+        text.push_str("\n\nNot moved:");
+        for f in failed.iter().take(10) {
+            text.push_str("\n• ");
+            text.push_str(f);
+        }
+        if failed.len() > 10 {
+            text.push_str(&format!("\n… and {} more", failed.len() - 10));
+        }
+    }
+    if failed.is_empty() { Report::done(text) } else { Report::failed(text) }
     }
 }
 

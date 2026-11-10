@@ -32,7 +32,9 @@ Don't attach a harmful or non-redistributable file to a public issue. First give
 - `library.json` loading and saving (corruption, data loss, absurd values);
 - the thumbnail cache (`dirs::cache_dir()/AlbumCraft/thumbs`): file naming, overwrite, symlinks;
 - folder scanning (recursion, symlinks, very large trees) and export/collage output paths (overwriting, traversal);
-- printing: Windows (the only `unsafe` code, Win32 GDI in `print.rs`) and CUPS on Linux/macOS (`lp`/`lpstat`/`lpoptions` run with fixed arguments, printer and paper names passed as separate arguments, the file after `--`; the temporary PDF is removed after submission);
+- Email (`crates/albumcraft-core/src/mail.rs`): on Windows Simple MAPI (`MAPISendMailW` from `mapi32.dll`, the only `unsafe` code besides printing), elsewhere `xdg-email` / `open -a Mail` run with fixed arguments and each file as its own argument; the copies are written to a new folder under the temporary folder, removed after a day. Nothing is sent by AlbumCraft;
+- moving rejected pictures to the system trash (`library::move_to_trash`, the `trash` crate): only files the library lists, after a confirmation;
+- printing: Windows (`unsafe` code, Win32 GDI in `print.rs`) and CUPS on Linux/macOS (`lp`/`lpstat`/`lpoptions` run with fixed arguments, printer and paper names passed as separate arguments, the file after `--`; the temporary PDF is removed after submission);
 - panics or hangs triggered by file content (a crash loses up to a few seconds of unsaved changes);
 - the MCP server (`albumcraft --mcp`) and the window's control connection (token, localhost binding, request limits, tool parameter validation);
 - raw-file preview extraction, the web gallery output (escaping of titles and captions), movie export through `ffmpeg` (arguments, output path), slideshow music decoding;

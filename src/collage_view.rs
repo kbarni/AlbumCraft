@@ -199,7 +199,7 @@ impl App {
     pub fn open_collage(&mut self, sheet: bool) {
         let ids = self.targets();
         if ids.is_empty() || (!sheet && ids.len() < 2) {
-            self.toast(if sheet { "Put the pictures for the contact sheet in the tray first." } else { "Put at least two pictures in the tray to make a collage." });
+            self.toast(if sheet { "Select the pictures for the contact sheet first." } else { "Select at least two pictures to make a collage." });
             return;
         }
         // the title: the album or the folder they all come from
@@ -710,7 +710,6 @@ impl App {
         self.toast(format!("Saving the {}…", name.to_lowercase()));
         let task = self.start_task("Saving the collage");
         self.lib.make_collage(task, job, path, self.store.collage.out_px);
-        self.arm_tray_check();
     }
 
     fn collage_print(&mut self, pages: Vec<Page>) {
@@ -746,7 +745,6 @@ impl App {
             }));
             ctx.request_repaint();
         });
-        self.arm_tray_check();
     }
 
     fn collage_canvas(&mut self, ui: &mut egui::Ui, pages: &[Page]) {

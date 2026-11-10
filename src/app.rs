@@ -64,13 +64,19 @@ impl Filter {
     }
 }
 
-/// The tray as it was right after a picture output (export, print, collage) with held pictures
-/// (armed when pictures are held).
+/// A selection box being dragged over the grid.
 #[derive(Clone, Debug)]
-pub struct TrayCheck {
-    pub count: usize,
-    pub old: Vec<usize>,
+pub struct BoxSelect {
+    /// Where the drag started, from the top left of the grid's content (so it scrolls with it).
+    pub start: egui::Vec2,
+    /// What stays selected besides the box (Ctrl or Shift held: the selection before).
+    pub base: BTreeSet<usize>,
+    /// The pictures the box touches, as last drawn (those scrolled out of view keep theirs).
+    pub inside: HashSet<usize>,
 }
+
+/// Pictures being dragged (onto an album in the sidebar).
+pub struct DraggedPictures(pub Vec<usize>);
 
 /// A message shown over the bottom of the window.
 pub struct Notice {
@@ -113,10 +119,6 @@ pub struct RunningTask {
 /// How the message about a failed save starts.
 const SAVE_FAILED: &str = "Your library could not be saved:";
 
-/// Texts of the "clear old held items" question.
-pub const MSG_CLEAR_TRAY: &str = "Would you like to clear your old held items from the tray?";
-pub const BTN_CLEAR_TRAY: &str = "Clear Tray";
-pub const BTN_DONT_CLEAR: &str = "Don't Clear";
 
 /// A whole set put into the tray by clicking it in the folder list.
 #[derive(Clone, PartialEq, Debug)]
@@ -210,9 +212,9 @@ pub enum Dialog {
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
     About,
-    /// "Would you like to clear your old held items from the tray?"
-    ClearTray { old: Vec<usize> },
     /// Print review: (picture, name, pixels per inch, grade 0 bad / 1 good / 2 best).
+    /// "Move the rejected pictures to the trash?" (by key: a scan may come in between).
+    TrashRejects { keys: Vec<String>, bytes: u64 },
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
@@ -419,16 +421,24 @@ pub struct App {
     pub filter: Filter,
     pub selection: BTreeSet<usize>,
     pub anchor: Option<usize>,
-    pub held: Vec<usize>,
+    /// The selection of several pictures a plain click just replaced (the click was on one of
+    /// them): a double-click opening that picture brings it back, so the editor steps through it.
+    pub before_click: Option<BTreeSet<usize>>,
+    /// The picture the arrow keys move from (the last one clicked or reached with the keys).
+    pub cursor: Option<usize>,
+    /// Scroll the library just enough to show this picture (reached with the keys).
+    pub reveal: Option<usize>,
+    /// A box being dragged over the grid to select the pictures it touches.
+    pub box_select: Option<BoxSelect>,
+    /// The task whose end makes the library scan again (pictures moved to the trash).
+    pub rescan_after: Option<u64>,
     pub scroll_to_folder: Option<usize>,
     /// Scroll the library to this picture (after coming back from the editor).
     pub scroll_to_photo: Option<usize>,
-    /// The folder / album / person whose pictures fill the tray (when nothing is held or picked).
+    /// The folder / album / person whose pictures fill the tray (when nothing is picked one by one).
     pub tray_set: Option<TraySet>,
     /// The folder / album / person clicked last in the list (for its highlight).
     pub list_pick: Option<TraySet>,
-    /// Armed after an output with held pictures: asks once to clear them when the tray grows.
-    pub tray_check: Option<TrayCheck>,
     /// Real pixel size of each photo (from the file header), for 100 % zoom.
     pub real_dims: HashMap<usize, (u32, u32)>,
     /// A `Job::Dims` is out (one at a time, so it never holds up the thumbnails).
@@ -583,12 +593,15 @@ impl App {
             filter: Filter::default(),
             selection: BTreeSet::new(),
             anchor: None,
-            held: vec![],
+            before_click: None,
+            cursor: None,
+            reveal: None,
+            box_select: None,
+            rescan_after: None,
             scroll_to_folder: None,
             scroll_to_photo: None,
             tray_set: None,
             list_pick: None,
-            tray_check: None,
             real_dims: HashMap::new(),
             dims_pending: false,
             taken: HashMap::new(),
@@ -809,7 +822,10 @@ impl App {
         // chosen by the user
         self.selection = self.selection.iter().filter_map(|&id| to(id)).collect();
         self.anchor = self.anchor.and_then(to);
-        list_of(&mut self.held, to);
+        self.cursor = self.cursor.and_then(to);
+        self.reveal = None;
+        self.box_select = None;
+        self.before_click = None;
         self.scroll_to_photo = self.scroll_to_photo.and_then(to);
         let folder_to = |fi: usize| {
             let path = &old_folders.get(fi)?.path;
@@ -822,9 +838,8 @@ impl App {
         self.tray_set = set_to(self.tray_set.take());
         self.list_pick = set_to(self.list_pick.take());
         self.scroll_to_folder = self.scroll_to_folder.and_then(folder_to);
-        // these questions list pictures by number: asked again when they still apply
-        self.tray_check = None;
-        if matches!(self.dialog, Some(Dialog::ClearTray { .. } | Dialog::PrintReview { .. })) {
+        // this question lists pictures by number: asked again when it still applies
+        if matches!(self.dialog, Some(Dialog::PrintReview { .. })) {
             self.dialog = None;
         }
 
@@ -1149,23 +1164,14 @@ impl App {
         v
     }
 
-    /// The photos in the tray: held ones first, then the current selection. With nothing held and no
-    /// single picture picked, a clicked folder / album / person puts its whole set in the tray
-    /// ("Folder selected - 29 photos").
+    /// The pictures actions apply to: the selection or, with no picture selected one by one, a
+    /// clicked folder / album / person as a whole ("Folder selected - 29 photos").
     pub fn tray(&self) -> Vec<usize> {
-        if self.held.is_empty() && self.selection.is_empty()
+        if self.selection.is_empty()
             && let Some(set) = &self.tray_set {
                 return self.set_photos(set);
             }
-        let mut v = self.held.clone();
-        if v.is_empty() {
-            v.extend(self.selection.iter().copied());
-        } else {
-            // a set, so that a large selection is not searched once per picture
-            let held: HashSet<usize> = v.iter().copied().collect();
-            v.extend(self.selection.iter().copied().filter(|s| !held.contains(s)));
-        }
-        v
+        self.selection.iter().copied().collect()
     }
 
     pub fn set_photos(&self, set: &TraySet) -> Vec<usize> {
@@ -1184,43 +1190,13 @@ impl App {
         }
     }
 
-    /// A folder, album or person was clicked in the list: nothing is selected one by one; with no held
-    /// pictures the whole set goes into the tray, with held pictures nothing is added.
+    /// A folder, album or person was clicked in the list: nothing is selected one by one, and the
+    /// whole set is what actions apply to.
     pub fn pick_set(&mut self, set: TraySet) {
         self.selection.clear();
         self.anchor = None;
         self.list_pick = Some(set.clone());
-        self.tray_set = if self.held.is_empty() { Some(set) } else { None };
-    }
-
-    /// After a picture output (export, print, collage): remember the tray if pictures are held, so
-    /// adding new ones later asks whether to clear the old ones.
-    pub fn arm_tray_check(&mut self) {
-        self.tray_check =
-            if self.held.is_empty() { None } else { Some(TrayCheck { count: self.tray().len(), old: self.held.clone() }) };
-    }
-
-    /// Each frame: wait until no mouse button is down; with none of the old
-    /// held pictures left, stop watching; if the tray shrank or stayed, remember the new size; if it
-    /// grew, ask once whether to clear the old held pictures.
-    pub fn tick_tray_check(&mut self, ctx: &egui::Context) {
-        let Some(check) = self.tray_check.clone() else { return };
-        if self.dialog.is_some() || ctx.input(|i| i.pointer.any_down()) {
-            return;
-        }
-        if !self.held.iter().any(|id| check.old.contains(id)) {
-            self.tray_check = None;
-            return;
-        }
-        let n = self.tray().len();
-        if n <= check.count {
-            if let Some(c) = &mut self.tray_check {
-                c.count = n;
-            }
-        } else {
-            self.tray_check = None;
-            self.dialog = Some(Dialog::ClearTray { old: check.old });
-        }
+        self.tray_set = Some(set);
     }
 
     /// The status-bar text for what is in the tray.
@@ -1656,8 +1632,14 @@ impl App {
 
     // ----------------------------------------------------------------- actions
 
+    /// Open a picture in the editor. With several pictures selected (and this one among them)
+    /// the editor steps through those, in the list's order, and the selection is kept; otherwise
+    /// through the whole list.
     pub fn open_editor(&mut self, id: usize) {
         let mut list = self.visible_flat();
+        if self.selection.len() > 1 && self.selection.contains(&id) {
+            list.retain(|x| self.selection.contains(x));
+        }
         if !list.contains(&id) {
             list = vec![id];
         }
@@ -1683,8 +1665,13 @@ impl App {
         self.edit.angle = 0.0;
         // keep the zoom level when moving between pictures, but start centred
         self.edit.pan = egui::Vec2::ZERO;
-        self.selection.clear();
-        self.selection.insert(id);
+        // a selection of several pictures stays (the editor steps through them); a single one
+        // follows the picture shown, so the library shows where the editor was
+        if !(self.selection.len() > 1 && self.selection.contains(&id)) {
+            self.selection.clear();
+            self.selection.insert(id);
+        }
+        self.anchor = Some(id);
         // preload neighbours
         if let Some(pos) = self.edit.list.iter().position(|&x| x == id)
             && let Some(&n) = self.edit.list.get(pos + 1) {
@@ -1893,7 +1880,40 @@ impl App {
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
         let task = self.start_task(format!("Exporting {} picture(s)", jobs.len()));
         self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location);
-        self.arm_tray_check();
+    }
+
+    /// Ask whether to move the library's rejected pictures to the trash.
+    pub fn ask_trash_rejects(&mut self) {
+        let rejects: Vec<&Photo> = self.photos.iter().enumerate().filter(|(id, p)| !p.is_sample() && self.flag(*id) == Flag::Reject).map(|(_, p)| p).collect();
+        if rejects.is_empty() {
+            self.toast(if self.using_samples { "Sample pictures can't be moved to the trash." } else { "No picture is rejected. Press X to reject one." });
+            return;
+        }
+        let bytes = rejects.iter().map(|p| p.bytes).sum();
+        let keys = rejects.iter().map(|p| p.key.clone()).collect();
+        self.dialog = Some(Dialog::TrashRejects { keys, bytes });
+    }
+
+    /// Move these files to the trash in the background; the library is scanned again after.
+    pub fn trash_files(&mut self, keys: Vec<String>) {
+        let task = self.start_task(format!("Moving {} picture(s) to the trash", keys.len()));
+        self.rescan_after = Some(task.id);
+        self.selection.clear();
+        self.tray_set = None;
+        self.lib.trash(task, keys);
+    }
+
+    /// Email: small copies of these pictures, attached to a new message in the mail program, in
+    /// the background.
+    pub fn email(&mut self, ids: &[usize]) {
+        if ids.is_empty() {
+            self.toast("Select some pictures first.");
+            return;
+        }
+        let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
+        let task = self.start_task(format!("Preparing {} picture(s) for an email", jobs.len()));
+        let subject = self.tray_title();
+        self.lib.email(task, jobs, subject, self.store.export_location);
     }
 
     /// A name for what is in the tray: the album, the person, or the folder of its first picture.
@@ -1928,7 +1948,6 @@ impl App {
             .collect();
         let task = self.start_task(format!("Making the web gallery of {} picture(s)", items.len()));
         self.lib.make_gallery(task, items, parent, opts);
-        self.arm_tray_check();
     }
 
     pub fn make_movie(&mut self, ids: Vec<usize>, size: (u32, u32)) {
@@ -1939,7 +1958,6 @@ impl App {
         let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().filter_map(|&id| Some((self.photos.get(id)?.key.clone(), self.edits(id)))).collect();
         let task = self.start_task("Making the movie");
         self.lib.make_movie(task, pictures, out, size, self.store.slideshow.clone());
-        self.arm_tray_check();
     }
 
     // ----------------------------------------------------------------- frame
@@ -2098,6 +2116,10 @@ impl App {
                 Done::Report(report) => {
                     if let Some(id) = report.task {
                         self.tasks.retain(|t| t.id != id);
+                        if self.rescan_after == Some(id) {
+                            self.rescan_after = None;
+                            self.rescan();
+                        }
                     }
                     if report.ok {
                         // long enough to read and to click "Show in folder"
@@ -2302,7 +2324,6 @@ impl eframe::App for App {
         {
             self.open_print();
         }
-        self.tick_tray_check(&ctx);
         self.dialogs(&ctx);
         self.toast_ui(&ctx);
         // a change made in this frame is taken up (lists rebuilt, save planned) by the next one

@@ -15,6 +15,69 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 const GAP: f32 = 4.0;
+
+/// The selected pictures in the order of the list.
+fn flat_selection(flat: &[usize], selection: &std::collections::BTreeSet<usize>) -> Vec<usize> {
+    flat.iter().copied().filter(|id| selection.contains(id)).collect()
+}
+
+/// While pictures are dragged: their number next to the pointer.
+pub fn paint_dragged(ctx: &egui::Context) {
+    let Some(d) = egui::DragAndDrop::payload::<DraggedPictures>(ctx) else { return };
+    let Some(p) = ctx.pointer_latest_pos() else { return };
+    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+    let n = d.0.len();
+    let text = if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("dragged_pictures")));
+    let galley = painter.layout_no_wrap(text, egui::FontId::proportional(13.0), t().text_strong);
+    let r = Rect::from_min_size(p + egui::vec2(14.0, 10.0), galley.size() + egui::vec2(16.0, 8.0));
+    painter.rect_filled(r, 4, t().surface);
+    painter.rect_stroke(r, 4, Stroke::new(1.0, t().accent), StrokeKind::Inside);
+    painter.galley(r.min + egui::vec2(8.0, 4.0), galley, t().text_strong);
+}
+
+/// The picture one step away from `id` in the grid as laid out.
+fn grid_step(cache: &GridCache, groups: &Rc<Vec<Group>>, id: usize, step: Step) -> Option<usize> {
+    let flat = &cache.flat;
+    let pos = flat.iter().position(|&x| x == id)?;
+    match step {
+        Step::Left => return flat.get(pos.checked_sub(1)?).copied(),
+        Step::Right => return flat.get(pos + 1).copied(),
+        Step::First => return flat.first().copied(),
+        Step::Last => return flat.last().copied(),
+        Step::Up | Step::Down => {}
+    }
+    // every row of the grid in order: (group, first, end, height)
+    let rows: Vec<(usize, usize, usize, f32)> =
+        cache.layout.iter().enumerate().flat_map(|(gi, g)| g.rows.iter().map(move |&(a, b, h)| (gi, a, b, h))).collect();
+    let gi = groups.iter().position(|(_, ids)| ids.contains(&id))?;
+    let k = groups.get(gi)?.1.iter().position(|&x| x == id)?;
+    let r = rows.iter().position(|&(g, a, b, _)| g == gi && a <= k && k < b)?;
+    // the middle of a picture across its row
+    let centre = |row: (usize, usize, usize, f32), k: usize| -> f32 {
+        let aspects = &cache.layout[row.0].aspects;
+        let left: f32 = (row.1..k).map(|j| aspects.get(j).copied().unwrap_or(1.5) * row.3 + GAP).sum();
+        left + aspects.get(k).copied().unwrap_or(1.5) * row.3 / 2.0
+    };
+    let x = centre(rows[r], k);
+    let other = match step {
+        Step::Up => *rows.get(r.checked_sub(1)?)?,
+        _ => *rows.get(r + 1)?,
+    };
+    let nearest = (other.1..other.2).min_by(|&a, &b| (centre(other, a) - x).abs().total_cmp(&(centre(other, b) - x).abs()))?;
+    groups.get(other.0)?.1.get(nearest).copied()
+}
+
+/// A move of the keyboard in the grid.
+#[derive(Clone, Copy)]
+enum Step {
+    Left,
+    Right,
+    Up,
+    Down,
+    First,
+    Last,
+}
 /// The height of a folder's header before it was drawn once (name line and spacing).
 const HEADER_H: f32 = 48.0;
 
@@ -187,10 +250,11 @@ impl App {
             self.tray_set = None;
         }
         self.status_bar(ui);
-        self.tray_panel(ui);
+        self.selection_bar(ui);
         self.sidebar(ui);
         self.top_bar(ui);
         self.grid(ui);
+        paint_dragged(ui.ctx());
     }
 
     fn source_title(&self) -> String {
@@ -282,6 +346,10 @@ impl App {
                             }
                             ui.separator();
                             ui.checkbox(&mut self.filter.hide_rejects, "Hide rejected pictures");
+                            if ui.button("Move rejected pictures to the trash…").clicked() {
+                                self.ask_trash_rejects();
+                                ui.close();
+                            }
                         });
                         let on = self.filter.picks;
                         if chip_with_flag(ui, if wide > 800.0 { "Picks" } else { "" }, on, true).on_hover_text("Show only picks").clicked() {
@@ -352,6 +420,12 @@ impl App {
                         let n = counts.albums.get(i).copied().unwrap_or(0);
                         let name = self.store.albums[i].name.clone();
                         let r = nav_row(ui, icons::ALBUM, &name, Some(n), self.source == Source::Album(i));
+                        if r.dnd_hover_payload::<DraggedPictures>().is_some() {
+                            ui.painter().rect_stroke(r.rect, 6, Stroke::new(2.0, t().accent), StrokeKind::Inside);
+                        }
+                        if let Some(dropped) = r.dnd_release_payload::<DraggedPictures>() {
+                            self.add_to_album(i, &dropped.0);
+                        }
                         if r.clicked() {
                             self.source = Source::Album(i);
                             self.pick_set(TraySet::Album(i));
@@ -484,6 +558,56 @@ impl App {
         cache
     }
 
+    /// The keyboard in the grid: arrows move to the next picture (up and down: the one above or
+    /// below, by its place in the rows), Shift+arrows extend the selection from where it started,
+    /// Home and End go to the first and last picture, Space opens the picture. The grid scrolls
+    /// to it.
+    fn grid_keys(&mut self, ctx: &egui::Context, cache: &GridCache, groups: &Rc<Vec<Group>>) {
+        use egui::{Key, Modifiers};
+        if self.dialog.is_some() || self.text_focused() || cache.flat.is_empty() {
+            return;
+        }
+        let (mut step, mut shift, mut space) = (None, false, false);
+        ctx.input_mut(|i| {
+            for (key, s) in [(Key::ArrowLeft, Step::Left), (Key::ArrowRight, Step::Right), (Key::ArrowUp, Step::Up), (Key::ArrowDown, Step::Down), (Key::Home, Step::First), (Key::End, Step::Last)] {
+                if i.consume_key(Modifiers::NONE, key) {
+                    step = Some(s);
+                } else if i.consume_key(Modifiers::SHIFT, key) {
+                    (step, shift) = (Some(s), true);
+                }
+            }
+            space = i.consume_key(Modifiers::NONE, Key::Space);
+        });
+        let flat = &cache.flat;
+        let current = self.cursor.or(self.anchor).or_else(|| self.selection.iter().next().copied()).filter(|id| flat.contains(id));
+        if space {
+            if let Some(id) = current {
+                self.open_editor(id);
+            }
+            return;
+        }
+        let Some(step) = step else { return };
+        // nothing chosen yet: the first key chooses the first picture
+        let to = match current {
+            None => flat.first().copied(),
+            Some(id) => grid_step(cache, groups, id, step),
+        };
+        let Some(to) = to else { return };
+        if shift {
+            let from = self.anchor.filter(|a| flat.contains(a)).or(current).unwrap_or(to);
+            let (Some(a), Some(b)) = (flat.iter().position(|&x| x == from), flat.iter().position(|&x| x == to)) else { return };
+            self.selection = flat[a.min(b)..=a.max(b)].iter().copied().collect();
+            self.anchor = Some(from);
+        } else {
+            self.selection.clear();
+            self.selection.insert(to);
+            self.anchor = Some(to);
+        }
+        self.tray_set = None;
+        self.cursor = Some(to);
+        self.reveal = Some(to);
+    }
+
     /// Learn the real shape of pictures whose thumbnail is not loaded yet, in the background, a
     /// batch at a time (reading headers from a slow disk must not hold up the window). The list
     /// is walked once, a little further each time, not from its start on every frame.
@@ -528,14 +652,47 @@ impl App {
                 egui::Frame::new().inner_margin(egui::Margin { left: PAD, right: PAD, top: 8, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                     let width = ui.available_width();
+                    // the background, under the pictures (they are added later and win the
+                    // pointer): a click clears the selection, a drag draws a selection box
+                    let origin = ui.min_rect().min.to_vec2();
+                    let back = ui.interact(ui.clip_rect(), egui::Id::new("grid_background"), Sense::click_and_drag());
+                    if back.drag_started()
+                        && let Some(p) = back.interact_pointer_pos()
+                    {
+                        let m = ui.input(|i| i.modifiers);
+                        let base = if m.command || m.shift { self.selection.clone() } else { Default::default() };
+                        self.box_select = Some(BoxSelect { start: p.to_vec2() - origin, base, inside: Default::default() });
+                    }
+                    if back.clicked() {
+                        background_click = true;
+                    }
+                    let boxed = match (&self.box_select, back.dragged(), ui.ctx().pointer_latest_pos()) {
+                        (Some(b), true, Some(p)) => Some(Rect::from_two_pos((b.start + origin).to_pos2(), p)),
+                        _ => None,
+                    };
+                    if back.drag_stopped() {
+                        self.box_select = None;
+                    }
+                    // near the top or bottom edge, the grid scrolls on under the box
+                    if let (Some(_), Some(p)) = (boxed, ui.ctx().pointer_latest_pos()) {
+                        let clip = ui.clip_rect();
+                        let dy = if p.y < clip.top() + 30.0 { 12.0 } else if p.y > clip.bottom() - 30.0 { -12.0 } else { 0.0 };
+                        if dy != 0.0 {
+                            ui.scroll_with_delta(egui::vec2(0.0, dy));
+                            ui.ctx().request_repaint();
+                        }
+                    }
                     let mut cache = self.grid_rows(&groups, width, target);
                     self.ask_for_shapes(&mut cache);
                     flat = cache.flat.clone();
+                    self.grid_keys(ui.ctx(), &cache, &groups);
                     // only what is in view is laid out and drawn; the rest is empty space of
                     // the height the rows would take
                     let clip = ui.clip_rect();
                     // where to scroll to, if asked (dropped when it is not in the list)
                     let to_photo = self.scroll_to_photo.take();
+                    // reached with the keys: scrolled only as far as needed to be in view
+                    let reveal = self.reveal.take();
                     let to_folder = self.scroll_to_folder.take();
                     for (gi, (folder, ids)) in groups.iter().enumerate() {
                         let Some(rows) = cache.layout.get(gi) else { break };
@@ -551,6 +708,12 @@ impl App {
                         {
                             let row = Rect::from_min_size(Pos2::new(left, top + head + rows.tops[r]), egui::vec2(width, rows.rows[r].2));
                             ui.scroll_to_rect(row, Some(egui::Align::Center));
+                        }
+                        if let Some(k) = reveal.and_then(|id| ids.iter().position(|&x| x == id))
+                            && let Some(r) = rows.rows.iter().position(|&(a, b, _)| a <= k && k < b)
+                        {
+                            let row = Rect::from_min_size(Pos2::new(left, top + head + rows.tops[r]), egui::vec2(width, rows.rows[r].2));
+                            ui.scroll_to_rect(row.expand(GAP * 2.0), None);
                         }
                         if top + total < clip.top() || top > clip.bottom() {
                             ui.add_space(total);
@@ -578,7 +741,19 @@ impl App {
                                 let rect = Rect::from_min_size(Pos2::new(x, row.top()), egui::vec2(w, h));
                                 x += w + GAP;
                                 self.want_sharp_thumb(id, w.max(h) * ppp);
-                                let resp = ui.interact(rect, egui::Id::new(("tile", id)), Sense::click());
+                                if let (Some(b), Some(area)) = (self.box_select.as_mut(), boxed) {
+                                    if area.intersects(rect) {
+                                        b.inside.insert(id);
+                                    } else {
+                                        b.inside.remove(&id);
+                                    }
+                                }
+                                let resp = ui.interact(rect, egui::Id::new(("tile", id)), Sense::click_and_drag());
+                                // dragged onto an album in the sidebar: the selection, or this one
+                                if resp.drag_started() {
+                                    let ids = if self.selection.contains(&id) { flat_selection(&cache.flat, &self.selection) } else { vec![id] };
+                                    resp.dnd_set_drag_payload(DraggedPictures(ids));
+                                }
                                 let hovered = resp.contains_pointer();
                                 self.paint_tile(ui, rect, id, hovered);
                                 let action = self.tile_buttons(ui, rect, id, hovered);
@@ -607,9 +782,12 @@ impl App {
                         ui.add_space(rows.height - drawn + 14.0);
                     }
                     self.grid_cache = Some(cache);
-                    let rest = ui.available_rect_before_wrap();
-                    if rest.height() > 10.0 && ui.allocate_rect(rest, Sense::click()).clicked() {
-                        background_click = true;
+                    if let (Some(b), Some(area)) = (self.box_select.as_ref(), boxed) {
+                        self.selection = b.base.iter().chain(b.inside.iter()).copied().collect();
+                        self.tray_set = None;
+                        let p = ui.painter();
+                        p.rect_filled(area, 2, t().accent.gamma_multiply(0.15));
+                        p.rect_stroke(area, 2, Stroke::new(1.0, t().accent), StrokeKind::Inside);
                     }
                 });
             });
@@ -633,10 +811,13 @@ impl App {
                         self.selection.insert(id);
                     }
                     self.anchor = Some(id);
+                    self.cursor = Some(id);
                 } else {
-                    self.selection.clear();
+                    let before = std::mem::take(&mut self.selection);
+                    self.before_click = (before.len() > 1 && before.contains(&id)).then_some(before);
                     self.selection.insert(id);
                     self.anchor = Some(id);
+                    self.cursor = Some(id);
                 }
             } else if background_click {
                 self.selection.clear();
@@ -644,6 +825,11 @@ impl App {
                 self.list_pick = None;
             }
             if let Some(id) = open {
+                // the first click of the double-click chose this picture alone: the selection
+                // it replaced comes back
+                if let Some(before) = self.before_click.take().filter(|b| b.contains(&id)) {
+                    self.selection = before;
+                }
                 self.open_editor(id);
             }
         });
@@ -796,9 +982,6 @@ impl App {
             p.circle_filled(c, 5.0, Color32::from_rgb(80, 190, 110));
             p.circle_stroke(c, 5.0, Stroke::new(1.0, Color32::WHITE));
         }
-        if self.held.contains(&id) {
-            p.text(Pos2::new(img.right() - 6.0, img.bottom() - 28.0), egui::Align2::RIGHT_BOTTOM, icons::PIN, egui::FontId::proportional(13.0), Color32::WHITE);
-        }
     }
 
     /// The check circle (top left), the reject and pick buttons (top right) and, on hover, five
@@ -894,4 +1077,37 @@ enum TileAction {
     Pick,
     Reject,
     Rate(u8),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two folders: rows of pictures 0 1 2 | 3 4 (folder 0) and 5 6 7 (folder 1), all the same
+    /// shape. Up and down go to the picture above or below, also across folders.
+    #[test]
+    fn arrow_keys_follow_the_rows() {
+        let groups: Rc<Vec<Group>> = Rc::new(vec![(Some(0), vec![0, 1, 2, 3, 4]), (Some(1), vec![5, 6, 7])]);
+        let rows = |n: usize, rows: Vec<(usize, usize, f32)>| GroupRows { aspects: vec![1.0; n], tops: vec![0.0; rows.len()], height: 0.0, rows };
+        let cache = GridCache {
+            groups: groups.clone(),
+            flat: Rc::new((0..8).collect()),
+            shapes_asked: 0,
+            key: None,
+            layout: vec![rows(5, vec![(0, 3, 100.0), (3, 5, 150.0)]), rows(3, vec![(0, 3, 100.0)])],
+            header_h: HashMap::new(),
+        };
+        let go = |id, s| grid_step(&cache, &groups, id, s);
+        assert_eq!(go(2, Step::Right), Some(3));
+        assert_eq!(go(0, Step::Left), None);
+        // centres: first row 50, 154, 258; second row (taller) 75, 229
+        assert_eq!(go(0, Step::Down), Some(3));
+        assert_eq!(go(1, Step::Down), Some(4));
+        assert_eq!(go(4, Step::Up), Some(2));
+        // from the last row of a folder into the first row of the next
+        assert_eq!(go(4, Step::Down), Some(7));
+        assert_eq!(go(5, Step::Up), Some(3));
+        assert_eq!(go(6, Step::Down), None);
+        assert_eq!((go(4, Step::First), go(0, Step::Last)), (Some(0), Some(7)));
+    }
 }

@@ -453,7 +453,7 @@ impl App {
             self.toast(if self.geo.indexing() {
                 "Still looking for GPS positions in your pictures: try again in a moment.".to_string()
             } else {
-                format!("None of these {n} picture(s) has a location yet. Select them and click {} (Set location) in the photo tray to place them.", icons::LOCATION)
+                format!("None of these {n} picture(s) has a location yet. Select them and click {} (Set location) in the selection bar to place them.", icons::LOCATION)
             });
             return;
         }
@@ -966,7 +966,7 @@ impl App {
                         if ui.button(format!("{} Change location…", icons::LOCATION)).clicked() {
                             change = true;
                         }
-                        if ui.button("Select in library").on_hover_text("Put these pictures in the photo tray").clicked() {
+                        if ui.button("Select in library").on_hover_text("Select these pictures in the library").clicked() {
                             to_tray = true;
                         }
                     });
@@ -997,7 +997,6 @@ impl App {
         }
         if to_tray {
             self.selection = ids.iter().copied().collect();
-            self.held.clear();
             self.source = Source::Library;
             self.geo.map.back = View::Library;
             self.leave_map();
@@ -1186,7 +1185,7 @@ impl App {
             let text = if self.geo.indexing() {
                 "Looking for GPS positions in your pictures…".to_string()
             } else {
-                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} (Set location) in the photo tray.", icons::LOCATION)
+                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} (Set location) in the selection bar.", icons::LOCATION)
             };
             let galley = painter.layout(text, egui::FontId::proportional(13.5), t().text, 360.0);
             let r = Rect::from_center_size(rect.center(), galley.size() + egui::vec2(36.0, 28.0));
