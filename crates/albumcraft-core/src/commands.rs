@@ -313,8 +313,16 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "trash_rejected",
+            description: "Move the files of rejected pictures (flag \"reject\") to the system's trash: they are removed from their folders, and the user can get them back from the trash until it is emptied. Only rejected pictures are moved. Ask the user first, then call with confirm: true. Without `keys`, every rejected picture of the library.",
+            schema: || json!({ "type": "object", "properties": {
+                "keys": { "type": "array", "items": { "type": "string" }, "description": "Rejected pictures to move (default: all rejected pictures)" },
+                "confirm": { "type": "boolean", "description": "Must be true: the user agreed to move these files to the trash" }
+            }, "required": ["confirm"] }),
+        },
+        Spec {
             name: "email_pictures",
-            description: "Open a new message in the user's mail program with small copies (1600 px, JPEG) of the pictures attached, for the user to address and send. Nothing is sent by this command. Where no mail program can take attachments, the reply says where the copies are.",
+            description: "Open a new message in the user's mail program with small copies (1200 px, JPEG) of the pictures attached, for the user to address and send. Nothing is sent by this command. Where no mail program can take attachments, the reply says where the copies are.",
             schema: || keys_schema(json!({ "subject": { "type": "string", "required": false } })),
         },
         Spec {
@@ -1088,6 +1096,30 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 Ok(Reply::json(json!({ "written": done, "failed": failed })))
             })))
         }
+        "trash_rejected" => {
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: the files are removed from their folders (to the system's trash)".into());
+            }
+            let rejected = |host: &dyn Host, id: usize| {
+                host.photos().get(id).is_some_and(|p| !p.is_sample()) && host.store().meta.get(&host.photos()[id].key).is_some_and(|m| m.flag == Flag::Reject)
+            };
+            let chosen: Vec<usize> = if args.get("keys").is_some() {
+                let chosen = ids(host, args)?;
+                if let Some(&id) = chosen.iter().find(|&&id| !rejected(host, id)) {
+                    return Err(format!("{} is not rejected: only rejected pictures can be moved to the trash", host.photos()[id].key));
+                }
+                chosen
+            } else {
+                (0..host.photos().len()).filter(|&id| rejected(host, id)).collect()
+            };
+            if chosen.is_empty() {
+                return Err("no picture is rejected".into());
+            }
+            let files: Vec<String> = chosen.iter().map(|&id| host.photos()[id].key.clone()).collect();
+            let done = library::trash_files(&files, &|_, _| true);
+            host.rescan();
+            now(json!({ "moved": done.moved, "not_moved": done.failed, "message": done.report().text }))
+        }
         "email_pictures" => {
             let ids = ids(host, args)?;
             let subject = opt_str(args, "subject").unwrap_or("Pictures").to_string();
@@ -1604,6 +1636,10 @@ mod tests {
             ("show_on_map", json!({ "keys": [k] })),
             ("show_on_map", json!({ "keys": [] })),
             ("email_pictures", json!({ "keys": [] })),
+            ("trash_rejected", json!({})),
+            ("trash_rejected", json!({ "confirm": "yes" })),
+            ("trash_rejected", json!({ "confirm": false })),
+            ("trash_rejected", json!({ "keys": [k], "confirm": true })),
             ("set_sort_order", json!({ "order": "colour" })),
             ("set_sort_order", json!({})),
             ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),

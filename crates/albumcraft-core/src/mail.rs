@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 /// Longest side of the copies, in pixels, and their JPEG quality.
-pub const MAX_DIM: u32 = 1600;
+pub const MAX_DIM: u32 = 1200;
 pub const QUALITY: u8 = 85;
 
 /// How the new message was opened.

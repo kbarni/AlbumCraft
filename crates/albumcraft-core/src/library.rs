@@ -1025,25 +1025,42 @@ impl Report {
 /// Sample pictures and files that are not there are left alone. `step(done, total)` says how far
 /// it is and answers false when the user stopped it.
 pub fn move_to_trash(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Report {
-    let mut moved = 0;
-    let mut failed: Vec<String> = vec![];
-    let mut stopped = false;
+    trash_files(files, step).report()
+}
+
+/// What `trash_files` did.
+pub struct Trashed {
+    pub moved: usize,
+    /// "file name: why" for each file left where it was.
+    pub failed: Vec<String>,
+    pub stopped: bool,
+}
+
+/// Move these files to the system's trash (see `move_to_trash`).
+pub fn trash_files(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Trashed {
+    let mut t = Trashed { moved: 0, failed: vec![], stopped: false };
     for (i, f) in files.iter().enumerate() {
         if !step(i, files.len()) {
-            stopped = true;
+            t.stopped = true;
             break;
         }
         let name = f.rsplit(['/', '\\']).next().unwrap_or(f);
         if f.starts_with(SAMPLE_PREFIX) || !Path::new(f).is_file() {
-            failed.push(format!("{name}: not found"));
+            t.failed.push(format!("{name}: not found"));
             continue;
         }
         match trash::delete(f) {
-            Ok(()) => moved += 1,
-            Err(e) => failed.push(format!("{name}: {e}")),
+            Ok(()) => t.moved += 1,
+            Err(e) => t.failed.push(format!("{name}: {e}")),
         }
     }
-    let mut text = if moved == 1 { "Moved 1 picture to the trash.".to_string() } else { format!("Moved {moved} pictures to the trash.") };
+    t
+}
+
+impl Trashed {
+    pub fn report(&self) -> Report {
+        let (moved, failed, stopped) = (self.moved, &self.failed, self.stopped);
+        let mut text = if moved == 1 { "Moved 1 picture to the trash.".to_string() } else { format!("Moved {moved} pictures to the trash.") };
     if stopped {
         text.push_str("\nStopped before the end.");
     }
@@ -1058,6 +1075,7 @@ pub fn move_to_trash(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> R
         }
     }
     if failed.is_empty() { Report::done(text) } else { Report::failed(text) }
+    }
 }
 
 /// A picture's thumbnail: from the disk cache, else made from the file and put in the cache.
