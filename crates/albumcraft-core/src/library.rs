@@ -880,6 +880,34 @@ impl Job {
     }
 }
 
+/// The error of work the user stopped (not a failure to report as one).
+pub const STOPPED: &str = "stopped";
+
+/// How a piece of background work ended.
+#[derive(Debug, Clone)]
+pub struct Report {
+    /// The task it ends, when it was started as one (shown with progress and Cancel).
+    pub task: Option<u64>,
+    pub text: String,
+    /// False: something went wrong; the message stays until the user closes it.
+    pub ok: bool,
+    /// A file or folder that was made, to offer "Show in folder".
+    pub show: Option<PathBuf>,
+}
+
+impl Report {
+    pub fn done(text: impl Into<String>) -> Report {
+        Report { task: None, text: text.into(), ok: true, show: None }
+    }
+    pub fn failed(text: impl Into<String>) -> Report {
+        Report { task: None, text: text.into(), ok: false, show: None }
+    }
+    pub fn showing(mut self, path: impl Into<PathBuf>) -> Report {
+        self.show = Some(path.into());
+        self
+    }
+}
+
 /// A picture's thumbnail: from the disk cache, else made from the file and put in the cache.
 fn cached_thumbnail(key: &str) -> Option<RgbaImage> {
     crate::thumbcache::get(key, THUMB_DIM).or_else(|| {
@@ -897,7 +925,10 @@ pub enum Done {
     /// Scanned folders, whether the scan stopped at SCAN_LIMIT, and the `.picasa.ini` notes read
     /// in folders not brought in before (by folder path).
     Scan(Vec<ScannedFolder>, bool, Vec<(String, IniFolder)>),
-    Message(String),
+    /// How a piece of background work ended, to tell the user.
+    Report(Report),
+    /// How far a task (see `Report::task`) is: `done` of `total` steps.
+    Progress { task: u64, done: usize, total: usize },
     /// Thumbnail jobs forgotten because too many were waiting (by key): not made, not failed.
     Dropped(Vec<String>),
     /// A short progress note for the toast.

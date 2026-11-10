@@ -1,4 +1,5 @@
-//! The dialogs (`App.dialog`) and the toast.
+//! The dialogs (`App.dialog`: one at a time, modal; Esc or a click beside it cancels, Enter
+//! presses the main button of the simple ones) and the notices (`App.notices`).
 
 use crate::app::*;
 use crate::icons;
@@ -8,8 +9,9 @@ use eframe::egui::{self, Color32};
 impl App {
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
         let Some(mut dialog) = self.dialog.take() else { return };
-        let mut open = true;
         let mut close = false;
+        // Enter presses the main button of the dialogs that only ask for a name or an OK
+        let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let title = match &dialog {
             Dialog::Info { title, .. } => title.clone(),
             Dialog::NewAlbum { .. } => "New album".into(),
@@ -27,17 +29,17 @@ impl App {
             Dialog::ClearTray { .. } => "Photo tray".into(),
         };
         let targets = self.targets();
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .default_width(380.0)
-            .show(ctx, |ui| match &mut dialog {
+        #[allow(deprecated)]
+        let modal_id = egui::Id::new("dialog");
+        let modal = egui::Modal::new(modal_id).show(ctx, |ui| {
+            ui.set_width(400.0);
+            ui.heading(title);
+            ui.add_space(6.0);
+            match &mut dialog {
                 Dialog::Info { text, .. } => {
                     ui.label(text.as_str());
                     ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
+                    if ui.button("OK").clicked() || enter {
                         close = true;
                     }
                 }
@@ -49,7 +51,6 @@ impl App {
                         ui.label(format!("The {} picture(s) in the tray will be added.", targets.len()));
                     }
                     ui.horizontal(|ui| {
-                        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         if (ui.button("Create").clicked() || enter) && !name.trim().is_empty() {
                             self.store.albums.push(Album { name: name.trim().to_string(), keys: vec![] });
                             let idx = self.store.albums.len() - 1;
@@ -68,7 +69,7 @@ impl App {
                 Dialog::RenameAlbum { idx, name } => {
                     ui.text_edit_singleline(name);
                     ui.horizontal(|ui| {
-                        if ui.button("Rename").clicked() && !name.trim().is_empty() {
+                        if (ui.button("Rename").clicked() || enter) && !name.trim().is_empty() {
                             if let Some(a) = self.store.albums.get_mut(*idx) {
                                 a.name = name.trim().to_string();
                                 self.dirty = true;
@@ -91,7 +92,7 @@ impl App {
                         ui.end_row();
                     });
                     ui.horizontal(|ui| {
-                        if ui.button("Add").clicked() {
+                        if ui.button("Add").clicked() || enter {
                             let split = |s: &str| -> Vec<String> {
                                 s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect()
                             };
@@ -203,10 +204,11 @@ impl App {
                             }
                         });
                     }
-                    if let Some(i) = remove {
-                        self.store.roots.remove(i);
+                    if let Some(i) = remove.filter(|&i| i < self.store.roots.len()) {
+                        let path = self.store.roots.remove(i);
                         self.dirty = true;
                         self.rescan();
+                        self.undoable(format!("Removed {path} from the library. The pictures and your notes on them are untouched."), Undo::Root { at: i, path });
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
@@ -354,7 +356,7 @@ impl App {
                     ui.label("Edits never change your original files; they are applied when you look at or export a picture.");
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new("Built-in map: Natural Earth (public domain). City list: GeoNames (CC BY 4.0). Online maps: © OpenStreetMap contributors (ODbL).").size(11.5).weak());
-                    if ui.button("OK").clicked() {
+                    if ui.button("OK").clicked() || enter {
                         close = true;
                     }
                 }
@@ -382,31 +384,79 @@ impl App {
                         }
                     });
                 }
-            });
-        if open && !close {
+            }
+        });
+        // Esc, or a click beside the dialog: the same as Cancel
+        if !close && !modal.should_close() {
             self.dialog = Some(dialog);
         }
     }
 
+    /// The notices, stacked over the bottom of the window, newest lowest: short notes fade by
+    /// themselves, errors stay until closed, some offer "Undo" or "Show in folder".
     pub(crate) fn toast_ui(&mut self, ctx: &egui::Context) {
-        if let Some((text, t)) = &self.toast {
-            let now = ctx.input(|i| i.time);
-            if now - t > 3.5 {
-                self.toast = None;
-                return;
+        if self.notices.is_empty() {
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        let mut close: Option<usize> = None;
+        let mut act: Option<usize> = None;
+        let mut hovered: Option<usize> = None;
+        #[allow(deprecated)]
+        let id = egui::Id::new("notices");
+        egui::Area::new(id).order(egui::Order::Foreground).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -150.0]).show(ctx, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                for (i, n) in self.notices.iter().enumerate() {
+                    let fill = if n.error { Color32::from_rgba_unmultiplied(92, 34, 34, 245) } else { Color32::from_rgba_unmultiplied(40, 44, 52, 240) };
+                    let frame = egui::Frame::new().fill(fill).corner_radius(6).inner_margin(egui::Margin::symmetric(14, 8)).show(ui, |ui| {
+                        ui.set_max_width((ctx.content_rect().width() - 60.0).clamp(200.0, 560.0));
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(n.text.as_str()).color(Color32::WHITE));
+                            let label = match &n.action {
+                                Some(NoticeAction::Undo(_)) => Some(format!("{} Undo", icons::UNDO)),
+                                Some(NoticeAction::Show(_)) => Some(format!("{} Show in folder", icons::FOLDER)),
+                                None => None,
+                            };
+                            if let Some(label) = label
+                                && ui.button(label).clicked()
+                            {
+                                act = Some(i);
+                            }
+                            // short plain notes need no button: they are gone in a moment
+                            if (n.life.is_none() || n.action.is_some()) && ui.small_button(icons::CLOSE).on_hover_text("Close this message").clicked() {
+                                close = Some(i);
+                            }
+                        });
+                    });
+                    if frame.response.contains_pointer() {
+                        hovered = Some(i);
+                    }
+                    ui.add_space(4.0);
+                }
+            });
+        });
+        if let Some(i) = act {
+            match self.notices.remove(i).action {
+                Some(NoticeAction::Undo(undo)) => self.undo_action(undo),
+                Some(NoticeAction::Show(path)) => {
+                    if let Err(e) = crate::library_view::reveal_in_file_manager(&path) {
+                        self.toast(format!("Could not open the file manager: {e}"));
+                    }
+                }
+                None => {}
             }
-            let text = text.clone();
-            #[allow(deprecated)]
-            let toast_id = egui::Id::new("toast");
-            egui::Area::new(toast_id)
-                .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -150.0])
-                .show(ctx, |ui| {
-                    egui::Frame::new()
-                        .fill(Color32::from_rgba_unmultiplied(40, 44, 52, 235))
-                        .corner_radius(6)
-                        .inner_margin(egui::Margin::symmetric(14, 8))
-                        .show(ui, |ui| ui.label(egui::RichText::new(text).color(Color32::WHITE)));
-                });
+        } else if let Some(i) = close {
+            self.notices.remove(i);
+        } else {
+            // a notice under the mouse pointer waits
+            let mut i = 0;
+            self.notices.retain(|n| {
+                let keep = hovered == Some(i) || n.life.is_none_or(|life| now - n.born <= life);
+                i += 1;
+                keep
+            });
+        }
+        if self.notices.iter().any(|n| n.life.is_some()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
     }

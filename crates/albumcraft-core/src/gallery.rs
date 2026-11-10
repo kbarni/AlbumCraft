@@ -39,8 +39,10 @@ pub type Item = (String, String, Vec<EditOp>, String);
 const THUMB: u32 = 480;
 
 /// Make the gallery in a new folder inside `parent` (named after the title, never an existing
-/// folder). Returns the folder and how many pictures could not be read.
-pub fn write(parent: &Path, items: &[Item], opts: &Options) -> Result<(PathBuf, usize), String> {
+/// folder). Returns the folder and how many pictures could not be read. `step(done, total)` is
+/// called before each picture; when it answers false the work stops, what was made is removed
+/// and the error is `library::STOPPED`.
+pub fn write(parent: &Path, items: &[Item], opts: &Options, step: &dyn Fn(usize, usize) -> bool) -> Result<(PathBuf, usize), String> {
     let name = folder_name(&opts.title);
     let mut dir = parent.join(&name);
     let mut n = 2;
@@ -57,6 +59,10 @@ pub fn write(parent: &Path, items: &[Item], opts: &Options) -> Result<(PathBuf, 
     let mut shown: Vec<(String, String, u32, u32)> = vec![];
     let mut failed = 0;
     for (i, (key, _name, edits, caption)) in items.iter().enumerate() {
+        if !step(i, items.len()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(crate::library::STOPPED.into());
+        }
         let file = format!("{:04}.jpg", i + 1);
         let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<(u32, u32)> {
             let src = imaging::load_source(key, opts.size)?;
@@ -196,7 +202,7 @@ mod tests {
         let items: Vec<Item> = (1..=12).map(|n| (format!("{}{n}", imaging::SAMPLE_PREFIX), format!("{n}.jpg"), vec![], format!("Picture {n}"))).collect();
         for style in Style::ALL {
             let opts = Options { title: format!("Demo {}", style.label()), style, size: 1280, captions: true };
-            let (dir, _) = write(&out, &items, &opts).unwrap();
+            let (dir, _) = write(&out, &items, &opts, &|_, _| true).unwrap();
             println!("{}", dir.join("index.html").display());
         }
     }
@@ -213,8 +219,8 @@ mod tests {
             ("/no/such.jpg".into(), "c.jpg".into(), vec![], String::new()),
         ];
         let opts = Options { title: "Trip / \"2009\"".into(), style: Style::Masonry, size: 300, captions: true };
-        let (dir, failed) = write(&parent, &items, &opts).unwrap();
-        let (dir2, _) = write(&parent, &items, &opts).unwrap();
+        let (dir, failed) = write(&parent, &items, &opts, &|_, _| true).unwrap();
+        let (dir2, _) = write(&parent, &items, &opts, &|_, _| true).unwrap();
         let html = std::fs::read_to_string(dir.join("index.html")).unwrap();
         let big = image::image_dimensions(dir.join("images/0001.jpg")).unwrap();
         let thumb = dir.join("thumbs/0002.jpg").exists();

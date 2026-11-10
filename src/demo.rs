@@ -211,6 +211,19 @@ impl App {
             self.store.thumb_size = 256.0;
             self.scroll_to_photo = self.photos.len().checked_sub(1);
         }
+        if shot_view == "notices" {
+            // a running task, a result, an offer to undo and an error
+            let _ = self.start_task("Exporting 24 picture(s)");
+            if let Some(t) = self.tasks.last_mut() {
+                (t.done, t.total) = (9, 24);
+            }
+            self.notices.push(Notice { text: "The web gallery is ready:\n/home/me/Pictures/Summer by the sea/index.html".into(), error: false, born: 0.0, life: None, action: Some(NoticeAction::Show("/home/me/Pictures".into())) });
+            self.notices.push(Notice { text: "Deleted the album \"Best of the year\". Its pictures are untouched.".into(), error: false, born: 0.0, life: None, action: Some(NoticeAction::Undo(Undo::Edits(vec![]))) });
+            self.error("Your library could not be saved: no space left on the disk.\nYour latest changes are only in this window for now; AlbumCraft keeps trying.");
+        }
+        if shot_view == "dialog" {
+            self.dialog = Some(Dialog::NewAlbum { name: "Best of 2009".into() });
+        }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }

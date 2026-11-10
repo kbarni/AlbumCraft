@@ -708,7 +708,8 @@ impl App {
         };
         let job = self.collage_job(pages);
         self.toast(format!("Saving the {}…", name.to_lowercase()));
-        self.lib.make_collage(job, path, self.store.collage.out_px);
+        let task = self.start_task("Saving the collage");
+        self.lib.make_collage(task, job, path, self.store.collage.out_px);
         self.arm_tray_check();
     }
 
@@ -739,9 +740,9 @@ impl App {
             }))
             .unwrap_or_else(|_| Err("unexpected error".into()));
             progress.store(usize::MAX, Ordering::SeqCst);
-            let _ = tx.send(Done::Message(match result {
-                Ok(n) => format!("Sent {n} page(s) to {}.", choice.name),
-                Err(e) => format!("Printing didn't finish: {e}"),
+            let _ = tx.send(Done::Report(match result {
+                Ok(n) => crate::library::Report::done(format!("Sent {n} page(s) to {}.", choice.name)),
+                Err(e) => crate::library::Report::failed(format!("Printing didn't finish: {e}")),
             }));
             ctx.request_repaint();
         });

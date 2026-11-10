@@ -10,3 +10,9 @@ scratch/
 
 # Packages from packaging/
 dist/
+
+# Website preview output (website/README.md)
+website/_site/
+website/.jekyll-cache/
+website/Gemfile.lock
+website/vendor/
