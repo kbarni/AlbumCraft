@@ -79,6 +79,8 @@ pub enum View {
     Edit,
     Slideshow,
     Print,
+    /// Collages and contact sheets.
+    Collage,
     /// Places: the map of where pictures were taken (also used to set a location).
     Map,
     /// Copying pictures from a card, camera or folder into the library.
@@ -151,7 +153,6 @@ pub enum Dialog {
     Gallery { title: String, style: crate::gallery::Style, size: u32, captions: bool },
     FolderNote { path: String, text: String },
     FolderManager,
-    Collage,
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
     About,
@@ -365,6 +366,7 @@ pub struct App {
     pub edit: EditState,
     pub slide: Option<Slideshow>,
     pub print: Option<crate::print_view::PrintState>,
+    pub collage: Option<Box<crate::collage_view::CollageState>>,
     pub dialog: Option<Dialog>,
     pub toast: Option<(String, f64)>,
     /// The import view's state (only while it is open).
@@ -518,6 +520,7 @@ impl App {
             },
             slide: None,
             print: None,
+            collage: None,
             dialog: None,
             toast: None,
             import: None,
@@ -587,6 +590,16 @@ impl App {
                 app.held.clear();
                 app.store.print.layout = crate::print::PrintLayout::Cm9x13;
                 app.open_print();
+            }
+            if matches!(shot_view.as_str(), "collage" | "sheet") && app.photos.len() > 12 {
+                app.selection = (0..12usize).collect();
+                app.held.clear();
+                if shot_view == "collage" {
+                    app.store.collage.style = std::env::var("ALBUMCRAFT_SHOT_STYLE").ok().and_then(|s| crate::collage::Style::from_id(&s)).unwrap_or(crate::collage::Style::Pile);
+                    app.store.collage.border = app.store.collage.style.natural_border();
+                    app.store.collage.background = crate::collage::Background { kind: crate::collage::BgKind::Gradient, color: [250, 240, 222], color2: [196, 160, 128], ..Default::default() };
+                }
+                app.open_collage(shot_view == "sheet");
             }
             if shot_view == "props" {
                 // a temporary folder with one photo carrying camera information
@@ -776,6 +789,7 @@ impl App {
         // Everything else that remembers photo numbers: they mean other pictures after a rescan.
         self.tray_check = None;
         self.print = None;
+        self.collage = None;
         self.edit.list.clear();
         if matches!(self.dialog, Some(Dialog::ClearTray { .. } | Dialog::PrintReview { .. } | Dialog::ChooseEdits { .. })) {
             self.dialog = None;
@@ -1672,23 +1686,6 @@ impl App {
         self.arm_tray_check();
     }
 
-    pub fn collage(&mut self, ids: Vec<usize>) {
-        if ids.len() < 2 {
-            self.toast("Put at least two pictures in the tray to make a collage.");
-            return;
-        }
-        let Some(path) = rfd::FileDialog::new().set_file_name("Collage.png").add_filter("PNG picture", &["png"]).save_file()
-        else {
-            return;
-        };
-        let jobs: Vec<(String, Vec<EditOp>)> = ids.iter().map(|&id| (self.photos[id].key.clone(), self.edits(id))).collect();
-        self.toast("Making the collage…");
-        // the picker may return a name without the extension; the picture is always PNG
-        let path = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) { path } else { path.with_extension("png") };
-        self.lib.make_collage(jobs, path);
-        self.arm_tray_check();
-    }
-
     // ----------------------------------------------------------------- frame
 
     fn process_results(&mut self) {
@@ -1759,7 +1756,13 @@ impl App {
                     }
                 }
                 Done::Toast(m) => self.toast(m),
-                Done::File { key, dim, img } => self.on_import_file(key, dim, img),
+                Done::File { key, dim, img } => {
+                    if dim == library::BIG_DIM && self.collage.as_ref().is_some_and(|c| c.bg_key.as_deref() == Some(key.as_str())) {
+                        self.on_collage_background(key, img);
+                    } else {
+                        self.on_import_file(key, dim, img);
+                    }
+                }
                 Done::Dims(found) => {
                     self.dims_pending = false;
                     for (id, key, dims) in found {
@@ -1846,7 +1849,6 @@ impl App {
             Dialog::Gallery { .. } => "Web gallery".into(),
             Dialog::FolderNote { .. } => "Folder description".into(),
             Dialog::FolderManager => "Library folders".into(),
-            Dialog::Collage => "Make a collage".into(),
             Dialog::Movie { .. } => "Movie".into(),
             Dialog::About => "About AlbumCraft".into(),
             Dialog::OnlineMaps => "Maps".into(),
@@ -2045,18 +2047,6 @@ impl App {
                             self.rescan();
                         }
                         if ui.button("Close").clicked() {
-                            close = true;
-                        }
-                    });
-                }
-                Dialog::Collage => {
-                    ui.label(format!("Arrange the {} picture(s) in the tray in a grid and save it as a picture.", targets.len()));
-                    ui.horizontal(|ui| {
-                        if ui.button("Save collage…").clicked() {
-                            self.collage(targets.clone());
-                            close = true;
-                        }
-                        if ui.button("Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -2368,6 +2358,7 @@ impl eframe::App for App {
             View::Edit => self.edit_ui(ui),
             View::Slideshow => self.slideshow_ui(ui),
             View::Print => self.print_ui(ui),
+            View::Collage => self.collage_ui(ui),
             View::Map => self.map_ui(ui),
             View::Import => self.import_ui(ui),
         }

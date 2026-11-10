@@ -7,6 +7,7 @@ mod display;
 mod edit_view;
 mod icons;
 mod import_view;
+mod collage_view;
 mod info_panel;
 mod library_view;
 mod map_view;
@@ -22,7 +23,7 @@ mod theme;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, looks, mcp, movie, raw, thumbcache};
+pub use albumcraft_core::{collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, looks, mcp, movie, raw, thumbcache};
 
 use std::path::PathBuf;
 

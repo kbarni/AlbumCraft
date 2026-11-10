@@ -315,6 +315,10 @@ impl App {
             }
             self.flag_rating_menu(ui, &tray);
         });
+        if ui.add_enabled(!tray.is_empty(), egui::Button::new("Contact sheet…")).on_hover_text("Pages of small pictures with a title and their file names, to print or save as PDF").clicked() {
+            self.open_collage(true);
+            ui.close();
+        }
         ui.separator();
         self.edit_clipboard_menu(ui, &tray);
         if ui.add_enabled(!tray.is_empty(), egui::Button::new("Undo all edits")).clicked() {
@@ -552,8 +556,8 @@ impl App {
                         if big_button(ui, icons::MOVIE, "Movie", "Make a movie from the tray").clicked() {
                             self.dialog = Some(Dialog::Movie { hd: false });
                         }
-                        if big_button(ui, icons::COLLAGE, "Collage", "Make a collage from the tray").clicked() {
-                            self.dialog = Some(Dialog::Collage);
+                        if big_button(ui, icons::COLLAGE, "Collage", "Make a collage or a contact sheet from the tray").clicked() {
+                            self.open_collage(false);
                         }
                         if big_button(ui, icons::EXPORT, "Export", "Save edited copies to a folder").clicked() {
                             self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });

@@ -777,23 +777,6 @@ pub fn apply_effect(mut img: RgbaImage, e: Effect) -> RgbaImage {
     img
 }
 
-/// Lay out pictures in a grid on a light background.
-pub fn make_collage(pics: &[RgbaImage], cell: u32) -> RgbaImage {
-    let n = pics.len().max(1) as u32;
-    let cols = (n as f32).sqrt().ceil() as u32;
-    let rows = n.div_ceil(cols);
-    let gap = cell / 20;
-    let mut out = RgbaImage::from_pixel(cols * (cell + gap) + gap, rows * (cell + gap) + gap, Rgba([245, 245, 240, 255]));
-    for (i, p) in pics.iter().enumerate() {
-        let (w, h) = fit(p.width(), p.height(), cell);
-        let small = imageops::resize(p, w, h, imageops::FilterType::Triangle);
-        let cx = (i as u32 % cols) * (cell + gap) + gap + (cell - w) / 2;
-        let cy = (i as u32 / cols) * (cell + gap) + gap + (cell - h) / 2;
-        imageops::overlay(&mut out, &small, cx as i64, cy as i64);
-    }
-    out
-}
-
 #[cfg(test)]
 mod filter_tests {
     use super::*;

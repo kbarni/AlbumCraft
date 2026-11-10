@@ -17,7 +17,7 @@ each part needs:
 
 ```text
 crates/albumcraft-edit/src/   the edit pipeline only: no files, no threads of its own; builds for wasm32
-  imaging.rs       EditOp, Effect, apply_all, sample pictures, copyable_edits, make_collage
+  imaging.rs       EditOp, Effect, apply_all, sample pictures, copyable_edits
   develop.rs       Adjust sliders and the analysis behind the one-click fixes
   looks.rs         preset looks
   decor.rs         Effects tab: vignette, borders, shadow, text
@@ -28,7 +28,8 @@ crates/albumcraft-core/src/   everything without a window (native: desktop app, 
   export.rs        export_one (edited JPEG copies, never overwriting); import.rs: copying from cards / folders
   exifinfo.rs raw.rs geo.rs thumbcache.rs gallery.rs movie.rs
   online.rs        online map services (tiles on disk, place search), only when allowed
-  print.rs         print layouts and page rendering; slides.rs: slideshow settings and motion
+  print.rs         print layouts and page rendering, the PDF writer; slides.rs: slideshow settings and motion
+  collage.rs       collage styles and contact sheets: layouts, rendering, PDF / picture files
 src/                          the egui app (binary `albumcraft`)
   main.rs          entry point, --screenshot, --mcp; uses the core modules under their old names (crate::library, …)
   app.rs           App state + eframe update loop, dialogs, screenshot capture
@@ -43,6 +44,7 @@ src/                          the egui app (binary `albumcraft`)
   online.rs        map tiles as textures (adds to core's online.rs)
   print.rs         printers: Win32 GDI (the only `unsafe`, Windows only) and CUPS (adds to core's print.rs)
   print_view.rs    print UI
+  collage_view.rs  collage and contact sheet screen
   slides.rs        slideshow music (adds to core's slides.rs)
   theme.rs         light/dark tokens and egui style
 ```

@@ -132,6 +132,10 @@ pub struct Store {
     /// Sections of the info panel opened (true) or closed (false) by the user; others use their
     /// default.
     pub info_sections: HashMap<String, bool>,
+    /// Last used collage style, page and background.
+    pub collage: crate::collage::CollageSettings,
+    /// Last used contact sheet settings.
+    pub contact_sheet: crate::collage::SheetSettings,
 }
 
 impl Default for Store {
@@ -152,6 +156,8 @@ impl Default for Store {
             import_to: None,
             info_open: true,
             info_sections: HashMap::new(),
+            collage: Default::default(),
+            contact_sheet: Default::default(),
         }
     }
 }

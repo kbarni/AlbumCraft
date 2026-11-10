@@ -63,8 +63,9 @@ pub trait Library {
     fn make_gallery(&self, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options);
     /// Make a movie file; progress arrives as `Done::Toast`, the report as `Done::Message`.
     fn make_movie(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings);
-    /// Save a collage of these pictures as a PNG file; a report arrives as `Done::Message`.
-    fn make_collage(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf);
+    /// Save a collage or contact sheet (a PDF, or pictures `px_long` pixels on their longest
+    /// side); a report arrives as `Done::Message`.
+    fn make_collage(&self, job: crate::collage::Job, out: PathBuf, px_long: u32);
 
     /// List the pictures in an import source, marking the ones `library` (path, size) already
     /// has; the list arrives as `Done::ImportList`.
@@ -239,12 +240,11 @@ impl Library for LocalLibrary {
         });
     }
 
-    fn make_collage(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf) {
-        self.in_background("Could not make the collage: unexpected error.", move |_| {
-            let pics: Vec<RgbaImage> =
-                pictures.iter().filter_map(|(k, e)| imaging::load_source(k, 900).map(|i| imaging::apply_all(&i, e))).collect();
-            match imaging::make_collage(&pics, 600).save(&out) {
-                Ok(()) => format!("Collage saved to {}", out.display()),
+    fn make_collage(&self, job: crate::collage::Job, out: PathBuf, px_long: u32) {
+        self.in_background("Could not save the collage: unexpected error.", move |_| {
+            match crate::collage::save(&job, &out, px_long, &imaging::load_source) {
+                Ok(files) if files.len() > 1 => format!("Saved {} pictures, the first one is:\n{}", files.len(), out.display()),
+                Ok(_) => format!("Saved:\n{}", out.display()),
                 Err(e) => format!("Could not save the collage: {e}"),
             }
         });
@@ -323,7 +323,13 @@ mod tests {
     fn a_failed_collage_is_reported() {
         let (lib, rx) = local();
         // a folder that does not exist: the PNG can't be written
-        lib.make_collage(vec![(format!("{}1", imaging::SAMPLE_PREFIX), vec![])], PathBuf::from("/no/such/folder/c.png"));
+        let job = crate::collage::Job {
+            pages: vec![crate::collage::Page { size: [100.0, 80.0], shapes: vec![] }],
+            background: Default::default(),
+            bg_picture: None,
+            pictures: vec![(format!("{}1", imaging::SAMPLE_PREFIX), vec![])],
+        };
+        lib.make_collage(job, PathBuf::from("/no/such/folder/c.png"), 400);
         assert!(matches!(next(&rx), Done::Message(m) if m.starts_with("Could not save the collage")));
     }
 

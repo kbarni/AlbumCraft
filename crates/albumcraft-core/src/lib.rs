@@ -22,6 +22,7 @@ pub mod library;
 pub mod mcp;
 pub mod movie;
 pub mod online;
+pub mod collage;
 pub mod print;
 pub mod raw;
 pub mod slides;

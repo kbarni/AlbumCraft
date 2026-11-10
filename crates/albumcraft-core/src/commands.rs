@@ -335,6 +335,43 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "make_collage",
+            description: "Make a collage of at least two pictures and save it as a PDF, JPEG or PNG file (fails if `path` exists). Styles: pile (scattered prints), mosaic (different sizes filling the page), centre (a mosaic around the first picture), grid, film (film strips), clothesline (instant pictures on lines), fan, shape (heart, circle or star of pictures), blend (pictures through each other). Settings left out are those last used in the window.",
+            schema: || {
+                keys_schema(json!({
+                    "path": { "type": "string", "description": "The .pdf, .jpg or .png file to write" },
+                    "style": { "type": "string", "enum": ["pile", "mosaic", "centre", "grid", "film", "clothesline", "fan", "shape", "blend"], "required": false },
+                    "page": { "type": "string", "enum": ["A4", "A3", "Letter", "10x15cm", "13x18cm", "20x30cm", "Square", "Wide"], "required": false },
+                    "landscape": { "type": "boolean", "required": false },
+                    "border": { "type": "string", "enum": ["none", "white", "instant"], "description": "For pile, clothesline, fan and grid", "required": false },
+                    "shadow": { "type": "boolean", "required": false },
+                    "shape": { "type": "string", "enum": ["heart", "circle", "star"], "required": false },
+                    "background": { "type": "string", "description": "Colour as #rrggbb", "required": false },
+                    "background2": { "type": "string", "description": "Second colour (#rrggbb): a gradient from top to bottom", "required": false },
+                    "background_picture": { "type": "string", "description": "A picture file for the background (blurred)", "required": false },
+                    "size": { "type": "integer", "minimum": 256, "maximum": 12000, "description": "Longest side in pixels of a JPEG or PNG", "required": false },
+                    "seed": { "type": "integer", "minimum": 0, "description": "Another number gives other positions and sizes", "required": false }
+                }))
+            },
+        },
+        Spec {
+            name: "make_contact_sheet",
+            description: "Make a contact sheet: pages of small pictures with a title and their file names, saved as a PDF (or one JPEG / PNG per page). Fails if `path` exists.",
+            schema: || {
+                keys_schema(json!({
+                    "path": { "type": "string", "description": "The .pdf, .jpg or .png file to write" },
+                    "title": { "type": "string", "required": false },
+                    "subtitle": { "type": "string", "description": "Default: the number of pictures and their dates", "required": false },
+                    "picture_size": { "type": "number", "minimum": 15, "maximum": 90, "description": "Millimetres", "required": false },
+                    "names": { "type": "boolean", "required": false },
+                    "captions": { "type": "boolean", "required": false },
+                    "dates": { "type": "boolean", "required": false },
+                    "page": { "type": "string", "enum": ["A4", "A3", "Letter"], "required": false },
+                    "landscape": { "type": "boolean", "required": false }
+                }))
+            },
+        },
+        Spec {
             name: "show_photo",
             description: "Open a picture in the AlbumCraft window's editor (only while the window is open).",
             schema: || json!({ "type": "object", "properties": { "key": { "type": "string" } }, "required": ["key"] }),
@@ -515,6 +552,32 @@ fn png(img: &image::RgbaImage) -> Result<Vec<u8>, String> {
     let mut out = std::io::Cursor::new(Vec::new());
     img.write_to(&mut out, image::ImageFormat::Png).map_err(|e| e.to_string())?;
     Ok(out.into_inner())
+}
+
+/// A file to write that doesn't exist yet, in an existing folder, saved as PDF, JPEG or PNG.
+fn new_output(path: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    if p.exists() {
+        return Err(format!("{} already exists", p.display()));
+    }
+    if !p.parent().is_some_and(|d| d.as_os_str().is_empty() || d.is_dir()) {
+        return Err("the file's folder doesn't exist".into());
+    }
+    match p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).as_deref() {
+        Some("pdf" | "png" | "jpg" | "jpeg") => Ok(p),
+        _ => Err("the file must end in .pdf, .jpg or .png".into()),
+    }
+}
+
+/// "#rrggbb" (or "rrggbb") as a colour.
+fn hex_color(s: &str) -> Result<[u8; 3], String> {
+    let h = s.trim().trim_start_matches('#');
+    let bad = || format!("colour {s:?} is not #rrggbb");
+    if h.len() != 6 || !h.is_ascii() {
+        return Err(bad());
+    }
+    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).map_err(|_| bad());
+    Ok([byte(0)?, byte(2)?, byte(4)?])
 }
 
 fn existing_dir(path: &str) -> Result<PathBuf, String> {
@@ -1070,6 +1133,134 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 Ok(Reply::json(json!({ "movie": path.to_string_lossy(), "seconds": crate::movie::duration(pictures.len(), &s) })))
             })))
         }
+        "make_collage" | "make_contact_sheet" => {
+            use crate::collage::{self, BgKind, Border, Format, ShapeKind, Style};
+            let ids = ids(host, args)?;
+            let sheet = name == "make_contact_sheet";
+            if !sheet && ids.len() < 2 {
+                return Err("a collage needs at least two pictures".into());
+            }
+            let path = new_output(str_arg(args, "path")?)?;
+            let page = match opt_str(args, "page") {
+                Some(p) => Some(Format::from_id(p).ok_or_else(|| format!("unknown page size {p:?}"))?),
+                None => None,
+            };
+            let landscape = opt_bool(args, "landscape")?;
+            let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().map(|&id| (host.photos()[id].key.clone(), edits_of(host, id))).collect();
+            let notes: Vec<(String, String, i64)> = ids
+                .iter()
+                .map(|&id| {
+                    let p = &host.photos()[id];
+                    (p.name.clone(), host.store().meta.get(&p.key).map(|m| m.caption.clone()).unwrap_or_default(), p.modified)
+                })
+                .collect();
+            let pics_of = move |pictures: &[(String, Vec<EditOp>)]| -> Vec<collage::Pic> {
+                pictures
+                    .iter()
+                    .zip(&notes)
+                    .map(|((key, edits), (name, caption, t))| {
+                        let aspect = imaging::load_thumbnail(key, 256).map(|i| imaging::apply_all(&i, edits)).map(|i| i.width() as f32 / i.height().max(1) as f32).unwrap_or(1.5);
+                        collage::Pic { aspect, name: name.clone(), caption: caption.clone(), date: library::fmt_date(*t) }
+                    })
+                    .collect()
+            };
+            if sheet {
+                let mut s = host.store().contact_sheet.clone();
+                if let Some(f) = page {
+                    s.format = f;
+                }
+                if let Some(l) = landscape {
+                    s.landscape = l;
+                }
+                if let Some(v) = args.get("picture_size") {
+                    let mm = v.as_f64().ok_or("picture_size must be a number")? as f32;
+                    s.thumb_mm = mm.clamp(collage::THUMB_MM_MIN, collage::THUMB_MM_MAX);
+                }
+                for (field, value) in [("names", &mut s.names), ("captions", &mut s.captions), ("dates", &mut s.dates)] {
+                    if let Some(b) = opt_bool(args, field)? {
+                        *value = b;
+                    }
+                }
+                let title = opt_str(args, "title").unwrap_or("").to_string();
+                let times: Vec<i64> = ids.iter().map(|&id| host.photos()[id].modified).collect();
+                let subtitle = opt_str(args, "subtitle").map(str::to_string).unwrap_or_else(|| collage::sheet_subtitle(&times));
+                return Ok(Outcome::Later(Box::new(move || {
+                    let pics = pics_of(&pictures);
+                    let pages = collage::contact_sheet(&s, &pics, &title, &subtitle);
+                    let n = pages.len();
+                    let job = collage::Job { pages, background: collage::Background::white(), bg_picture: None, pictures };
+                    let files = collage::save(&job, &path, 2400, &imaging::load_source)?;
+                    Ok(Reply::json(json!({ "written": files.iter().map(|f| f.to_string_lossy()).collect::<Vec<_>>(), "pages": n })))
+                })));
+            }
+            let mut s = host.store().collage.clone();
+            if let Some(st) = opt_str(args, "style") {
+                s.style = Style::from_id(st).ok_or_else(|| format!("unknown style {st:?}"))?;
+                s.border = s.style.natural_border();
+            }
+            if let Some(f) = page {
+                s.format = f;
+            }
+            if let Some(l) = landscape {
+                s.landscape = l;
+            }
+            if let Some(b) = opt_str(args, "border") {
+                s.border = match b {
+                    "none" => Border::None,
+                    "white" => Border::White,
+                    "instant" => Border::Instant,
+                    _ => return Err(format!("unknown border {b:?}")),
+                };
+            }
+            if let Some(b) = opt_bool(args, "shadow")? {
+                s.shadow = b;
+            }
+            if let Some(k) = opt_str(args, "shape") {
+                s.shape = match k {
+                    "heart" => ShapeKind::Heart,
+                    "circle" => ShapeKind::Circle,
+                    "star" => ShapeKind::Star,
+                    _ => return Err(format!("unknown shape {k:?}")),
+                };
+            }
+            if let Some(c) = opt_str(args, "background") {
+                s.background.color = hex_color(c)?;
+                s.background.kind = BgKind::Color;
+            }
+            if let Some(c) = opt_str(args, "background2") {
+                s.background.color2 = hex_color(c)?;
+                s.background.kind = BgKind::Gradient;
+                s.background.gradient = collage::Gradient::Vertical;
+            }
+            let bg_picture = match opt_str(args, "background_picture") {
+                Some(f) if Path::new(f).is_file() => {
+                    s.background.kind = BgKind::Picture;
+                    s.background.blur = true;
+                    let edits = host.find(f).map(|id| edits_of(host, id)).unwrap_or_default();
+                    Some((f.to_string(), edits))
+                }
+                Some(f) => return Err(format!("background picture {f:?} not found")),
+                None => {
+                    if s.background.kind == BgKind::Picture {
+                        s.background.kind = BgKind::Color;
+                    }
+                    None
+                }
+            };
+            if let Some(px) = opt_u64(args, "size")? {
+                s.out_px = px.clamp(256, collage::MAX_PAGE_PX as u64) as u32;
+            }
+            if let Some(seed) = opt_u64(args, "seed")? {
+                s.seed = seed;
+            }
+            Ok(Outcome::Later(Box::new(move || {
+                let pics = pics_of(&pictures);
+                let page = collage::collage(&s, &pics, &[]);
+                let job = collage::Job { pages: vec![page], background: s.background, bg_picture, pictures };
+                let files = collage::save(&job, &path, s.out_px, &imaging::load_source)?;
+                Ok(Reply::json(json!({ "written": files.iter().map(|f| f.to_string_lossy()).collect::<Vec<_>>() })))
+            })))
+        }
         "show_photo" => {
             let id = one(host, str_arg(args, "key")?)?;
             host.show(id)?;
@@ -1377,10 +1568,35 @@ mod tests {
             ("search_photos", json!({ "has_location": "yes" })),
             ("find_place", json!({})),
             ("remove_location", json!({ "keys": [k], "back_to_file": 1 })),
+            ("make_collage", json!({ "keys": [k], "path": dir.join("c.jpg").to_string_lossy() })),
+            ("make_collage", json!({ "keys": keys, "path": dir.join("c.gif").to_string_lossy() })),
+            ("make_collage", json!({ "keys": keys, "path": dir.join("library.json").to_string_lossy() })),
+            ("make_collage", json!({ "keys": keys, "path": dir.join("c.jpg").to_string_lossy(), "style": "spiral" })),
+            ("make_collage", json!({ "keys": keys, "path": dir.join("c.jpg").to_string_lossy(), "background": "#12345" })),
+            ("make_collage", json!({ "keys": keys, "path": dir.join("c.jpg").to_string_lossy(), "background": "#ééé" })),
+            ("make_contact_sheet", json!({ "keys": keys, "path": "/no/such/folder/s.pdf" })),
+            ("make_contact_sheet", json!({ "keys": keys, "path": dir.join("s.pdf").to_string_lossy(), "page": "B7" })),
         ];
         for (name, args) in bad {
             assert!(run(&mut h, name, &args).and_then(|o| o.finish()).is_err(), "{name} {args} should fail");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collages_and_contact_sheets() {
+        let (dir, mut h, keys) = fixture("collage");
+        let out = dir.join("c.jpg");
+        let r = call(&mut h, "make_collage", json!({ "keys": keys, "path": out.to_string_lossy(), "style": "clothesline", "background": "#f0e8d8", "background2": "#a08060", "size": 600 })).unwrap();
+        assert_eq!(r["written"][0], out.to_string_lossy().as_ref());
+        let img = image::open(&out).unwrap();
+        assert_eq!(img.width().max(img.height()), 600);
+        // never overwrites
+        assert!(call(&mut h, "make_collage", json!({ "keys": keys, "path": out.to_string_lossy() })).is_err());
+        let pdf = dir.join("s.pdf");
+        let r = call(&mut h, "make_contact_sheet", json!({ "keys": keys, "path": pdf.to_string_lossy(), "title": "Test", "dates": true })).unwrap();
+        assert_eq!(r["pages"], 1);
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
