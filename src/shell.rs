@@ -250,6 +250,20 @@ impl App {
                             }
                             ui.add_space(2.0);
                         }
+                        // the order of the pictures (a small menu)
+                        use crate::library::Sort;
+                        let sorts = [(Sort::Name, "File name"), (Sort::Taken, "Date taken"), (Sort::Rating, "Rating")];
+                        let current = sorts.iter().find(|(s, _)| *s == self.store.sort).map(|(_, l)| *l).unwrap_or("File name");
+                        let label = if wide > 1100.0 { format!("{current}  {}", icons::EXPAND_MORE) } else { icons::EXPAND_MORE.to_string() };
+                        let resp = chip(ui, &label, false).on_hover_text(format!("Order of the pictures: {}", current.to_lowercase()));
+                        egui::Popup::menu(&resp).show(|ui| {
+                            for (sort, text) in sorts {
+                                if ui.radio(self.store.sort == sort, text).clicked() {
+                                    self.store.sort = sort;
+                                    self.dirty = true;
+                                }
+                            }
+                        });
                         // rating / rejects filter (a small menu), then the Picks toggle
                         let f = self.filter.clone();
                         let label = match (f.min_rating, f.hide_rejects) {
@@ -481,7 +495,10 @@ impl App {
         while batch.len() < 128 {
             let Some(&id) = cache.flat.get(cache.shapes_asked) else { break };
             cache.shapes_asked += 1;
-            if !self.thumbs.contains_key(&id) && !self.thumb_aspect.contains_key(&id) && !self.real_dims.contains_key(&id)
+            // the shape (unless a thumbnail shows it) and the date taken: for the layout, the
+            // order by date, the status bar and the catalogue cache
+            let shape_known = self.thumbs.contains_key(&id) || self.thumb_aspect.contains_key(&id) || self.real_dims.contains_key(&id);
+            if (!shape_known || !self.taken.contains_key(&id))
                 && let Some(p) = self.photos.get(id)
             {
                 batch.push((id, p.key.clone()));
@@ -501,6 +518,7 @@ impl App {
                 return;
             }
             let target = (self.store.thumb_size * 1.25).clamp(90.0, 320.0);
+            let ppp = ui.ctx().pixels_per_point();
             let mut open: Option<usize> = None;
             let mut clicked: Option<(usize, egui::Modifiers)> = None;
             let mut background_click = false;
@@ -559,7 +577,7 @@ impl App {
                                 let w = aspect * h;
                                 let rect = Rect::from_min_size(Pos2::new(x, row.top()), egui::vec2(w, h));
                                 x += w + GAP;
-                                self.want_thumb(id);
+                                self.want_sharp_thumb(id, w.max(h) * ppp);
                                 let resp = ui.interact(rect, egui::Id::new(("tile", id)), Sense::click());
                                 let hovered = resp.contains_pointer();
                                 self.paint_tile(ui, rect, id, hovered);

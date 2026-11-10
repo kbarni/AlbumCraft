@@ -60,20 +60,21 @@ fn file_name(path: &str) -> String {
 }
 
 /// The EXIF "taken" time as Unix seconds (it is recorded in the camera's local time).
-fn date_taken(path: &str) -> Option<i64> {
+pub(crate) fn date_taken(path: &str) -> Option<i64> {
     // JPEG: from the header only; other files (TIFF, raw): the EXIF reader
-    let text = match crate::imaging::jpeg_head(path) {
-        Some(head) => {
-            let exif = head.exif()?;
-            let field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
-            match &field.value {
-                exif::Value::Ascii(v) => String::from_utf8_lossy(v.first()?).to_string(),
-                _ => return None,
-            }
-        }
-        None => crate::exifinfo::read(path)?.date_taken?,
-    };
-    parse_exif_date(&text)
+    match crate::imaging::jpeg_head(path) {
+        Some(head) => exif_date_of(&head.exif()?),
+        None => parse_exif_date(&crate::exifinfo::read(path)?.date_taken?),
+    }
+}
+
+/// The "taken" time of an EXIF block, as Unix seconds.
+pub(crate) fn exif_date_of(exif: &exif::Exif) -> Option<i64> {
+    let field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
+    match &field.value {
+        exif::Value::Ascii(v) => parse_exif_date(&String::from_utf8_lossy(v.first()?)),
+        _ => None,
+    }
 }
 
 /// An EXIF date ("2006:08:18 10:34:25", the camera's local time) as Unix seconds.

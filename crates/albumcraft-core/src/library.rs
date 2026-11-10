@@ -103,9 +103,37 @@ pub struct Album {
     pub keys: Vec<String>,
 }
 
+/// The version of `library.json`'s format this program writes. A library saved by a newer
+/// version (a higher number) is never saved over: fields this version does not know would be
+/// lost.
+pub const FORMAT_VERSION: u32 = 1;
+
+/// The order of the pictures of a folder, album, person or Picks.
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Sort {
+    /// By file name (folders); as arranged (albums).
+    #[default]
+    Name,
+    /// By the date taken (EXIF), oldest first; the file's date when there is none.
+    Taken,
+    /// Highest rating first, then by name.
+    Rating,
+}
+
+/// A value from `library.json`, or the default when it holds one this version does not know
+/// (a newer version's setting must not make the whole library unreadable).
+fn or_default<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Store {
+    /// The format version it was saved in (`FORMAT_VERSION`; libraries saved before it was
+    /// recorded read as this one).
+    pub version: u32,
     pub roots: Vec<String>,
     /// Notes by picture (file path). Notes on the built-in sample pictures are not saved.
     #[serde(serialize_with = "without_samples")]
@@ -139,6 +167,9 @@ pub struct Store {
     pub collage: crate::collage::CollageSettings,
     /// Last used contact sheet settings.
     pub contact_sheet: crate::collage::SheetSettings,
+    /// The order of the pictures in the library.
+    #[serde(deserialize_with = "or_default")]
+    pub sort: Sort,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -148,6 +179,7 @@ fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> 
 impl Default for Store {
     fn default() -> Self {
         Self {
+            version: FORMAT_VERSION,
             roots: vec![],
             meta: HashMap::new(),
             albums: vec![],
@@ -165,6 +197,7 @@ impl Default for Store {
             info_sections: HashMap::new(),
             collage: Default::default(),
             contact_sheet: Default::default(),
+            sort: Sort::Name,
         }
     }
 }
@@ -337,6 +370,20 @@ impl Store {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Loaded::Fresh,
             Err(e) => return Loaded::Unreadable { error: e.to_string(), backup: None },
         };
+        // a newer version's library: keep it as it is (this version would drop what it added)
+        #[derive(Deserialize)]
+        struct Version {
+            #[serde(default)]
+            version: u32,
+        }
+        if let Ok(Version { version }) = serde_json::from_str::<Version>(&text)
+            && version > FORMAT_VERSION
+        {
+            return Loaded::Unreadable {
+                error: format!("it was saved by a newer version of AlbumCraft (format {version}; this version knows up to {FORMAT_VERSION}). Update AlbumCraft to use it"),
+                backup: None,
+            };
+        }
         match serde_json::from_str::<Store>(&text) {
             Ok(mut store) => {
                 store.sanitize();
@@ -373,6 +420,7 @@ impl Store {
     /// the window does this on the UI thread (a consistent snapshot) and writes on another thread.
     pub fn snapshot(&mut self) -> Result<Vec<u8>, String> {
         self.meta.retain(|_, m| !m.is_empty());
+        self.version = FORMAT_VERSION;
         serde_json::to_vec(self).map_err(|e| e.to_string())
     }
 }
@@ -550,7 +598,7 @@ mod queue_tests {
     #[test]
     fn urgent_first_then_newest_first() {
         let mut q = Queues::default();
-        let job = |k: &str| Job::Thumb { id: 0, key: k.into() };
+        let job = |k: &str| Job::Thumb { id: 0, key: k.into(), dim: THUMB_DIM };
         q.normal.push_back(job("old thumb"));
         q.normal.push_back(job("new thumb"));
         q.urgent.push_back(job("preview"));
@@ -565,10 +613,10 @@ mod queue_tests {
         let mut q = Queues::default();
         q.normal.push_back(Job::Dims(vec![]));
         for i in 0..10 {
-            q.normal.push_back(Job::Thumb { id: i, key: format!("t{i}") });
+            q.normal.push_back(Job::Thumb { id: i, key: format!("t{i}"), dim: THUMB_DIM });
         }
         assert!(q.forget_old_thumbs(10).is_empty());
-        q.normal.push_back(Job::Thumb { id: 10, key: "t10".into() });
+        q.normal.push_back(Job::Thumb { id: 10, key: "t10".into(), dim: THUMB_DIM });
         // 11 waiting, 8 allowed: down to 7, the oldest first
         let dropped = q.forget_old_thumbs(8);
         assert_eq!(dropped, vec!["t0", "t1", "t2", "t3", "t4"]);
@@ -637,6 +685,41 @@ mod store_tests {
         assert!(!back.meta.contains_key("empty.jpg"));
         // notes on the sample pictures stay in the window, not in the file
         assert!(store.meta.contains_key(&format!("{SAMPLE_PREFIX}3")) && back.meta.len() == 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Bug 14: a library saved by a newer version loaded without complaint, and the next save
+    /// dropped every field this version does not know.
+    #[test]
+    fn a_newer_library_is_never_saved_over() {
+        let dir = temp_dir("store-newer");
+        let path = dir.join("library.json");
+        let text = format!("{{\"version\": {}, \"roots\": [\"/p\"], \"faces\": {{\"x\": 1}}}}", FORMAT_VERSION + 1);
+        std::fs::write(&path, &text).unwrap();
+        let Loaded::Unreadable { backup: None, error } = Store::load_from(&path) else { panic!("loaded a newer library") };
+        assert!(error.contains("newer version"));
+        // left where it was, as it was
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        // even when this version could not parse it at all
+        std::fs::write(&path, format!("{{\"version\": {}, \"roots\": {{\"changed\": true}}}}", FORMAT_VERSION + 1)).unwrap();
+        assert!(matches!(Store::load_from(&path), Loaded::Unreadable { backup: None, .. }));
+        assert!(path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_format_version_is_saved_and_older_libraries_load() {
+        let dir = temp_dir("store-version");
+        let path = dir.join("library.json");
+        std::fs::write(&path, "{\"roots\": [\"/p\"], \"sort\": \"by-colour\"}").unwrap();
+        let Loaded::Store(mut store) = Store::load_from(&path) else { panic!("an older library must load") };
+        // a setting this version does not know: the default, not an unreadable library
+        assert_eq!(store.sort, Sort::Name);
+        store.sort = Sort::Taken;
+        store.save_to(&path).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["version"], FORMAT_VERSION);
+        assert_eq!(saved["sort"], "taken");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -831,22 +914,25 @@ pub fn fmt_bytes(b: u64) -> String {
 // Background loader
 
 pub enum Job {
-    Thumb { id: usize, key: String },
+    /// A thumbnail at `dim` pixels on its longest side: THUMB_DIM, or SHARP_THUMB_DIM for large
+    /// tiles.
+    Thumb { id: usize, key: String, dim: u32 },
     Big { id: usize, key: String },
     /// A sharp render for zooming in: the picture at up to ZOOM_DIM pixels with its edits applied.
     Zoom { id: usize, key: String, ops: Vec<EditOp> },
     /// Any picture file, not (yet) in the library, at THUMB_DIM or BIG_DIM: the import view.
     File { key: String, dim: u32 },
-    /// The shapes of these pictures (from their headers), for the grid's layout.
+    /// The shapes and dates taken of these pictures (from their headers), for the grid's layout
+    /// and the order by date.
     Dims(Vec<(usize, String)>),
 }
 
 impl Job {
     fn run(self) -> Done {
         match self {
-            Job::Thumb { id, key } => {
-                let img = cached_thumbnail(&key);
-                Done::Thumb { id, key, img }
+            Job::Thumb { id, key, dim } => {
+                let img = cached_thumbnail(&key, dim);
+                Done::Thumb { id, key, dim, img }
             }
             Job::Big { id, key } => {
                 let img = imaging::load_source(&key, BIG_DIM);
@@ -859,11 +945,11 @@ impl Job {
                 Done::Zoom { id, key, ops, img, unedited_width }
             }
             Job::File { key, dim } => {
-                let img = if dim == THUMB_DIM { cached_thumbnail(&key) } else { imaging::load_source(&key, dim) };
+                let img = if dim == THUMB_DIM { cached_thumbnail(&key, dim) } else { imaging::load_source(&key, dim) };
                 Done::File { key, dim, img }
             }
             Job::Dims(batch) => Done::Dims(batch.into_iter().map(|(id, key)| {
-                let d = source_dims(&key);
+                let d = crate::catalogue::read_details(&key);
                 (id, key, d)
             }).collect()),
         }
@@ -872,11 +958,11 @@ impl Job {
     /// The answer sent when the job failed outright.
     fn failed(&self) -> Done {
         match self {
-            Job::Thumb { id, key } => Done::Thumb { id: *id, key: key.clone(), img: None },
+            Job::Thumb { id, key, dim } => Done::Thumb { id: *id, key: key.clone(), dim: *dim, img: None },
             Job::Big { id, key } => Done::Big { id: *id, key: key.clone(), img: None },
             Job::Zoom { id, key, ops } => Done::Zoom { id: *id, key: key.clone(), ops: ops.clone(), img: None, unedited_width: 0 },
             Job::File { key, dim } => Done::File { key: key.clone(), dim: *dim, img: None },
-            Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), None)).collect()),
+            Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), Default::default())).collect()),
         }
     }
 }
@@ -910,22 +996,25 @@ impl Report {
 }
 
 /// A picture's thumbnail: from the disk cache, else made from the file and put in the cache.
-fn cached_thumbnail(key: &str) -> Option<RgbaImage> {
-    crate::thumbcache::get(key, THUMB_DIM).or_else(|| {
-        let img = imaging::load_thumbnail(key, THUMB_DIM)?;
-        crate::thumbcache::put(key, THUMB_DIM, &img);
+fn cached_thumbnail(key: &str, dim: u32) -> Option<RgbaImage> {
+    crate::thumbcache::get(key, dim).or_else(|| {
+        let img = imaging::load_thumbnail(key, dim)?;
+        crate::thumbcache::put(key, dim, &img);
         Some(img)
     })
 }
 
 pub enum Done {
-    Thumb { id: usize, key: String, img: Option<RgbaImage> },
+    Thumb { id: usize, key: String, dim: u32, img: Option<RgbaImage> },
     Big { id: usize, key: String, img: Option<RgbaImage> },
     /// `unedited_width` is the width of the loaded picture before edits (to know its scale).
     Zoom { id: usize, key: String, ops: Vec<EditOp>, img: Option<RgbaImage>, unedited_width: u32 },
     /// Scanned folders, whether the scan stopped at SCAN_LIMIT, and the `.picasa.ini` notes read
     /// in folders not brought in before (by folder path).
     Scan(Vec<ScannedFolder>, bool, Vec<(String, IniFolder)>),
+    /// The catalogue cache (see `catalogue`): the folders the last scan found and what was read
+    /// from their pictures, shown until the scan's result arrives.
+    Cached(Vec<ScannedFolder>, crate::catalogue::KnownDetails),
     /// How a piece of background work ended, to tell the user.
     Report(Report),
     /// How far a task (see `Report::task`) is: `done` of `total` steps.
@@ -935,7 +1024,7 @@ pub enum Done {
     /// A short progress note for the toast.
     Toast(String),
     File { key: String, dim: u32, img: Option<RgbaImage> },
-    /// (photo id, key, shown size) for each picture of a `Job::Dims`.
+    /// (photo id, key, shown size and date taken) for each picture of a `Job::Dims`.
     Dims(Vec<FoundDims>),
     /// The pictures found in an import source (see `import::list`).
     ImportList { source: std::path::PathBuf, items: Vec<crate::import::Candidate>, truncated: bool },
@@ -945,10 +1034,12 @@ pub enum Done {
     ImportDone { dest: std::path::PathBuf, summary: String, copied: usize, problems: bool },
 }
 
-/// (photo id, key, shown size or None when the header can't be read).
-pub type FoundDims = (usize, String, Option<(u32, u32)>);
+/// (photo id, key, what its header says).
+pub type FoundDims = (usize, String, crate::catalogue::Details);
 
 pub const THUMB_DIM: u32 = 256;
+/// Thumbnails for tiles larger than THUMB_DIM pixels (large tiles, high-density screens).
+pub const SHARP_THUMB_DIM: u32 = 512;
 pub const BIG_DIM: u32 = 1400;
 /// Longest side of the sharp render used when zooming in (keeps memory and GPU textures in bounds).
 pub const ZOOM_DIM: u32 = 5000;

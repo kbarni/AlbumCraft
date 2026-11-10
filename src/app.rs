@@ -27,7 +27,7 @@ pub struct SidebarCounts {
 }
 
 /// What the library list depends on (its cache key).
-type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter);
+type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64);
 
 /// A word chosen from the search suggestions: matches exactly (any letter case), where typed text
 /// matches anywhere.
@@ -433,6 +433,23 @@ pub struct App {
     pub real_dims: HashMap<usize, (u32, u32)>,
     /// A `Job::Dims` is out (one at a time, so it never holds up the thumbnails).
     pub dims_pending: bool,
+    /// When each picture was taken (from its header; the file's date when it has no EXIF date).
+    pub taken: HashMap<usize, i64>,
+    /// Changes when dates taken arrived (the order by date changes), at most once a second
+    /// (`taken_new`, `taken_at`), so a first look through a large library does not sort it
+    /// again for every batch.
+    pub taken_rev: u64,
+    taken_new: bool,
+    taken_at: f64,
+    /// Thumbnails made at SHARP_THUMB_DIM (for large tiles), and the ones asked for.
+    pub sharp_thumbs: HashSet<usize>,
+    pub sharp_req: HashSet<usize>,
+    /// A scan's result was shown (the catalogue cache is shown only before the first one).
+    pub scanned: bool,
+    /// The window knows more about the pictures than the catalogue cache holds, which was last
+    /// written at `catalogue_saved` (window time).
+    pub catalogue_dirty: bool,
+    pub catalogue_saved: f64,
     /// Camera information (EXIF) per photo; None = the file has none.
     pub exif_cache: HashMap<usize, Option<Arc<crate::exifinfo::CameraInfo>>>,
     /// The camera's own embedded thumbnail, as a texture.
@@ -574,6 +591,15 @@ impl App {
             tray_check: None,
             real_dims: HashMap::new(),
             dims_pending: false,
+            taken: HashMap::new(),
+            taken_rev: 0,
+            taken_new: false,
+            taken_at: 0.0,
+            sharp_thumbs: HashSet::new(),
+            sharp_req: HashSet::new(),
+            scanned: false,
+            catalogue_dirty: false,
+            catalogue_saved: 0.0,
             exif_cache: HashMap::new(),
             exif_thumbs: HashMap::new(),
             edit: EditState {
@@ -628,6 +654,10 @@ impl App {
         if app.shot.is_some() {
             app.demo_setup();
         } else {
+            // the folders as the last scan found them, at once; the scan then brings what changed
+            if !app.store.roots.is_empty() {
+                app.lib.cached(app.store.roots.clone());
+            }
             app.rescan();
             app.lib.tidy();
             if persist {
@@ -657,6 +687,22 @@ impl App {
     pub fn rescan(&mut self) {
         self.scanning = true;
         self.lib.scan(self.store.roots.clone(), self.store.imported_ini.clone());
+    }
+
+    /// Keep what is known about the pictures for the next start (the catalogue cache): at most
+    /// every 30 s while it grows, and when the window closes. Not before the first scan's result
+    /// (until then the window shows the cache itself) and never for the sample pictures.
+    fn save_catalogue(&mut self, now: f64, closing: bool) {
+        if !(self.persist && self.scanned && !self.using_samples && self.catalogue_dirty && (closing || now - self.catalogue_saved > 30.0)) {
+            return;
+        }
+        self.catalogue_dirty = false;
+        self.catalogue_saved = now;
+        let cat = crate::catalogue::Catalogue::of(&self.folders, &self.photos, |id| crate::catalogue::Details {
+            dims: self.real_dims.get(&id).copied(),
+            taken: self.taken.get(&id).copied(),
+        });
+        self.lib.save_catalogue(cat, closing);
     }
 
     /// Show these folders as the library. What the window holds for pictures that are still
@@ -743,11 +789,14 @@ impl App {
         map_of(&mut self.thumb_aspect, keep);
         map_of(&mut self.real_dims, keep);
         map_of(&mut self.exif_cache, keep);
+        map_of(&mut self.taken, keep);
         map_of(&mut self.exif_thumbs, keep);
         map_of(&mut self.big, keep);
         self.big_order = self.big_order.iter().filter_map(|&id| keep(id)).filter(|id| self.big.contains_key(id)).collect();
         // answers on their way are matched by file path when they arrive (`process_results`)
         set_of(&mut self.thumb_req, keep);
+        set_of(&mut self.sharp_thumbs, keep);
+        set_of(&mut self.sharp_req, keep);
         set_of(&mut self.stale_thumbs, keep);
         set_of(&mut self.big_req, keep);
         // a file that could not be read may be readable now
@@ -982,12 +1031,16 @@ impl App {
     /// (folder index if any, photo ids). Cached and shared: building it walks the whole library.
     pub fn groups(&self) -> Rc<Vec<Group>> {
         let mut cache = self.list_cache.borrow_mut();
-        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone());
+        let sort = self.store.sort;
+        let taken_rev = if sort == library::Sort::Taken { self.taken_rev } else { 0 };
+        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev);
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();
             }
-        let groups = Rc::new(self.build_groups());
+        let mut groups = self.build_groups();
+        self.sort_groups(&mut groups);
+        let groups = Rc::new(groups);
         *cache = Some((key, groups.clone()));
         groups
     }
@@ -1023,6 +1076,26 @@ impl App {
             Source::Picks => {
                 let ids = (0..self.photos.len()).filter(|&id| self.is_picked(id)).filter(shown).collect();
                 vec![(None, ids)]
+            }
+        }
+    }
+
+    /// Put the pictures of each group in the chosen order (they come by file name, albums as
+    /// arranged).
+    fn sort_groups(&self, groups: &mut [Group]) {
+        match self.store.sort {
+            library::Sort::Name => {}
+            library::Sort::Taken => {
+                let when = |id: &usize| self.taken.get(id).copied().or_else(|| Some(self.photos.get(*id)?.modified)).unwrap_or(0);
+                for (_, ids) in groups.iter_mut() {
+                    ids.sort_by_cached_key(when);
+                }
+            }
+            library::Sort::Rating => {
+                let rating = |id: &usize| std::cmp::Reverse(self.meta(*id).map(|m| m.rating).unwrap_or(0));
+                for (_, ids) in groups.iter_mut() {
+                    ids.sort_by_key(rating);
+                }
             }
         }
     }
@@ -1155,16 +1228,16 @@ impl App {
         let tray = self.tray();
         if tray.len() == 1 {
             let id = tray[0];
-            let dims = self.real_dims_of(id);
-            let date = self
-                .camera_info(id)
-                .and_then(|c| c.date_taken.clone())
-                .map(|d| exif_date_slashes(&d))
-                .unwrap_or_else(|| {
-                    let t = self.photos[id].modified;
-                    format!("{} {}", library::fmt_date(t), library::fmt_time(t))
-                });
-            let p = &self.photos[id];
+            let Some(p) = self.photos.get(id) else { return String::new() };
+            // what the picture's header says, read in the background (never here: a slow disk
+            // would hold up the window); the file's date until it is known
+            let (dims, taken) = (self.real_dims.get(&id).copied(), self.taken.get(&id).copied());
+            if (dims.is_none() || taken.is_none()) && !self.dims_pending {
+                self.dims_pending = true;
+                self.lib.request(Job::Dims(vec![(id, p.key.clone())]), true);
+            }
+            let t = taken.unwrap_or(p.modified);
+            let date = format!("{} {}", library::fmt_date(t), library::fmt_time(t));
             return selection_text(&[(p.name.clone(), p.modified, p.bytes)], Some(&date), dims);
         }
         // several pictures: only their dates and sizes count (no copies of their names)
@@ -1344,6 +1417,25 @@ impl App {
         }
     }
 
+    /// A grid tile `long_px` pixels on its longest side: `want_thumb`, and a sharper thumbnail
+    /// when the usual one would be enlarged (large tiles, high-density screens). The usual one
+    /// stays on screen until it arrives.
+    pub fn want_sharp_thumb(&mut self, id: usize, long_px: f32) {
+        self.want_thumb(id);
+        let small = library::THUMB_DIM as f32 * 1.1;
+        if long_px > small
+            && self.thumbs.contains_key(&id)
+            && !self.sharp_thumbs.contains(&id)
+            && !self.sharp_req.contains(&id)
+            // a picture smaller than a thumbnail has nothing sharper to give
+            && self.thumb_base.get(&id).is_some_and(|b| b.width().max(b.height()) >= library::THUMB_DIM)
+            && let Some(p) = self.photos.get(id)
+        {
+            self.sharp_req.insert(id);
+            self.lib.request(Job::Thumb { id, key: p.key.clone(), dim: library::SHARP_THUMB_DIM }, false);
+        }
+    }
+
     /// A thumbnail about to be drawn: remember it is in use, and ask for it when it is missing.
     pub fn want_thumb(&mut self, id: usize) {
         self.thumb_seen.insert(id, self.ctx.input(|i| i.time));
@@ -1367,14 +1459,23 @@ impl App {
     /// card): forget the ones not drawn for the longest time. Their shape is kept for the layout;
     /// they come back from the disk cache when needed.
     fn trim_thumbs(&mut self) {
+        // counted in usual thumbnails: a sharp one has four times the pixels
         const MAX_THUMBS: usize = 1200;
         const KEEP: usize = 1000;
-        if self.thumbs.len() <= MAX_THUMBS {
+        let weight = |sharp: &HashSet<usize>, id: &usize| if sharp.contains(id) { 4 } else { 1 };
+        let mut total: usize = self.thumbs.keys().map(|id| weight(&self.sharp_thumbs, id)).sum();
+        if total <= MAX_THUMBS {
             return;
         }
         let mut by_age: Vec<(f64, usize)> = self.thumbs.keys().map(|id| (self.thumb_seen.get(id).copied().unwrap_or(0.0), *id)).collect();
         by_age.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for &(_, id) in by_age.iter().take(self.thumbs.len().saturating_sub(KEEP)) {
+        for &(_, id) in &by_age {
+            if total <= KEEP {
+                break;
+            }
+            total = total.saturating_sub(weight(&self.sharp_thumbs, &id));
+            self.sharp_thumbs.remove(&id);
+            self.sharp_req.remove(&id);
             if let Some(tex) = self.thumbs.remove(&id) {
                 let [w, h] = tex.size();
                 self.thumb_aspect.insert(id, w as f32 / h.max(1) as f32);
@@ -1389,7 +1490,7 @@ impl App {
     pub fn request_thumb(&mut self, id: usize) {
         if !self.thumb_req.contains(&id) {
             self.thumb_req.insert(id);
-            self.lib.request(Job::Thumb { id, key: self.photos[id].key.clone() }, false);
+            self.lib.request(Job::Thumb { id, key: self.photos[id].key.clone(), dim: library::THUMB_DIM }, false);
         }
     }
 
@@ -1843,24 +1944,33 @@ impl App {
 
     // ----------------------------------------------------------------- frame
 
-    fn process_results(&mut self) {
+    pub(crate) fn process_results(&mut self) {
         // a frame's share: when a flood of results arrives, the rest waits for the next frame
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_millis(8) {
             let Ok(done) = self.rx.try_recv() else { return };
             match done {
-                Done::Thumb { id, key, img } => {
+                Done::Thumb { id, key, dim, img } => {
                     if library::tracing() && self.thumbs.len() % 100 == 99 {
                         eprintln!("[trace] {} thumbnails at {:.1} s", self.thumbs.len() + 1, self.ctx.input(|i| i.time));
                     }
                     // by file path: the picture's number may have changed (a scan) since the request
                     let _ = id;
                     if let Some(&id) = self.key_index.get(&key) {
+                        let sharp = dim == library::SHARP_THUMB_DIM;
+                        if sharp {
+                            self.sharp_req.remove(&id);
+                            // not made: the usual one stays, and it is not asked for again
+                            self.sharp_thumbs.insert(id);
+                        }
                         match img {
+                            // a usual one arriving after the sharp one is not needed
+                            Some(_) if !sharp && self.sharp_thumbs.contains(&id) && self.thumb_base.contains_key(&id) => {}
                             Some(img) => {
                                 self.thumb_base.insert(id, img);
                                 self.refresh_thumb(id);
                             }
+                            None if sharp => {}
                             None => {
                                 self.thumb_failed.insert(id);
                             }
@@ -1903,14 +2013,33 @@ impl App {
                             self.edit.zoom_tex = Some((id, ops, tex, r));
                         }
                 }
+                Done::Cached(found, known) => {
+                    // only before the first scan's result, which is what is on the disk now
+                    if !self.scanned && !self.store.roots.is_empty() {
+                        self.set_library(found, false);
+                        for (key, d) in known {
+                            let Some(&id) = self.key_index.get(&key) else { continue };
+                            if let Some(dims) = d.dims {
+                                self.real_dims.insert(id, dims);
+                            }
+                            if let Some(t) = d.taken {
+                                self.taken.insert(id, t);
+                            }
+                        }
+                        self.shape_rev += 1;
+                        self.taken_rev += 1;
+                    }
+                }
                 Done::Scan(found, truncated, inis) => {
                     self.scanning = false;
+                    self.scanned = true;
                     // sample pictures only for a library without folders: folders that can't
                     // be reached (a disk not plugged in) show as an empty library that says so
                     if found.is_empty() && self.store.roots.is_empty() {
                         self.set_library(library::sample_folders(), true);
                     } else {
                         self.set_library_with(found, false, inis);
+                        self.catalogue_dirty = true;
                     }
                     self.show_imported_folder();
                     if truncated {
@@ -1926,6 +2055,7 @@ impl App {
                     for key in keys {
                         if let Some(id) = self.key_index.get(&key) {
                             self.thumb_req.remove(id);
+                            self.sharp_req.remove(id);
                         }
                     }
                 }
@@ -1939,10 +2069,16 @@ impl App {
                 Done::Dims(found) => {
                     self.dims_pending = false;
                     self.shape_rev += 1;
-                    for (_, key, dims) in found {
-                        if let Some(&id) = self.key_index.get(&key) {
-                            // unknown (unreadable header): the usual 3:2, and don't ask again
-                            self.real_dims.insert(id, dims.unwrap_or((3, 2)));
+                    for (_, key, d) in found {
+                        if let Some(&id) = self.key_index.get(&key)
+                            && let Some(p) = self.photos.get(id)
+                        {
+                            // unknown (unreadable header): the usual 3:2 and the file's date,
+                            // and don't ask again
+                            self.real_dims.insert(id, d.dims.unwrap_or((3, 2)));
+                            self.taken.insert(id, d.taken.unwrap_or(p.modified));
+                            self.taken_new = true;
+                            self.catalogue_dirty = true;
                         }
                     }
                 }
@@ -2021,12 +2157,6 @@ impl App {
     }
 }
 
-/// "2009:05:12 10:00:00" -> "2009/05/12 10:00:00" (only the date part is
-/// changed so the time stays readable).
-pub fn exif_date_slashes(d: &str) -> String {
-    let (date, rest) = d.split_at(d.find(' ').unwrap_or(d.len()));
-    format!("{}{}", date.replace(':', "/"), rest)
-}
 
 /// A count with thousands separators from 1000 up.
 pub fn fmt_count(n: usize) -> String {
@@ -2121,6 +2251,14 @@ impl eframe::App for App {
             self.list_rev += 1;
             self.unsaved = true;
         }
+        if self.taken_new && now - self.taken_at >= 1.0 {
+            self.taken_new = false;
+            self.taken_at = now;
+            self.taken_rev += 1;
+        } else if self.taken_new {
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
+        self.save_catalogue(now, closing);
         // collect a finished background save (when closing, wait for it)
         if let Some(result) = self.lib.take_saved(closing) {
             self.save_finished(result);
@@ -2237,6 +2375,5 @@ mod tray_tests {
         assert_eq!(fmt_count(999), "999");
         assert_eq!(fmt_count(1234), "1,234");
         assert_eq!(fmt_count(1234567), "1,234,567");
-        assert_eq!(exif_date_slashes("2009:05:12 10:00:00"), "2009/05/12 10:00:00");
     }
 }

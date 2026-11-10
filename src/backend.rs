@@ -51,6 +51,12 @@ pub trait Library {
     /// `ini_done`: folders whose `.picasa.ini` was brought in already; for the others the scan
     /// reads that file (read only, never written) and sends what it holds along.
     fn scan(&self, roots: Vec<String>, ini_done: Vec<String>);
+    /// What the last scan found in these folders, from the catalogue cache, to show until the
+    /// scan's result arrives; it arrives as `Done::Cached` (nothing when there is no cache).
+    fn cached(&self, roots: Vec<String>);
+    /// Keep what the window knows about the pictures for the next start: in the background, or
+    /// before returning when `now` (the window closes).
+    fn save_catalogue(&self, cat: crate::catalogue::Catalogue, now: bool);
     /// A thumbnail, preview or sharp render; the result arrives as `Done::Thumb`/`Big`/`Zoom`.
     fn request(&self, job: Job, urgent: bool);
     /// The picture's real size in pixels, as shown (from the file header).
@@ -180,6 +186,37 @@ impl Library for LocalLibrary {
             .unwrap_or_default();
             send(Done::Scan(found, truncated, inis));
         });
+    }
+
+    fn cached(&self, roots: Vec<String>) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            let t0 = std::time::Instant::now();
+            let found = std::panic::catch_unwind(|| {
+                let cat = crate::catalogue::load_from(&crate::catalogue::path()?)?;
+                Some(cat.within(&roots, library::SCAN_LIMIT))
+            });
+            if let Ok(Some((folders, known))) = found
+                && !folders.is_empty()
+            {
+                library::trace_since(&format!("catalogue cache: {} folders", folders.len()), t0, 0);
+                send(Done::Cached(folders, known));
+            }
+        });
+    }
+
+    fn save_catalogue(&self, cat: crate::catalogue::Catalogue, now: bool) {
+        // only a cache: a failure means a slower next start, nothing to tell the user
+        let write = move || {
+            if let Some(path) = crate::catalogue::path() {
+                let _ = std::panic::catch_unwind(|| crate::catalogue::save_to(&path, &cat));
+            }
+        };
+        if now {
+            write();
+        } else {
+            std::thread::spawn(write);
+        }
     }
 
     fn request(&self, job: Job, urgent: bool) {
@@ -336,9 +373,9 @@ mod tests {
     fn local_answers_jobs_and_scans_on_the_channel() {
         let (lib, rx) = local();
         let key = format!("{}3", imaging::SAMPLE_PREFIX);
-        lib.request(Job::Thumb { id: 7, key: key.clone() }, false);
+        lib.request(Job::Thumb { id: 7, key: key.clone(), dim: library::THUMB_DIM }, false);
         match next(&rx) {
-            Done::Thumb { id, key: k, img } => assert!(id == 7 && k == key && img.is_some()),
+            Done::Thumb { id, key: k, img, .. } => assert!(id == 7 && k == key && img.is_some()),
             _ => panic!("expected a thumbnail"),
         }
         // a missing picture still gets an answer, so the window never waits forever

@@ -255,6 +255,11 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "set_sort_order",
+            description: "The order of the pictures in the window's library: by file name (albums as arranged), by date taken (oldest first), or by rating (highest first).",
+            schema: || json!({ "type": "object", "properties": { "order": { "type": "string", "enum": ["name", "taken", "rating"] } }, "required": ["order"] }),
+        },
+        Spec {
             name: "rescan",
             description: "Look again for added or removed pictures in the library's folders.",
             schema: || json!({ "type": "object", "properties": {} }),
@@ -924,6 +929,16 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 })))
             })))
         }
+        "set_sort_order" => {
+            let order = match str_arg(args, "order")? {
+                "name" => library::Sort::Name,
+                "taken" => library::Sort::Taken,
+                "rating" => library::Sort::Rating,
+                other => return Err(format!("`order` must be name, taken or rating, not {other:?}")),
+            };
+            host.store_mut().sort = order;
+            now(json!({ "order": str_arg(args, "order")? }))
+        }
         "rescan" => {
             host.rescan();
             now(json!({ "rescanning": true }))
@@ -1401,6 +1416,18 @@ mod tests {
     }
 
     #[test]
+    fn sort_order_is_set_and_saved() {
+        let (dir, mut h, _) = fixture("sort");
+        let reply = run(&mut h, "set_sort_order", &json!({ "order": "taken" })).and_then(|o| o.finish()).unwrap();
+        assert_eq!(reply.value["order"], "taken");
+        assert_eq!(h.store().sort, library::Sort::Taken);
+        h.save().unwrap();
+        let back = Headless::open(dir.join("library.json")).unwrap();
+        assert_eq!(back.store().sort, library::Sort::Taken);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn import_copies_new_pictures_only() {
         let (dir, mut h, keys) = fixture("import");
         let card = dir.join("card/DCIM/100CAM");
@@ -1560,6 +1587,8 @@ mod tests {
             ("show_photo", json!({ "key": k })),
             ("show_on_map", json!({ "keys": [k] })),
             ("show_on_map", json!({ "keys": [] })),
+            ("set_sort_order", json!({ "order": "colour" })),
+            ("set_sort_order", json!({})),
             ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),
             ("set_location", json!({ "keys": [k], "latitude": 10 })),
             ("set_location", json!({ "keys": [k], "latitude": "10", "longitude": 0 })),

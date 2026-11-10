@@ -24,6 +24,7 @@ crates/albumcraft-edit/src/   the edit pipeline only: no files, no threads of it
   decor.rs         Effects tab: vignette, borders, shadow, text
 crates/albumcraft-core/src/   everything without a window (native: desktop app, later the server)
   library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool
+  catalogue.rs     the catalogue cache: what the last scan found, shown at once at the next start
   imaging.rs       reading picture files (load_source, oriented_dims) on top of the edit pipeline
   commands.rs      the command layer (Host, Headless); mcp.rs and control.rs: the MCP server and the window's control connection
   export.rs        export_one (edited JPEG copies, never overwriting); import.rs: copying from cards / folders
