@@ -10,3 +10,4 @@ pub mod decor;
 pub mod develop;
 pub mod imaging;
 pub mod looks;
+pub mod steps;

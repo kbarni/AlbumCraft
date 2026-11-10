@@ -314,14 +314,15 @@ pub fn apply(mut img: RgbaImage, op: &EditOp) -> RgbaImage {
             let s = a.cos().abs() + a.sin().abs() * ratio;
             let (cx, cy) = (w / 2.0, h / 2.0);
             let (ca, sa) = (a.cos(), a.sin());
+            use rayon::prelude::*;
             let mut out = RgbaImage::new(img.width(), img.height());
-            for (x, y, p) in out.enumerate_pixels_mut() {
+            out.par_enumerate_pixels_mut().for_each(|(x, y, p)| {
                 let dx = (x as f32 - cx) / s;
                 let dy = (y as f32 - cy) / s;
                 let sx = cx + dx * ca + dy * sa;
                 let sy = cy - dx * sa + dy * ca;
                 *p = bilinear(&img, sx, sy);
-            }
+            });
             out
         }
         EditOp::Redeye(r) => {

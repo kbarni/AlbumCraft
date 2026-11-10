@@ -20,6 +20,7 @@ crates/albumcraft-edit/src/   the edit pipeline only: no files, no threads of it
   imaging.rs       EditOp, Effect, apply_all, sample pictures, copyable_edits
   develop.rs       Adjust sliders and the analysis behind the one-click fixes
   looks.rs         preset looks
+  steps.rs         changing an edit list: one adjustment, look, straighten, perspective, crop per picture
   decor.rs         Effects tab: vignette, borders, shadow, text
 crates/albumcraft-core/src/   everything without a window (native: desktop app, later the server)
   library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool

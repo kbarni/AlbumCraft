@@ -52,7 +52,7 @@ impl App {
                 ..Default::default()
             }));
             self.open_editor(0);
-            self.edit.compare = CompareMode::BeforeAfter;
+            self.edit.compare = CompareMode::TwoPhotos;
             self.edit.tab = Tab::Edit;
             self.edit.advanced = true;
         }
@@ -223,6 +223,20 @@ impl App {
         }
         if shot_view == "dialog" {
             self.dialog = Some(Dialog::NewAlbum { name: "Best of 2009".into() });
+        }
+        if shot_view == "recrop" && self.photos.len() > 5 {
+            // a picture adjusted, cropped and turned: the sliders keep their values and the crop
+            // tool shows the whole picture with its box
+            let k = self.photos[5].key.clone();
+            let m = self.store.meta.entry(k).or_default();
+            m.edits.push(EditOp::Adjust(crate::develop::Adjust { exposure: 0.4, contrast: 20.0, ..Default::default() }));
+            m.edits.push(EditOp::Crop([0.2, 0.15, 0.8, 0.75]));
+            m.edits.push(EditOp::Look { look: crate::looks::Look::Vivid, amount: 0.7 });
+            self.open_editor(5);
+            self.edit.advanced = true;
+            let kept = crate::steps::adjust_of(&self.edits(5)).exposure == 0.4;
+            self.start_crop();
+            eprintln!("recrop check: {}", if kept && self.edit.sel == Some([0.2, 0.15, 0.8, 0.75]) { "kept" } else { "LOST" });
         }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
