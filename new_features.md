@@ -172,19 +172,20 @@ Low / clean-up:
 - 2026-11-07: a folder, an album or the photo tray on the map: map button on folder headers, "Show on map" in an album's menu; Places then shows only those pictures (title "Places · <name>", "n of m with a location", "Show the whole library"). Command `show_on_map`. In the tray, the small button next to Tags is Set location; the big Location button on the right is gone.
 - 2026-11-07: editor geometry: in the Advanced tab, Geometry comes first (the most used corrections) with Crop… and Remove crop; a square alignment grid shows on the picture while the straighten / perspective sliders move (and in the Straighten tool). The crop tool has more shapes (original, 16 × 9), a landscape / portrait orientation choice, starts with the largest centred box of the chosen shape, can be moved by dragging inside it, and shows thirds lines.
 - 2026-11-07: version 0.3.0 (import, unified search with places, info panel, map of a folder or album, editor geometry, one icon set, performance on slow disks).
-- Next: the menu trim below, then: narrow windows (below ~1000 px the photo tray and the editor's bottom bar overlap, the search box covers the title); crop corner handles; "Remove crop" that Undo can take back. Later: phase 5 (tag suggestions, face recognition, GPU only if measured slow, print ordering).
+- 2026-11-10: menu trim done: 5 menus (File, Edit, Picture, Tools, Help) instead of 8; entries that already had a visible button are gone. Copy / Paste edits moved to Edit with Undo all edits; Scan folders again moved to File. Ctrl+scroll or a pinch changes the picture size (the slider is hidden in narrow windows).
+- Next: narrow windows (below ~1000 px the photo tray and the editor's bottom bar overlap, the search box covers the title); crop corner handles; "Remove crop" that Undo can take back. Later: phase 5 (tag suggestions, face recognition, GPU only if measured slow, print ordering).
 
-### Menu trim (proposed 2026-11-07)
+### Menu trim (done 2026-11-10)
 
 Rule: drop what already has a visible button; keep what exists only in the menu or teaches a keyboard shortcut. From 8 menus (about 35 entries) to 5 menus (16 entries).
 
 | Menu | Keep | Remove (already at) |
 |---|---|---|
 | File | Import pictures…, Add folder to library…, Library folders…, Scan folders again (from Tools), Exit | Export, Web gallery, Print (tray buttons; Ctrl+P stays) |
-| Edit | Select all (Ctrl+A), Select none (Esc), **new:** Copy edits (Ctrl+Shift+C), Paste edits (Ctrl+Shift+V) (today keyboard only), Undo all edits (from Picture) | Clear the tray (tray's Clear) |
+| Edit | Select all (Ctrl+A), Select none (Esc), **new:** Copy edits (Ctrl+Shift+C), Paste edits (Ctrl+Shift+V), Undo all edits (all three from Picture) | Clear the tray (tray's Clear) |
 | Picture | Rotate left (Ctrl+[), Rotate right (Ctrl+]), Pick / Reject / Rating (P, X, 0–5) | Open in editor (double-click), Tags and people, Set location (tray buttons) |
 | Tools | Online maps (the first-start question points there) | Folder manager (same as File › Library folders) |
 | Help | About… | |
-| View (removed) | | Only picks, Hide rejected (top-bar chips), thumbnail size (slider), Slideshow (folder ▶), Places (sidebar) |
+| View (removed) | | Only picks, Hide rejected (top-bar chips), thumbnail size (slider, or Ctrl+scroll / pinch), Slideshow (folder ▶), Places (sidebar) |
 | Folder (removed) | | Edit description, Play as slideshow (folder header buttons) |
-| Create (removed) | | New album (sidebar +), Collage, Movie (tray buttons) | (later: face recognition, GPU only if measured slow, print ordering).
+| Create (removed) | | New album (sidebar +), Collage, Movie (tray buttons) |

@@ -228,6 +228,12 @@ impl App {
                 i.modifiers.command && i.key_pressed(egui::Key::OpenBracket),
             )
         });
+        // Ctrl+scroll or a pinch changes the picture size (the slider is hidden in narrow windows)
+        let zoom = ctx.input(|i| i.zoom_delta());
+        if zoom.is_finite() && (zoom - 1.0).abs() > 0.001 {
+            self.store.thumb_size = (self.store.thumb_size * zoom).clamp(64.0, 256.0);
+            self.dirty = true;
+        }
         if all {
             self.selection = self.visible_flat().into_iter().collect();
         }
@@ -269,177 +275,81 @@ impl App {
         }
     }
 
+    /// The app menu. It holds only what has no visible button elsewhere, or teaches a shortcut.
     pub fn app_menu_items(&mut self, ui: &mut egui::Ui) {
-                let tray = self.targets();
-                ui.menu_button("File", |ui| {
-                    if ui.button("Import pictures…").clicked() {
-                        self.open_import();
-                        ui.close();
-                    }
-                    if ui.button("Add folder to library…").clicked() {
-                        self.add_library_folder();
-                        ui.close();
-                    }
-                    if ui.button("Library folders…").clicked() {
-                        self.dialog = Some(Dialog::FolderManager);
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("Export pictures…").clicked() {
-                        self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
-                        ui.close();
-                    }
-                    if ui.button("Make a web gallery…").clicked() {
-                        self.open_gallery_dialog();
-                        ui.close();
-                    }
-                    if crate::print::available() && ui.button("Print…   Ctrl+P").clicked() {
-                        self.open_print();
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button("Exit").clicked() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-                ui.menu_button("Edit", |ui| {
-                    if ui.button("Select all   Ctrl+A").clicked() {
-                        self.selection = self.visible_flat().into_iter().collect();
-                        ui.close();
-                    }
-                    if ui.button("Select none   Esc").clicked() {
-                        self.selection.clear();
-                        ui.close();
-                    }
-                    if ui.button("Clear the tray").clicked() {
-                        self.selection.clear();
-                        self.held.clear();
-                        ui.close();
-                    }
-                });
-                ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.filter.picks, "Only picks");
-                    ui.checkbox(&mut self.filter.hide_rejects, "Hide rejected pictures");
-                    if ui.button("Larger thumbnails").clicked() {
-                        self.store.thumb_size = (self.store.thumb_size + 24.0).min(256.0);
-                        self.dirty = true;
-                    }
-                    if ui.button("Smaller thumbnails").clicked() {
-                        self.store.thumb_size = (self.store.thumb_size - 24.0).max(64.0);
-                        self.dirty = true;
-                    }
-                    ui.separator();
-                    if ui.button("Slideshow").clicked() {
-                        let list = self.visible_flat();
-                        let start = self.selection.iter().next().copied().unwrap_or(0);
-                        self.start_slideshow(list, start);
-                        ui.close();
-                    }
-                    if ui.button("Places (map)").clicked() {
-                        self.open_places();
-                        ui.close();
-                    }
-                });
-                ui.menu_button("Folder", |ui| {
-                    let current = self.selection.iter().next().map(|&id| self.photos[id].folder);
-                    ui.add_enabled_ui(current.is_some(), |ui| {
-                        if ui.button("Edit description…").clicked() {
-                            if let Some(fi) = current {
-                                let path = self.folders[fi].path.clone();
-                                let text = self.store.folder_notes.get(&path).cloned().unwrap_or_default();
-                                self.dialog = Some(Dialog::FolderNote { path, text });
-                            }
-                            ui.close();
-                        }
-                        if ui.button("Play folder as slideshow").clicked() {
-                            if let Some(fi) = current {
-                                let list = self.folders[fi].photos.clone();
-                                let first = list[0];
-                                self.start_slideshow(list, first);
-                            }
-                            ui.close();
-                        }
-                    });
-                    if current.is_none() {
-                        ui.weak("Select a picture in a folder first");
-                    }
-                });
-                ui.menu_button("Picture", |ui| {
-                    ui.add_enabled_ui(!tray.is_empty(), |ui| {
-                        if ui.button("Open in editor").clicked() {
-                            self.open_editor(tray[0]);
-                            ui.close();
-                        }
-                        ui.separator();
-                        self.flag_rating_menu(ui, &tray);
-                        ui.separator();
-                        self.edit_clipboard_menu(ui, &tray);
-                        ui.separator();
-                        if ui.button("Rotate left   Ctrl+[").clicked() {
-                            self.rotate(&tray, -1);
-                            ui.close();
-                        }
-                        if ui.button("Rotate right   Ctrl+]").clicked() {
-                            self.rotate(&tray, 1);
-                            ui.close();
-                        }
-                        if ui.button("Tags and people…").clicked() {
-                            self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
-                            ui.close();
-                        }
-                        if ui.button("Set location…").clicked() {
-                            self.start_placing(tray.clone());
-                            ui.close();
-                        }
-                        if ui.button("Undo all edits").clicked() {
-                            for &id in &tray {
-                                self.meta_mut(id).edits.clear();
-                                self.refresh_thumb(id);
-                            }
-                            ui.close();
-                        }
-                    });
-                });
-                ui.menu_button("Create", |ui| {
-                    if ui.button("New album…").clicked() {
-                        self.dialog = Some(Dialog::NewAlbum { name: String::new() });
-                        ui.close();
-                    }
-                    if ui.button("Picture collage…").clicked() {
-                        self.dialog = Some(Dialog::Collage);
-                        ui.close();
-                    }
-                    if ui.button("Movie…").clicked() {
-                        self.dialog = Some(Dialog::Movie { hd: false });
-                        ui.close();
-                    }
-                });
-                ui.menu_button("Tools", |ui| {
-                    if ui.button("Folder manager…").clicked() {
-                        self.dialog = Some(Dialog::FolderManager);
-                        ui.close();
-                    }
-                    if ui.button("Scan folders again").clicked() {
-                        self.rescan();
-                        ui.close();
-                    }
-                    ui.separator();
-                    let mut online = self.store.online_maps == Some(true);
-                    if ui
-                        .checkbox(&mut online, "Online maps (OpenStreetMap)")
-                        .on_hover_text("Detailed maps and address search from OpenStreetMap. Off: only the built-in world map and city list, no internet connections.")
-                        .changed()
-                    {
-                        self.store.online_maps = Some(online);
-                        self.dirty = true;
-                    }
-                });
-                ui.menu_button("Help", |ui| {
-                    if ui.button("About…").clicked() {
-                        self.dialog = Some(Dialog::About);
-                        ui.close();
-                    }
-                });
+        let tray = self.targets();
+        ui.menu_button("File", |ui| {
+            if ui.button("Import pictures…").clicked() {
+                self.open_import();
+                ui.close();
+            }
+            if ui.button("Add folder to library…").clicked() {
+                self.add_library_folder();
+                ui.close();
+            }
+            if ui.button("Library folders…").clicked() {
+                self.dialog = Some(Dialog::FolderManager);
+                ui.close();
+            }
+            if ui.button("Scan folders again").clicked() {
+                self.rescan();
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Exit").clicked() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        });
+        ui.menu_button("Edit", |ui| {
+            if ui.button("Select all          Ctrl+A").clicked() {
+                self.selection = self.visible_flat().into_iter().collect();
+                ui.close();
+            }
+            if ui.button("Select none         Esc").clicked() {
+                self.selection.clear();
+                ui.close();
+            }
+            ui.separator();
+            self.edit_clipboard_menu(ui, &tray);
+            if ui.add_enabled(!tray.is_empty(), egui::Button::new("Undo all edits")).clicked() {
+                for &id in &tray {
+                    self.meta_mut(id).edits.clear();
+                    self.refresh_thumb(id);
+                }
+                ui.close();
+            }
+        });
+        ui.menu_button("Picture", |ui| {
+            ui.add_enabled_ui(!tray.is_empty(), |ui| {
+                if ui.button("Rotate left         Ctrl+[").clicked() {
+                    self.rotate(&tray, -1);
+                    ui.close();
+                }
+                if ui.button("Rotate right        Ctrl+]").clicked() {
+                    self.rotate(&tray, 1);
+                    ui.close();
+                }
+                ui.separator();
+                self.flag_rating_menu(ui, &tray);
+            });
+        });
+        ui.menu_button("Tools", |ui| {
+            let mut online = self.store.online_maps == Some(true);
+            if ui
+                .checkbox(&mut online, "Online maps (OpenStreetMap)")
+                .on_hover_text("Detailed maps and address search from OpenStreetMap. Off: only the built-in world map and city list, no internet connections.")
+                .changed()
+            {
+                self.store.online_maps = Some(online);
+                self.dirty = true;
+            }
+        });
+        ui.menu_button("Help", |ui| {
+            if ui.button("About…").clicked() {
+                self.dialog = Some(Dialog::About);
+                ui.close();
+            }
+        });
     }
 
     pub fn status_bar(&mut self, ui: &mut egui::Ui) {
