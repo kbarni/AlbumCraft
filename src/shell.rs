@@ -366,10 +366,18 @@ impl App {
                             }
                         });
                     }
-                    if let Some(i) = delete {
-                        self.store.albums.remove(i);
+                    if let Some(i) = delete.filter(|&i| i < self.store.albums.len()) {
+                        let album = self.store.albums.remove(i);
                         self.dirty = true;
-                        self.source = Source::Library;
+                        // the albums after it moved up one place
+                        self.source = match self.source {
+                            Source::Album(s) if s == i => Source::Library,
+                            Source::Album(s) if s > i => Source::Album(s - 1),
+                            ref other => other.clone(),
+                        };
+                        self.tray_set = None;
+                        self.list_pick = None;
+                        self.undoable(format!("Deleted the album \"{}\". Its pictures are untouched.", album.name), Undo::Album { at: i, album });
                     }
 
                     caption(ui, "People");

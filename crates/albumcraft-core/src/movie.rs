@@ -90,8 +90,10 @@ pub fn draw(out: &mut [u8], w: u32, h: u32, pic: &RgbaImage, uv: [f32; 4], alpha
     });
 }
 
-/// Make the movie. `pictures` are (source key, edits); `progress` gets 0…1 now and then.
-pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), s: &SlideSettings, progress: &dyn Fn(f32)) -> Result<(), String> {
+/// Make the movie. `pictures` are (source key, edits); `progress` gets 0…1 twice a second of
+/// movie; when it answers false the work stops, the unfinished file is removed and the error is
+/// `library::STOPPED`.
+pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), s: &SlideSettings, progress: &dyn Fn(f32) -> bool) -> Result<(), String> {
     if pictures.is_empty() {
         return Err("no pictures".into());
     }
@@ -167,8 +169,13 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
             result = Err(format!("FFmpeg stopped ({e})"));
             break;
         }
-        if f % (FPS as usize * 2) == 0 {
-            progress(f as f32 / total as f32);
+        if f % (FPS as usize / 2).max(1) == 0 && !progress(f as f32 / total as f32) {
+            drop(stdin);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = errors.join();
+            let _ = std::fs::remove_file(out);
+            return Err(crate::library::STOPPED.into());
         }
     }
     drop(stdin);
@@ -181,7 +188,7 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
             Ok(()) => format!("FFmpeg failed:\n{tail}"),
         });
     }
-    progress(1.0);
+    let _ = progress(1.0);
     Ok(())
 }
 
@@ -232,7 +239,7 @@ mod tests {
             .status()
             .is_ok_and(|s| s.success());
         let s = SlideSettings { interval: 1.0, fade: true, motion: true, music: Some(song.to_string_lossy().to_string()), music_on: made_song };
-        let r = make(&out, &pics, (160, 90), &s, &|_| {});
+        let r = make(&out, &pics, (160, 90), &s, &|_| true);
         let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
         let streams = Command::new("ffprobe")
             .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"])

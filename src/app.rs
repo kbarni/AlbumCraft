@@ -72,6 +72,47 @@ pub struct TrayCheck {
     pub old: Vec<usize>,
 }
 
+/// A message shown over the bottom of the window.
+pub struct Notice {
+    pub text: String,
+    /// Something went wrong.
+    pub error: bool,
+    /// When it appeared (window time).
+    pub born: f64,
+    /// Seconds it stays; None: until the user closes it.
+    pub life: Option<f64>,
+    pub action: Option<NoticeAction>,
+}
+
+/// The button a notice offers.
+pub enum NoticeAction {
+    /// "Show in folder": a file or folder that was made.
+    Show(PathBuf),
+    Undo(Undo),
+}
+
+/// What an "Undo" button on a notice puts back.
+pub enum Undo {
+    /// A deleted album, at its place in the list.
+    Album { at: usize, album: Album },
+    /// A folder removed from the library.
+    Root { at: usize, path: String },
+    /// Edits cleared from pictures (by key).
+    Edits(Vec<(String, Vec<EditOp>)>),
+}
+
+/// Background work the user watches: see `App::start_task`.
+pub struct RunningTask {
+    pub id: u64,
+    pub label: String,
+    pub done: usize,
+    pub total: usize,
+    pub stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// How the message about a failed save starts.
+const SAVE_FAILED: &str = "Your library could not be saved:";
+
 /// Texts of the "clear old held items" question.
 pub const MSG_CLEAR_TRAY: &str = "Would you like to clear your old held items from the tray?";
 pub const BTN_CLEAR_TRAY: &str = "Clear Tray";
@@ -395,7 +436,12 @@ pub struct App {
     pub print: Option<crate::print_view::PrintState>,
     pub collage: Option<Box<crate::collage_view::CollageState>>,
     pub dialog: Option<Dialog>,
-    pub toast: Option<(String, f64)>,
+    /// Messages shown over the bottom of the window: short notes, results of background work,
+    /// errors that stay until closed, and offers to undo (see dialogs.rs).
+    pub notices: Vec<Notice>,
+    /// Background work shown in the status bar with its progress and a Cancel button.
+    pub tasks: Vec<RunningTask>,
+    next_task: u64,
     /// The import view's state (only while it is open).
     pub import: Option<Box<crate::import_view::ImportState>>,
     /// A copy running in the background (shown in the status bar).
@@ -555,7 +601,9 @@ impl App {
             print: None,
             collage: None,
             dialog: None,
-            toast: None,
+            notices: vec![],
+            tasks: vec![],
+            next_task: 1,
             import: None,
             importing: None,
             show_after_scan: None,
@@ -1619,9 +1667,74 @@ impl App {
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
     }
 
+    /// A short note that goes away by itself.
     pub fn toast(&mut self, text: impl Into<String>) {
-        let now = self.ctx.input(|i| i.time);
-        self.toast = Some((text.into(), now));
+        self.notice(text.into(), false, Some(3.5), None);
+    }
+
+    /// Something went wrong: the message stays until the user closes it.
+    pub fn error(&mut self, text: impl Into<String>) {
+        self.notice(text.into(), true, None, None);
+    }
+
+    /// What was just done, with a button to take it back for a few seconds.
+    pub fn undoable(&mut self, text: impl Into<String>, undo: Undo) {
+        self.notice(text.into(), false, Some(8.0), Some(NoticeAction::Undo(undo)));
+    }
+
+    fn notice(&mut self, text: String, error: bool, life: Option<f64>, action: Option<NoticeAction>) {
+        let born = self.ctx.input(|i| i.time);
+        // the same words again replace the earlier ones (a repeated note, a retried save)
+        self.notices.retain(|n| n.text != text);
+        self.notices.push(Notice { text, error, born, life, action });
+        // a handful at most: the oldest short notes make room
+        while self.notices.len() > 5 {
+            let at = self.notices.iter().position(|n| n.life.is_some()).unwrap_or(0);
+            self.notices.remove(at);
+        }
+        self.ctx.request_repaint();
+    }
+
+    /// Put back what a notice's Undo button stands for.
+    pub fn undo_action(&mut self, undo: Undo) {
+        match undo {
+            Undo::Album { at, album } => {
+                let at = at.min(self.store.albums.len());
+                // albums after it move down again
+                if let Source::Album(i) = &mut self.source
+                    && *i >= at
+                {
+                    *i += 1;
+                }
+                self.store.albums.insert(at, album);
+                self.dirty = true;
+            }
+            Undo::Root { at, path } => {
+                if !self.store.roots.contains(&path) {
+                    let at = at.min(self.store.roots.len());
+                    self.store.roots.insert(at, path);
+                    self.dirty = true;
+                    self.rescan();
+                }
+            }
+            Undo::Edits(list) => {
+                for (key, edits) in list {
+                    if let Some(&id) = self.key_index.get(&key) {
+                        self.meta_mut(id).edits = edits;
+                        self.refresh_thumb(id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Start a piece of background work the user watches in the status bar (progress, Cancel).
+    pub fn start_task(&mut self, label: impl Into<String>) -> crate::backend::Task {
+        let id = self.next_task;
+        self.next_task += 1;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.tasks.push(RunningTask { id, label: label.into(), done: 0, total: 0, stop: stop.clone() });
+        crate::backend::Task { id, stop }
     }
 
     pub fn add_library_folder(&mut self) {
@@ -1660,8 +1773,8 @@ impl App {
         }
         let Some(dir) = rfd::FileDialog::new().set_title("Export pictures to…").pick_folder() else { return };
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
-        self.toast(format!("Exporting {} picture(s)…", jobs.len()));
-        self.lib.export(jobs, dir, max_dim, quality, self.store.export_location);
+        let task = self.start_task(format!("Exporting {} picture(s)", jobs.len()));
+        self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location);
         self.arm_tray_check();
     }
 
@@ -1695,8 +1808,8 @@ impl App {
                 Some((p.key.clone(), p.name.clone(), self.edits(id), caption))
             })
             .collect();
-        self.toast(format!("Making the web gallery of {} picture(s)…", items.len()));
-        self.lib.make_gallery(items, parent, opts);
+        let task = self.start_task(format!("Making the web gallery of {} picture(s)", items.len()));
+        self.lib.make_gallery(task, items, parent, opts);
         self.arm_tray_check();
     }
 
@@ -1706,8 +1819,8 @@ impl App {
         };
         let out = if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4")) { out } else { out.with_extension("mp4") };
         let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().filter_map(|&id| Some((self.photos.get(id)?.key.clone(), self.edits(id)))).collect();
-        self.toast("Making the movie…");
-        self.lib.make_movie(pictures, out, size, self.store.slideshow.clone());
+        let task = self.start_task("Making the movie");
+        self.lib.make_movie(task, pictures, out, size, self.store.slideshow.clone());
         self.arm_tray_check();
     }
 
@@ -1824,12 +1937,22 @@ impl App {
                     }
                 }
                 Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
-                Done::Message(m) => {
-                    // don't throw away a dialog the user is filling in
-                    if self.dialog.is_none() {
-                        self.dialog = Some(Dialog::Info { title: "Done".into(), text: m });
+                Done::Progress { task, done, total } => {
+                    if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
+                        (t.done, t.total) = (done, total);
+                    }
+                }
+                Done::Report(report) => {
+                    if let Some(id) = report.task {
+                        self.tasks.retain(|t| t.id != id);
+                    }
+                    if report.ok {
+                        // long enough to read and to click "Show in folder"
+                        let action = report.show.map(NoticeAction::Show);
+                        self.notice(report.text, false, Some(if action.is_some() { 12.0 } else { 6.0 }), action);
                     } else {
-                        self.toast(m);
+                        let action = report.show.map(NoticeAction::Show);
+                        self.notice(report.text, true, None, action);
                     }
                 }
             }
@@ -1940,12 +2063,19 @@ pub fn several_text(count: usize, items: impl Iterator<Item = (i64, u64)>) -> St
 impl App {
     fn save_finished(&mut self, result: Result<(), String>) {
         match result {
-            Ok(()) => self.save_error = None,
+            Ok(()) => {
+                if self.save_error.take().is_some() {
+                    self.notices.retain(|n| !n.text.starts_with(SAVE_FAILED));
+                    self.toast("Your library is saved again.");
+                }
+            }
             Err(e) => {
                 // still unsaved: it is tried again in a few seconds
                 self.unsaved = true;
                 if self.save_error.as_ref() != Some(&e) {
-                    self.toast(format!("Your library could not be saved: {e}"));
+                    // stays until it works again or the user closes it
+                    self.notices.retain(|n| !n.text.starts_with(SAVE_FAILED));
+                    self.error(format!("{SAVE_FAILED} {e}\nYour latest changes are only in this window for now; AlbumCraft keeps trying."));
                     self.save_error = Some(e);
                 }
             }

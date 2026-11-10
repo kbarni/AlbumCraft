@@ -434,11 +434,11 @@ impl App {
             });
             let result = print::print_pages(&choice, "AlbumCraft pictures", &mut pages, None);
             progress.store(usize::MAX, Ordering::SeqCst);
-            let msg = match result {
-                Ok(n) => format!("Sent {n} page(s) to {}.", choice.name),
-                Err(e) => format!("Printing didn't finish: {e}"),
+            let report = match result {
+                Ok(n) => crate::library::Report::done(format!("Sent {n} page(s) to {}.", choice.name)),
+                Err(e) => crate::library::Report::failed(format!("Printing didn't finish: {e}")),
             };
-            let _ = tx.send(Done::Message(msg));
+            let _ = tx.send(Done::Report(report));
             ctx.request_repaint();
         });
         self.arm_tray_check();

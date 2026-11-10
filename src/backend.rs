@@ -11,7 +11,7 @@
 use crate::exifinfo::CameraInfo;
 use crate::geo::{self, FileStamp, LatLon};
 use crate::imaging::{self, EditOp};
-use crate::library::{self, Done, IniFolder, Job, Loaded, Pool, Store, Wake};
+use crate::library::{self, Done, IniFolder, Job, Loaded, Pool, Report, Store, Wake};
 use crate::slides::SlideSettings;
 use image::RgbaImage;
 use std::path::{Path, PathBuf};
@@ -26,6 +26,13 @@ pub type Pictures = Arc<dyn Fn(&str, u32) -> Option<RgbaImage> + Send + Sync>;
 
 /// GPS positions found by the background index, a batch at a time (see `geo::index_files`).
 pub type GpsBatches = Receiver<Vec<(String, Option<LatLon>)>>;
+
+/// A long piece of work the user watches in the status bar: its number (for `Done::Progress`
+/// and `Report::task`) and the switch that asks it to stop.
+pub struct Task {
+    pub id: u64,
+    pub stop: Arc<AtomicBool>,
+}
 
 pub trait Library {
     /// Read the saved notes (stars, captions, edits, albums, settings).
@@ -57,15 +64,16 @@ pub trait Library {
     /// Reads pictures for output made by the window (print pages, collages).
     fn pictures(&self) -> Pictures;
 
-    /// Export edited copies into `dir`; a report arrives as `Done::Message`.
-    fn export(&self, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool);
-    /// Make a web gallery in a new folder inside `parent`; a report arrives as `Done::Message`.
-    fn make_gallery(&self, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options);
-    /// Make a movie file; progress arrives as `Done::Toast`, the report as `Done::Message`.
-    fn make_movie(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings);
+    /// Export edited copies into `dir`. Like the three below: progress arrives as
+    /// `Done::Progress`, the end as `Done::Report`, both with the task's number.
+    fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool);
+    /// Make a web gallery in a new folder inside `parent`.
+    fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options);
+    /// Make a movie file.
+    fn make_movie(&self, task: Task, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings);
     /// Save a collage or contact sheet (a PDF, or pictures `px_long` pixels on their longest
-    /// side); a report arrives as `Done::Message`.
-    fn make_collage(&self, job: crate::collage::Job, out: PathBuf, px_long: u32);
+    /// side).
+    fn make_collage(&self, task: Task, job: crate::collage::Job, out: PathBuf, px_long: u32);
 
     /// List the pictures in an import source, marking the ones `library` (path, size) already
     /// has; the list arrives as `Done::ImportList`.
@@ -104,12 +112,19 @@ impl LocalLibrary {
         }
     }
 
-    /// Run `work` on its own thread (a panic becomes `failed`) and send what it returns.
-    fn in_background(&self, failed: &'static str, work: impl FnOnce(&dyn Fn(Done)) -> String + Send + 'static) {
+    /// Run `work` on its own thread as a task the user sees: `work` gets `step(done, total)` to
+    /// say how far it is, which answers false once the user asked to stop. Its report (a panic
+    /// becomes `failed`) ends the task.
+    fn run_task(&self, task: Task, failed: &'static str, work: impl FnOnce(&dyn Fn(usize, usize) -> bool) -> Report + Send + 'static) {
         let send = self.sender();
         std::thread::spawn(move || {
-            let msg = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&send))).unwrap_or_else(|_| failed.to_string());
-            send(Done::Message(msg));
+            let step = |done: usize, total: usize| {
+                send(Done::Progress { task: task.id, done, total });
+                !task.stop.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            let mut report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&step))).unwrap_or_else(|_| Report::failed(failed));
+            report.task = Some(task.id);
+            send(Done::Report(report));
         });
     }
 }
@@ -194,11 +209,16 @@ impl Library for LocalLibrary {
         Arc::new(imaging::load_source)
     }
 
-    fn export(&self, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool) {
-        self.in_background("Could not export: unexpected error.", move |_| {
+    fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool) {
+        self.run_task(task, "Could not export: unexpected error.", move |step| {
             let mut ok = 0;
             let mut failed: Vec<String> = vec![];
-            for (key, name, edits, place) in &jobs {
+            let mut stopped = false;
+            for (i, (key, name, edits, place)) in jobs.iter().enumerate() {
+                if !step(i, jobs.len()) {
+                    stopped = true;
+                    break;
+                }
                 let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
@@ -211,6 +231,9 @@ impl Library for LocalLibrary {
                 }
             }
             let mut msg = format!("Exported {ok} of {} picture(s) to {}", jobs.len(), dir.display());
+            if stopped {
+                msg.push_str("\nThe export was stopped before the end.");
+            }
             if !failed.is_empty() {
                 msg.push_str("\n\nNot exported:");
                 for f in failed.iter().take(10) {
@@ -221,12 +244,13 @@ impl Library for LocalLibrary {
                     msg.push_str(&format!("\n… and {} more", failed.len() - 10));
                 }
             }
-            msg
+            let report = if failed.is_empty() { Report::done(msg) } else { Report::failed(msg) };
+            if ok > 0 { report.showing(dir) } else { report }
         });
     }
 
-    fn make_gallery(&self, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options) {
-        self.in_background("Could not make the web gallery: unexpected error.", move |_| match crate::gallery::write(&parent, &items, &opts) {
+    fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options) {
+        self.run_task(task, "Could not make the web gallery: unexpected error.", move |step| match crate::gallery::write(&parent, &items, &opts, step) {
             Ok((dir, failed)) => {
                 let index = dir.join("index.html");
                 let _ = crate::library_view::open_with_system(&index);
@@ -234,28 +258,30 @@ impl Library for LocalLibrary {
                 if failed > 0 {
                     m.push_str(&format!("\n\n{failed} picture(s) could not be read and were left out."));
                 }
-                m
+                Report::done(m).showing(index)
             }
-            Err(e) => format!("Could not make the web gallery: {e}"),
+            Err(e) if e == library::STOPPED => Report::done("The web gallery was not made: stopped."),
+            Err(e) => Report::failed(format!("Could not make the web gallery: {e}")),
         });
     }
 
-    fn make_movie(&self, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings) {
-        self.in_background("Could not make the movie: unexpected error", move |send| {
-            let progress = |f: f32| send(Done::Toast(format!("Making the movie… {:.0} %", f * 100.0)));
+    fn make_movie(&self, task: Task, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings) {
+        self.run_task(task, "Could not make the movie: unexpected error", move |step| {
+            let progress = |f: f32| step((f * 1000.0) as usize, 1000);
             match crate::movie::make(&out, &pictures, size, &settings, &progress) {
-                Ok(()) => format!("The movie is ready:\n{}", out.display()),
-                Err(e) => format!("Could not make the movie: {e}"),
+                Ok(()) => Report::done(format!("The movie is ready:\n{}", out.display())).showing(out),
+                Err(e) if e == library::STOPPED => Report::done("The movie was not made: stopped."),
+                Err(e) => Report::failed(format!("Could not make the movie: {e}")),
             }
         });
     }
 
-    fn make_collage(&self, job: crate::collage::Job, out: PathBuf, px_long: u32) {
-        self.in_background("Could not save the collage: unexpected error.", move |_| {
+    fn make_collage(&self, task: Task, job: crate::collage::Job, out: PathBuf, px_long: u32) {
+        self.run_task(task, "Could not save the collage: unexpected error.", move |_| {
             match crate::collage::save(&job, &out, px_long, &imaging::load_source) {
-                Ok(files) if files.len() > 1 => format!("Saved {} pictures, the first one is:\n{}", files.len(), out.display()),
-                Ok(_) => format!("Saved:\n{}", out.display()),
-                Err(e) => format!("Could not save the collage: {e}"),
+                Ok(files) if files.len() > 1 => Report::done(format!("Saved {} pictures, the first one is:\n{}", files.len(), out.display())).showing(out),
+                Ok(_) => Report::done(format!("Saved:\n{}", out.display())).showing(out),
+                Err(e) => Report::failed(format!("Could not save the collage: {e}")),
             }
         });
     }
@@ -334,8 +360,8 @@ mod tests {
             bg_picture: None,
             pictures: vec![(format!("{}1", imaging::SAMPLE_PREFIX), vec![])],
         };
-        lib.make_collage(job, PathBuf::from("/no/such/folder/c.png"), 400);
-        assert!(matches!(next(&rx), Done::Message(m) if m.starts_with("Could not save the collage")));
+        lib.make_collage(Task { id: 7, stop: Arc::new(AtomicBool::new(false)) }, job, PathBuf::from("/no/such/folder/c.png"), 400);
+        assert!(matches!(next(&rx), Done::Report(r) if r.task == Some(7) && !r.ok && r.text.starts_with("Could not save the collage")));
     }
 
     /// The window's import path: list a card, copy what is new, report progress and the end.

@@ -348,9 +348,17 @@ impl App {
         ui.separator();
         self.edit_clipboard_menu(ui, &tray);
         if ui.add_enabled(!tray.is_empty(), egui::Button::new("Undo all edits")).clicked() {
+            let mut before = vec![];
             for &id in &tray {
-                self.meta_mut(id).edits.clear();
+                let edits = std::mem::take(&mut self.meta_mut(id).edits);
+                if !edits.is_empty() {
+                    before.push((self.photos[id].key.clone(), edits));
+                }
                 self.refresh_thumb(id);
+            }
+            if !before.is_empty() {
+                let n = before.len();
+                self.undoable(format!("Removed the edits of {n} picture{}.", if n == 1 { "" } else { "s" }), Undo::Edits(before));
             }
             ui.close();
         }
@@ -405,6 +413,24 @@ impl App {
                         if ui.small_button("Stop").on_hover_text("Stop after the current picture (the ones copied stay)").clicked() {
                             self.stop_import();
                         }
+                    }
+                    let mut cancel = None;
+                    for t in &self.tasks {
+                        ui.separator();
+                        ui.spinner();
+                        if t.total > 0 {
+                            ui.add(egui::ProgressBar::new(t.done as f32 / t.total as f32).desired_width(120.0));
+                        }
+                        let stopping = t.stop.load(std::sync::atomic::Ordering::Relaxed);
+                        ui.label(RichText::new(if stopping { format!("{}: stopping…", t.label) } else { format!("{}…", t.label) }).size(12.0));
+                        if !stopping && ui.small_button("Cancel").on_hover_text("Stop after the current picture").clicked() {
+                            cancel = Some(t.id);
+                        }
+                    }
+                    if let Some(id) = cancel
+                        && let Some(t) = self.tasks.iter().find(|t| t.id == id)
+                    {
+                        t.stop.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                     if self.using_samples {
                         ui.separator();
@@ -659,7 +685,7 @@ impl App {
 
 /// Open the system file manager on the picture's folder, with the picture selected where the
 /// platform allows it.
-fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
     use std::process::Command;
     if cfg!(target_os = "windows") {
         // explorer takes "/select," and the path as one argument

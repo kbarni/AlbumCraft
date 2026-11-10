@@ -1092,7 +1092,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 })
                 .collect();
             Ok(Outcome::Later(Box::new(move || {
-                let (dir, failed) = crate::gallery::write(&parent, &items, &opts)?;
+                let (dir, failed) = crate::gallery::write(&parent, &items, &opts, &|_, _| true)?;
                 Ok(Reply::json(json!({ "page": dir.join("index.html").to_string_lossy(), "left_out": failed })))
             })))
         }
@@ -1129,7 +1129,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 if !crate::movie::ffmpeg_available() {
                     return Err("making movies needs the FFmpeg program, which wasn't found".into());
                 }
-                crate::movie::make(&path, &pictures, size, &s, &|_| {})?;
+                crate::movie::make(&path, &pictures, size, &s, &|_| true)?;
                 Ok(Reply::json(json!({ "movie": path.to_string_lossy(), "seconds": crate::movie::duration(pictures.len(), &s) })))
             })))
         }
