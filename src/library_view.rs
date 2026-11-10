@@ -275,81 +275,72 @@ impl App {
         }
     }
 
-    /// The app menu. It holds only what has no visible button elsewhere, or teaches a shortcut.
+    /// The app menu: one flat list holding only what has no visible button elsewhere, or teaches a shortcut.
     pub fn app_menu_items(&mut self, ui: &mut egui::Ui) {
         let tray = self.targets();
-        ui.menu_button("File", |ui| {
-            if ui.button("Import pictures…").clicked() {
-                self.open_import();
+        if ui.button("Import pictures…").clicked() {
+            self.open_import();
+            ui.close();
+        }
+        if ui.button("Add folder to library…").clicked() {
+            self.add_library_folder();
+            ui.close();
+        }
+        if ui.button("Library folders…").clicked() {
+            self.dialog = Some(Dialog::FolderManager);
+            ui.close();
+        }
+        if ui.button("Scan folders again").clicked() {
+            self.rescan();
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Select all          Ctrl+A").clicked() {
+            self.selection = self.visible_flat().into_iter().collect();
+            ui.close();
+        }
+        if ui.button("Select none         Esc").clicked() {
+            self.selection.clear();
+            ui.close();
+        }
+        ui.separator();
+        ui.add_enabled_ui(!tray.is_empty(), |ui| {
+            if ui.button("Rotate left         Ctrl+[").clicked() {
+                self.rotate(&tray, -1);
                 ui.close();
             }
-            if ui.button("Add folder to library…").clicked() {
-                self.add_library_folder();
+            if ui.button("Rotate right        Ctrl+]").clicked() {
+                self.rotate(&tray, 1);
                 ui.close();
             }
-            if ui.button("Library folders…").clicked() {
-                self.dialog = Some(Dialog::FolderManager);
-                ui.close();
-            }
-            if ui.button("Scan folders again").clicked() {
-                self.rescan();
-                ui.close();
-            }
-            ui.separator();
-            if ui.button("Exit").clicked() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+            self.flag_rating_menu(ui, &tray);
         });
-        ui.menu_button("Edit", |ui| {
-            if ui.button("Select all          Ctrl+A").clicked() {
-                self.selection = self.visible_flat().into_iter().collect();
-                ui.close();
+        ui.separator();
+        self.edit_clipboard_menu(ui, &tray);
+        if ui.add_enabled(!tray.is_empty(), egui::Button::new("Undo all edits")).clicked() {
+            for &id in &tray {
+                self.meta_mut(id).edits.clear();
+                self.refresh_thumb(id);
             }
-            if ui.button("Select none         Esc").clicked() {
-                self.selection.clear();
-                ui.close();
-            }
-            ui.separator();
-            self.edit_clipboard_menu(ui, &tray);
-            if ui.add_enabled(!tray.is_empty(), egui::Button::new("Undo all edits")).clicked() {
-                for &id in &tray {
-                    self.meta_mut(id).edits.clear();
-                    self.refresh_thumb(id);
-                }
-                ui.close();
-            }
-        });
-        ui.menu_button("Picture", |ui| {
-            ui.add_enabled_ui(!tray.is_empty(), |ui| {
-                if ui.button("Rotate left         Ctrl+[").clicked() {
-                    self.rotate(&tray, -1);
-                    ui.close();
-                }
-                if ui.button("Rotate right        Ctrl+]").clicked() {
-                    self.rotate(&tray, 1);
-                    ui.close();
-                }
-                ui.separator();
-                self.flag_rating_menu(ui, &tray);
-            });
-        });
-        ui.menu_button("Tools", |ui| {
-            let mut online = self.store.online_maps == Some(true);
-            if ui
-                .checkbox(&mut online, "Online maps (OpenStreetMap)")
-                .on_hover_text("Detailed maps and address search from OpenStreetMap. Off: only the built-in world map and city list, no internet connections.")
-                .changed()
-            {
-                self.store.online_maps = Some(online);
-                self.dirty = true;
-            }
-        });
-        ui.menu_button("Help", |ui| {
-            if ui.button("About…").clicked() {
-                self.dialog = Some(Dialog::About);
-                ui.close();
-            }
-        });
+            ui.close();
+        }
+        ui.separator();
+        let mut online = self.store.online_maps == Some(true);
+        if ui
+            .checkbox(&mut online, "Online maps (OpenStreetMap)")
+            .on_hover_text("Detailed maps and address search from OpenStreetMap. Off: only the built-in world map and city list, no internet connections.")
+            .changed()
+        {
+            self.store.online_maps = Some(online);
+            self.dirty = true;
+        }
+        if ui.button("About AlbumCraft…").clicked() {
+            self.dialog = Some(Dialog::About);
+            ui.close();
+        }
+        if ui.button("Exit").clicked() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     pub fn status_bar(&mut self, ui: &mut egui::Ui) {
