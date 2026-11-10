@@ -283,7 +283,11 @@ pub struct BigEntry {
 
 pub struct App {
     pub store: Store,
+    /// Set by every change to the library's notes or settings; taken at the start of the next
+    /// frame, which then rebuilds the cached lists once and marks the library `unsaved`.
     pub dirty: bool,
+    /// Changes not written to disk yet.
+    pub unsaved: bool,
     pub last_save: f64,
     pub persist: bool,
     /// The last error saving the library (shown once, not every retry).
@@ -322,6 +326,8 @@ pub struct App {
     pub big: HashMap<usize, BigEntry>,
     pub big_order: VecDeque<usize>,
     pub big_req: HashSet<usize>,
+    /// Pictures whose preview could not be read: not asked for again (until the next scan).
+    pub big_failed: HashSet<usize>,
     /// Small previews of every preset look for (picture, edits they start from).
     pub look_previews: Option<(usize, Vec<EditOp>, Vec<TextureHandle>)>,
 
@@ -439,6 +445,7 @@ impl App {
         let mut app = App {
             store,
             dirty: first_run,
+            unsaved: false,
             last_save: 0.0,
             persist,
             save_error: None,
@@ -464,6 +471,7 @@ impl App {
             big: HashMap::new(),
             big_order: VecDeque::new(),
             big_req: HashSet::new(),
+            big_failed: HashSet::new(),
             look_previews: None,
             lib,
             tx,
@@ -781,6 +789,7 @@ impl App {
         self.list_pick = None;
         self.big_order.clear();
         self.big_req.clear();
+        self.big_failed.clear();
         self.look_previews = None;
         self.selection.clear();
         self.held.clear();
@@ -1025,10 +1034,12 @@ impl App {
                 return self.set_photos(set);
             }
         let mut v = self.held.clone();
-        for &s in &self.selection {
-            if !v.contains(&s) {
-                v.push(s);
-            }
+        if v.is_empty() {
+            v.extend(self.selection.iter().copied());
+        } else {
+            // a set, so that a large selection is not searched once per picture
+            let held: HashSet<usize> = v.iter().copied().collect();
+            v.extend(self.selection.iter().copied().filter(|s| !held.contains(s)));
         }
         v
     }
@@ -1105,9 +1116,9 @@ impl App {
             let p = &self.photos[id];
             return selection_text(&[(p.name.clone(), p.modified, p.bytes)], Some(&date), dims);
         }
-        let items: Vec<(String, i64, u64)> =
-            tray.iter().map(|&id| (self.photos[id].name.clone(), self.photos[id].modified, self.photos[id].bytes)).collect();
-        selection_text(&items, None, None)
+        // several pictures: only their dates and sizes count (no copies of their names)
+        let of = |id: &usize| self.photos.get(*id).map(|p| (p.modified, p.bytes));
+        several_text(tray.len(), tray.iter().filter_map(of))
     }
 
     /// Photos an action applies to: the tray, or the open photo in the editor.
@@ -1162,6 +1173,13 @@ impl App {
 
     pub fn rotate(&mut self, ids: &[usize], dir: i32) {
         for &id in ids {
+            if id >= self.photos.len() {
+                continue;
+            }
+            // a new edit: what was undone before it can't be redone on top of it
+            if self.edit.id == id {
+                self.edit.redo.clear();
+            }
             let m = self.meta_mut(id);
             if let Some(EditOp::Rotate(n)) = m.edits.last_mut() {
                 *n += dir;
@@ -1214,6 +1232,9 @@ impl App {
 
     pub fn redo(&mut self) {
         let id = self.edit.id;
+        if id >= self.photos.len() {
+            return;
+        }
         if let Some(op) = self.edit.redo.pop() {
             self.meta_mut(id).edits.push(op);
             self.refresh_thumb(id);
@@ -1267,7 +1288,7 @@ impl App {
     }
 
     pub fn request_big(&mut self, id: usize, urgent: bool) {
-        if id < self.photos.len() && !self.big.contains_key(&id) && !self.big_req.contains(&id) {
+        if id < self.photos.len() && !self.big.contains_key(&id) && !self.big_req.contains(&id) && !self.big_failed.contains(&id) {
             self.big_req.insert(id);
             self.lib.request(Job::Big { id, key: self.photos[id].key.clone() }, urgent);
         }
@@ -1726,6 +1747,9 @@ impl App {
                                 }
                             }
                         } else {
+                            // not asked for again: the editor would otherwise decode a damaged
+                            // or vanished file over and over
+                            self.big_failed.insert(id);
                             self.thumb_failed.insert(id);
                         }
                     }
@@ -2278,20 +2302,29 @@ pub fn selection_text(items: &[(String, i64, u64)], one_date: Option<&str>, dims
             let (w, h) = dims.unwrap_or((0, 0));
             format!("{name}     {date}     {w}x{h} pixels     {}", library::fmt_bytes(*bytes))
         }
-        _ => {
-            let first = items.iter().map(|i| i.1).min().unwrap_or(0);
-            let last = items.iter().map(|i| i.1).max().unwrap_or(0);
-            let total: u64 = items.iter().map(|i| i.2).sum();
-            let (a, b) = (library::fmt_date(first), library::fmt_date(last));
-            let mut s = format!("{} pictures", fmt_count(items.len()));
-            if a == b {
-                s += &format!("     {a}      {} on disk", library::fmt_bytes(total));
-            } else {
-                s += &format!("     {a} to {b}     {} on disk", library::fmt_bytes(total));
-            }
-            s
-        }
+        _ => several_text(items.len(), items.iter().map(|i| (i.1, i.2))),
     }
+}
+
+/// The selection line for `count` pictures, from the (date, bytes) of each.
+pub fn several_text(count: usize, items: impl Iterator<Item = (i64, u64)>) -> String {
+    let (mut first, mut last, mut total) = (i64::MAX, i64::MIN, 0u64);
+    for (date, bytes) in items {
+        first = first.min(date);
+        last = last.max(date);
+        total = total.saturating_add(bytes);
+    }
+    if first > last {
+        (first, last) = (0, 0);
+    }
+    let (a, b) = (library::fmt_date(first), library::fmt_date(last));
+    let mut s = format!("{} pictures", fmt_count(count));
+    if a == b {
+        s += &format!("     {a}      {} on disk", library::fmt_bytes(total));
+    } else {
+        s += &format!("     {a} to {b}     {} on disk", library::fmt_bytes(total));
+    }
+    s
 }
 
 impl App {
@@ -2299,8 +2332,8 @@ impl App {
         match result {
             Ok(()) => self.save_error = None,
             Err(e) => {
-                // stay dirty: it is tried again in a few seconds
-                self.dirty = true;
+                // still unsaved: it is tried again in a few seconds
+                self.unsaved = true;
                 if self.save_error.as_ref() != Some(&e) {
                     self.toast(format!("Your library could not be saved: {e}"));
                     self.save_error = Some(e);
@@ -2324,19 +2357,21 @@ impl eframe::App for App {
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
         let closing = ctx.input(|i| i.viewport().close_requested());
-        // every change to the library's notes sets `dirty`: rebuild the cached lists after it
-        if self.dirty {
+        // every change to the library's notes sets `dirty`: rebuild the cached lists once after
+        // it (not on every frame until the save), and remember that there is something to save
+        if std::mem::take(&mut self.dirty) {
             self.list_rev += 1;
+            self.unsaved = true;
         }
         // collect a finished background save (when closing, wait for it)
         if let Some(result) = self.lib.take_saved(closing) {
             self.save_finished(result);
         }
         // one save at a time: they share the temporary file
-        if self.persist && self.dirty && !self.lib.saving() && (closing || now - self.last_save > 3.0) {
+        if self.persist && self.unsaved && !self.lib.saving() && (closing || now - self.last_save > 3.0) {
             self.last_save = now;
             // changes made from here on set `dirty` again and are saved next time
-            self.dirty = false;
+            self.unsaved = false;
             // the window closes after this frame: write now
             self.lib.save(&mut self.store, closing);
             if let Some(result) = self.lib.take_saved(closing) {
@@ -2345,7 +2380,7 @@ impl eframe::App for App {
         }
         if self.lib.saving() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
-        } else if self.dirty && self.persist {
+        } else if self.unsaved && self.persist {
             ctx.request_repaint_after(std::time::Duration::from_secs(3));
         }
     }
@@ -2374,6 +2409,10 @@ impl eframe::App for App {
         self.tick_tray_check(&ctx);
         self.dialogs(&ctx);
         self.toast_ui(&ctx);
+        // a change made in this frame is taken up (lists rebuilt, save planned) by the next one
+        if self.dirty {
+            ctx.request_repaint();
+        }
     }
 }
 
@@ -2434,6 +2473,9 @@ mod tray_tests {
         assert_eq!(selection_text(&two, None, None), "2 pictures     May 12, 2009      2.0 MB on disk");
         let apart = [("a.jpg".to_string(), day, 1 << 20), ("b.jpg".to_string(), day + 86_400 * 2, 1 << 20)];
         assert_eq!(selection_text(&apart, None, None), "2 pictures     May 12, 2009 to May 14, 2009     2.0 MB on disk");
+        // the same line from dates and sizes alone, and no pictures at all is not a crash
+        assert_eq!(several_text(2, [(day, 1 << 20), (day + 60, 1 << 20)].into_iter()), selection_text(&two, None, None));
+        assert!(several_text(0, std::iter::empty()).starts_with("0 pictures"));
         assert_eq!(fmt_count(999), "999");
         assert_eq!(fmt_count(1234), "1,234");
         assert_eq!(fmt_count(1234567), "1,234,567");
