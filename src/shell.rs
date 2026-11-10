@@ -547,13 +547,29 @@ impl App {
                     Source::Album(_) => (icons::ALBUM, "This album is empty. Select pictures and add them from the selection bar."),
                     Source::Person(_) => (icons::PERSON, "Nobody tagged yet."),
                     Source::Picks => (icons::FLAG, "No picks yet. Hover a picture and click its flag, or press P."),
+                    Source::Library if !self.store.roots.is_empty() => {
+                        (icons::FOLDER, "No pictures were found in your library's folders. If they are on a disk that is not connected, connect it and scan again.")
+                    }
                     Source::Library => (icons::PHOTOS, "Your library is empty. Import pictures, or add a folder you already have."),
                 }
             };
+            let unreachable = matches!(self.source, Source::Library) && !self.store.roots.is_empty() && self.photos.is_empty() && !self.scanning;
             ui.label(RichText::new(icon).size(42.0));
             ui.add_space(6.0);
             ui.label(RichText::new(msg).size(15.0).color(t().text_weak));
-            if matches!(self.source, Source::Library) && !self.searching() && !self.scanning {
+            if unreachable && !self.searching() && !self.filter.is_active() {
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    // centred: two pills of about 290 px together
+                    ui.add_space((ui.available_width() - 290.0).max(0.0) / 2.0);
+                    if pill(ui, &format!("{}  Scan again", icons::REFRESH), true).clicked() {
+                        self.rescan();
+                    }
+                    if pill(ui, &format!("{}  Folders", icons::FOLDER), false).on_hover_text("The folders shown in the library").clicked() {
+                        self.dialog = Some(Dialog::FolderManager);
+                    }
+                });
+            } else if matches!(self.source, Source::Library) && !self.searching() && !self.scanning {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     // centred: two pills of about 330 px together

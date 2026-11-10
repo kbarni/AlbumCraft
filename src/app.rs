@@ -2,7 +2,7 @@
 
 use crate::imaging::{self, EditOp};
 use crate::backend::{Library, LocalLibrary};
-use crate::library::{self, Album, Done, Flag, Folder, Job, Loaded, Meta, Photo, ScannedFolder, Store};
+use crate::library::{self, Album, Done, Flag, Folder, IniFolder, Job, Loaded, Meta, Photo, ScannedFolder, Store};
 use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
 use image::RgbaImage;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -571,57 +571,28 @@ impl App {
 
     pub fn rescan(&mut self) {
         self.scanning = true;
-        self.lib.scan(self.store.roots.clone());
+        self.lib.scan(self.store.roots.clone(), self.store.imported_ini.clone());
     }
 
+    /// Show these folders as the library. What the window holds for pictures that are still
+    /// there (selection, the open picture, thumbnails…) is kept: see `keep_across_scan`.
     pub fn set_library(&mut self, scanned: Vec<ScannedFolder>, samples: bool) {
+        self.set_library_with(scanned, samples, vec![]);
+    }
+
+    /// `set_library`, with the `.picasa.ini` notes the scan read in folders not imported yet.
+    pub fn set_library_with(&mut self, scanned: Vec<ScannedFolder>, samples: bool, inis: Vec<(String, IniFolder)>) {
         let t0 = std::time::Instant::now();
-        self.set_library_inner(scanned, samples);
+        self.set_library_inner(scanned, samples, inis);
         library::trace_since("set_library (window thread)", t0, 0);
     }
 
-    fn set_library_inner(&mut self, scanned: Vec<ScannedFolder>, samples: bool) {
+    fn set_library_inner(&mut self, scanned: Vec<ScannedFolder>, samples: bool, inis: Vec<(String, IniFolder)>) {
         self.list_rev += 1;
-        self.photos.clear();
-        self.folders.clear();
+        let old_photos = std::mem::take(&mut self.photos);
+        let old_folders = std::mem::take(&mut self.folders);
         self.key_index.clear();
-        self.thumb_base.clear();
-        self.thumbs.clear();
-        self.thumb_req.clear();
-        self.thumb_seen.clear();
-        self.thumb_aspect.clear();
-        self.thumb_failed.clear();
-        self.big.clear();
-        // photo numbers change with a new scan, so per-photo caches start over
-        self.real_dims.clear();
-        self.dims_pending = false;
-        self.exif_cache.clear();
-        self.exif_thumbs.clear();
-        self.edit.zoom_tex = None;
-        self.tray_set = None;
-        self.list_pick = None;
-        self.big_order.clear();
-        self.big_req.clear();
-        self.big_failed.clear();
-        self.look_previews = None;
-        self.selection.clear();
-        self.held.clear();
-        self.anchor = None;
         self.using_samples = samples;
-        // Everything else that remembers photo numbers: they mean other pictures after a rescan.
-        self.tray_check = None;
-        self.print = None;
-        self.collage = None;
-        self.edit.list.clear();
-        if matches!(self.dialog, Some(Dialog::ClearTray { .. } | Dialog::PrintReview { .. } | Dialog::ChooseEdits { .. })) {
-            self.dialog = None;
-        }
-        if self.slide.take().is_some() {
-            self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
-        }
-        if self.view != View::Library {
-            self.view = View::Library;
-        }
 
         let mut folders: Vec<ScannedFolder> = scanned;
         folders.sort_by_key(|(_, files)| -files.iter().map(|f| f.1).max().unwrap_or(0));
@@ -643,10 +614,9 @@ impl App {
             }
             self.folders.push(Folder { path, name, date, photos: ids });
         }
+        self.keep_across_scan(&old_photos, &old_folders);
         if !samples {
-            let t0 = std::time::Instant::now();
-            self.import_picasa_ini();
-            library::trace_since(".picasa.ini import (window thread)", t0, 0);
+            self.import_picasa_ini(inis);
         }
         if let Source::Album(i) = self.source
             && i >= self.store.albums.len() {
@@ -655,17 +625,150 @@ impl App {
         self.geo.start_index(&self.photos, &*self.lib);
     }
 
+    /// Picture numbers are positions in `photos` and change with every scan. Everything that
+    /// remembers them is moved to the new numbers here, by file path: the selection, the open
+    /// picture, the tray, print and collage pictures, the slideshow. Thumbnails, previews and
+    /// what was read from a file are kept only when the file is unchanged (same date and size).
+    /// What belonged to pictures that are gone is dropped; a view whose pictures are all gone
+    /// closes.
+    fn keep_across_scan(&mut self, old_photos: &[Photo], old_folders: &[Folder]) {
+        let same: Vec<Option<usize>> = old_photos.iter().map(|p| self.key_index.get(&p.key).copied()).collect();
+        let fresh: Vec<Option<usize>> = old_photos
+            .iter()
+            .zip(&same)
+            .map(|(p, n)| n.filter(|&n| self.photos.get(n).is_some_and(|q| q.modified == p.modified && q.bytes == p.bytes)))
+            .collect();
+        // the picture's new number / the same, only when its file is unchanged
+        let to = |id: usize| same.get(id).copied().flatten();
+        let keep = |id: usize| fresh.get(id).copied().flatten();
+        fn map_of<V>(m: &mut HashMap<usize, V>, f: impl Fn(usize) -> Option<usize>) {
+            *m = std::mem::take(m).into_iter().filter_map(|(id, v)| Some((f(id)?, v))).collect();
+        }
+        fn set_of(s: &mut HashSet<usize>, f: impl Fn(usize) -> Option<usize>) {
+            *s = s.iter().filter_map(|&id| f(id)).collect();
+        }
+        fn list_of(v: &mut Vec<usize>, f: impl Fn(usize) -> Option<usize>) {
+            *v = v.iter().filter_map(|&id| f(id)).collect();
+        }
+
+        // read from the files
+        map_of(&mut self.thumb_base, keep);
+        map_of(&mut self.thumbs, keep);
+        map_of(&mut self.thumb_seen, keep);
+        map_of(&mut self.thumb_aspect, keep);
+        map_of(&mut self.real_dims, keep);
+        map_of(&mut self.exif_cache, keep);
+        map_of(&mut self.exif_thumbs, keep);
+        map_of(&mut self.big, keep);
+        self.big_order = self.big_order.iter().filter_map(|&id| keep(id)).filter(|id| self.big.contains_key(id)).collect();
+        // answers on their way are matched by file path when they arrive (`process_results`)
+        set_of(&mut self.thumb_req, keep);
+        set_of(&mut self.big_req, keep);
+        // a file that could not be read may be readable now
+        self.thumb_failed.clear();
+        self.big_failed.clear();
+        self.look_previews = self.look_previews.take().and_then(|(id, ops, texs)| Some((keep(id)?, ops, texs)));
+        self.edit.zoom_tex = self.edit.zoom_tex.take().and_then(|(id, ops, tex, r)| Some((keep(id)?, ops, tex, r)));
+        self.edit.zoom_req = self.edit.zoom_req.take().and_then(|(id, ops)| Some((to(id)?, ops)));
+
+        // chosen by the user
+        self.selection = self.selection.iter().filter_map(|&id| to(id)).collect();
+        self.anchor = self.anchor.and_then(to);
+        list_of(&mut self.held, to);
+        self.scroll_to_photo = self.scroll_to_photo.and_then(to);
+        let folder_to = |fi: usize| {
+            let path = &old_folders.get(fi)?.path;
+            self.folders.iter().position(|f| &f.path == path)
+        };
+        let set_to = |set: Option<TraySet>| match set {
+            Some(TraySet::Folder(fi)) => folder_to(fi).map(TraySet::Folder),
+            other => other,
+        };
+        self.tray_set = set_to(self.tray_set.take());
+        self.list_pick = set_to(self.list_pick.take());
+        self.scroll_to_folder = self.scroll_to_folder.and_then(folder_to);
+        // these questions list pictures by number: asked again when they still apply
+        self.tray_check = None;
+        if matches!(self.dialog, Some(Dialog::ClearTray { .. } | Dialog::PrintReview { .. })) {
+            self.dialog = None;
+        }
+
+        // the editor
+        list_of(&mut self.edit.list, to);
+        self.edit.other = self.edit.other.and_then(to);
+        self.edit.strip_shown = None;
+        match to(self.edit.id) {
+            Some(id) => {
+                self.edit.id = id;
+                if let Some(Dialog::ChooseEdits { then, .. }) = &mut self.dialog
+                    && let PendingLeave::Photo(next) = *then
+                {
+                    *then = to(next).map_or(PendingLeave::Library, PendingLeave::Photo);
+                }
+            }
+            None => {
+                // the open picture is gone
+                self.edit.id = 0;
+                self.edit.redo.clear();
+                self.edit.alt_edits.clear();
+                self.edit.focus_second = false;
+                self.edit.tool = Tool::None;
+                self.edit.sel = None;
+                if matches!(self.dialog, Some(Dialog::ChooseEdits { .. })) {
+                    self.dialog = None;
+                }
+                if self.view == View::Edit {
+                    self.view = View::Library;
+                }
+            }
+        }
+
+        // print, collage, slideshow
+        if let Some(ps) = self.print.as_mut() {
+            let before = ps.ids.len();
+            list_of(&mut ps.ids, to);
+            if ps.ids.len() != before {
+                ps.page = 0;
+            }
+            if ps.ids.is_empty() {
+                self.print = None;
+            }
+        }
+        if self.collage.as_mut().is_some_and(|c| !c.keep_across_scan(to)) {
+            self.collage = None;
+        }
+        if let Some(s) = self.slide.as_mut() {
+            let current = s.list.get(s.pos).copied().and_then(to);
+            list_of(&mut s.list, to);
+            s.pos = current.and_then(|c| s.list.iter().position(|&id| id == c)).unwrap_or(0);
+            s.prev = None;
+            if s.list.is_empty() {
+                self.slide = None;
+                self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            }
+        }
+        let gone = match self.view {
+            View::Print => self.print.is_none(),
+            View::Collage => self.collage.is_none(),
+            View::Slideshow => self.slide.is_none(),
+            _ => false,
+        };
+        if gone {
+            self.view = View::Library;
+        }
+    }
+
     /// Bring in stars, captions, tags, rotations, crops, filters, folder descriptions and albums
     /// saved in each folder's .picasa.ini. Done once per folder and
-    /// read-only: the file itself is never changed.
-    fn import_picasa_ini(&mut self) {
+    /// read-only: the file itself is never changed. `inis` is what the scan read (off the
+    /// window's thread), by folder path, for folders not brought in before.
+    fn import_picasa_ini(&mut self, inis: Vec<(String, IniFolder)>) {
         let mut imported = 0;
-        for fi in 0..self.folders.len() {
-            let path = self.folders[fi].path.clone();
-            if self.store.imported_ini.contains(&path) {
-                continue;
-            }
-            let Some(ini) = self.lib.folder_ini(&path) else { continue };
+        let done: HashSet<String> = self.store.imported_ini.iter().cloned().collect();
+        let folder_at: HashMap<&str, usize> = self.folders.iter().enumerate().map(|(fi, f)| (f.path.as_str(), fi)).collect();
+        let found: Vec<(usize, String, IniFolder)> =
+            inis.into_iter().filter(|(path, _)| !done.contains(path)).filter_map(|(path, ini)| Some((*folder_at.get(path.as_str())?, path, ini))).collect();
+        for (fi, path, ini) in found {
             self.store.imported_ini.push(path.clone());
             self.dirty = true;
             imported += 1;
@@ -1532,7 +1635,9 @@ impl App {
                     if library::tracing() && self.thumbs.len() % 100 == 99 {
                         eprintln!("[trace] {} thumbnails at {:.1} s", self.thumbs.len() + 1, self.ctx.input(|i| i.time));
                     }
-                    if self.photos.get(id).is_some_and(|p| p.key == key) {
+                    // by file path: the picture's number may have changed (a scan) since the request
+                    let _ = id;
+                    if let Some(&id) = self.key_index.get(&key) {
                         match img {
                             Some(img) => {
                                 self.thumb_base.insert(id, img);
@@ -1545,7 +1650,8 @@ impl App {
                     }
                 }
                 Done::Big { id, key, img } => {
-                    if self.photos.get(id).is_some_and(|p| p.key == key) {
+                    let _ = id;
+                    if let Some(&id) = self.key_index.get(&key) {
                         self.big_req.remove(&id);
                         if let Some(img) = img {
                             self.big.insert(id, BigEntry { base: img, tex: None, alt_tex: None, hist: None });
@@ -1569,7 +1675,9 @@ impl App {
                 }
                 Done::Zoom { id, key, ops, img, unedited_width } => {
                     self.edit.zoom_req = None;
-                    if self.photos.get(id).is_some_and(|p| p.key == key) && id == self.edit.id
+                    let _ = id;
+                    if let Some(&id) = self.key_index.get(&key)
+                        && id == self.edit.id
                         && let Some(img) = img {
                             let real_w = self.lib.source_dims(&key).map(|d| d.0).unwrap_or(unedited_width);
                             let r = real_w.max(1) as f32 / unedited_width.max(1) as f32;
@@ -1577,12 +1685,14 @@ impl App {
                             self.edit.zoom_tex = Some((id, ops, tex, r));
                         }
                 }
-                Done::Scan(found, truncated) => {
+                Done::Scan(found, truncated, inis) => {
                     self.scanning = false;
-                    if found.is_empty() {
+                    // sample pictures only for a library without folders: folders that can't
+                    // be reached (a disk not plugged in) show as an empty library that says so
+                    if found.is_empty() && self.store.roots.is_empty() {
                         self.set_library(library::sample_folders(), true);
                     } else {
-                        self.set_library(found, false);
+                        self.set_library_with(found, false, inis);
                     }
                     self.show_imported_folder();
                     if truncated {
@@ -1602,8 +1712,8 @@ impl App {
                 }
                 Done::Dims(found) => {
                     self.dims_pending = false;
-                    for (id, key, dims) in found {
-                        if self.photos.get(id).is_some_and(|p| p.key == key) {
+                    for (_, key, dims) in found {
+                        if let Some(&id) = self.key_index.get(&key) {
                             // unknown (unreadable header): the usual 3:2, and don't ask again
                             self.real_dims.insert(id, dims.unwrap_or((3, 2)));
                         }

@@ -40,6 +40,19 @@ pub struct CollageState {
     job: Option<(Arc<AtomicUsize>, usize)>,
 }
 
+impl CollageState {
+    /// After a scan: move to the pictures' new numbers (`to`), dropping the ones that are gone.
+    /// False when none is left.
+    pub fn keep_across_scan(&mut self, to: impl Fn(usize) -> Option<usize>) -> bool {
+        self.ids = self.ids.iter().filter_map(|&id| to(id)).collect();
+        self.nudges = std::mem::take(&mut self.nudges).into_iter().filter_map(|(id, n)| Some((to(id)?, n))).collect();
+        self.selected = self.selected.and_then(&to);
+        self.drag = None;
+        self.page = 0;
+        !self.ids.is_empty()
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Drag {
     id: usize,
