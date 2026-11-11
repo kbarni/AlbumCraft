@@ -244,6 +244,8 @@ pub struct Store {
     /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
     pub export_size: u32,
     pub export_quality: u8,
+    /// The user paused the background analysis of the library (AI features).
+    pub analysis_paused: bool,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -296,6 +298,7 @@ impl Default for Store {
             edit_advanced: false,
             export_size: 0,
             export_quality: 90,
+            analysis_paused: false,
         }
     }
 }
@@ -1068,6 +1071,9 @@ pub enum Job {
     /// The shapes and dates taken of these pictures (from their headers), for the grid's layout
     /// and the order by date.
     Dims(Vec<(usize, String)>),
+    /// A step of the background analysis (see `analysis`). These wait in a queue of their own
+    /// and run only while nothing else is waiting.
+    Background(Box<dyn FnOnce() -> Done + Send>),
 }
 
 impl Job {
@@ -1095,6 +1101,7 @@ impl Job {
                 let d = crate::catalogue::read_details(&key);
                 (id, key, d)
             }).collect()),
+            Job::Background(work) => work(),
         }
     }
 
@@ -1106,6 +1113,8 @@ impl Job {
             Job::Zoom { id, key, ops } => Done::Zoom { id: *id, key: key.clone(), ops: ops.clone(), img: None, unedited_width: 0 },
             Job::File { key, dim } => Done::File { key: key.clone(), dim: *dim, img: None },
             Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), Default::default())).collect()),
+            // the analysis catches its own failures; should one get through, nothing to tell
+            Job::Background(_) => Done::Dropped(vec![]),
         }
     }
 }
@@ -1264,7 +1273,7 @@ impl Trashed {
 }
 
 /// A picture's thumbnail: from the disk cache, else made from the file and put in the cache.
-fn cached_thumbnail(key: &str, dim: u32) -> Option<RgbaImage> {
+pub(crate) fn cached_thumbnail(key: &str, dim: u32) -> Option<RgbaImage> {
     crate::thumbcache::get(key, dim).or_else(|| {
         let img = imaging::load_thumbnail(key, dim)?;
         crate::thumbcache::put(key, dim, &img);
@@ -1302,6 +1311,8 @@ pub enum Done {
     ImportDone { dest: std::path::PathBuf, summary: String, copied: usize, problems: bool },
     /// Bytes used on disk by the thumbnail cache and the map tile cache.
     CacheSizes { thumbs: u64, tiles: u64 },
+    /// How far the background analysis of the library is.
+    Analysis(crate::analysis::Progress),
 }
 
 /// (photo id, key, what its header says).
@@ -1327,16 +1338,30 @@ pub fn source_dims(key: &str) -> Option<(u32, u32)> {
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Waiting jobs: urgent ones (the picture being looked at) first, then the others; newest first
-/// in both, so that what is on screen now comes before what was on screen a moment ago.
+/// in both, so that what is on screen now comes before what was on screen a moment ago. Last,
+/// and only when both are empty, the background analysis, oldest first.
 #[derive(Default)]
 struct Queues {
     urgent: VecDeque<Job>,
     normal: VecDeque<Job>,
+    background: VecDeque<Job>,
+    /// Background jobs being run now, and the most allowed at once: the other workers stay free
+    /// for what the user is looking at.
+    background_running: usize,
+    background_max: usize,
 }
 
 impl Queues {
     fn pop(&mut self) -> Option<Job> {
-        self.urgent.pop_back().or_else(|| self.normal.pop_back())
+        if let Some(job) = self.urgent.pop_back().or_else(|| self.normal.pop_back()) {
+            return Some(job);
+        }
+        if self.background_running >= self.background_max {
+            return None;
+        }
+        let job = self.background.pop_front()?;
+        self.background_running += 1;
+        Some(job)
     }
 
     /// Keep at most `max` thumbnail jobs waiting in the normal queue: the oldest go. Returns
@@ -1375,7 +1400,9 @@ pub struct Pool {
 
 impl Pool {
     pub fn new(threads: usize, tx: Sender<Done>, wake: Wake) -> Self {
-        let queue: Arc<(Mutex<Queues>, Condvar)> = Arc::new((Mutex::new(Queues::default()), Condvar::new()));
+        // analysis on one or two threads, and always a worker left for the window
+        let queues = Queues { background_max: if threads > 2 { 2 } else { threads.saturating_sub(1).max(1) }, ..Default::default() };
+        let queue: Arc<(Mutex<Queues>, Condvar)> = Arc::new((Mutex::new(queues), Condvar::new()));
         for _ in 0..threads {
             let q = queue.clone();
             let tx = tx.clone();
@@ -1394,7 +1421,12 @@ impl Pool {
                 // A picture that makes a decoder or an edit panic must not take the worker down:
                 // answer "no picture" for it and carry on.
                 let failed = job.failed();
+                let background = matches!(job, Job::Background(_));
                 let done = std::panic::catch_unwind(AssertUnwindSafe(|| job.run())).unwrap_or(failed);
+                if background {
+                    let mut g = q.0.lock().unwrap_or_else(PoisonError::into_inner);
+                    g.background_running = g.background_running.saturating_sub(1);
+                }
                 if tx.send(done).is_err() {
                     return;
                 }
@@ -1407,7 +1439,9 @@ impl Pool {
     pub fn push(&self, job: Job, urgent: bool) {
         let (lock, cv) = &*self.queue;
         let mut g = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        if urgent {
+        if matches!(job, Job::Background(_)) {
+            g.background.push_back(job);
+        } else if urgent {
             g.urgent.push_back(job);
         } else {
             g.normal.push_back(job);
@@ -1419,5 +1453,46 @@ impl Pool {
             let _ = self.tx.send(Done::Dropped(dropped));
             (self.wake)();
         }
+    }
+}
+
+#[cfg(test)]
+mod background_queue_tests {
+    use super::*;
+
+    fn name(job: Option<Job>) -> &'static str {
+        match job {
+            Some(Job::Big { .. }) => "urgent",
+            Some(Job::Thumb { .. }) => "normal",
+            Some(Job::Background(_)) => "background",
+            _ => "none",
+        }
+    }
+
+    /// Analysis jobs are handed out only when nothing else waits, oldest first, and at most
+    /// `background_max` at a time.
+    #[test]
+    fn background_jobs_come_last_and_few_at_a_time() {
+        let mut q = Queues { background_max: 2, ..Default::default() };
+        let background = || Job::Background(Box::new(|| Done::Toast(String::new())));
+        for _ in 0..3 {
+            q.background.push_back(background());
+        }
+        q.normal.push_back(Job::Thumb { id: 0, key: "a".into(), dim: THUMB_DIM });
+        q.urgent.push_back(Job::Big { id: 0, key: "a".into() });
+        assert_eq!([name(q.pop()), name(q.pop()), name(q.pop()), name(q.pop())], ["urgent", "normal", "background", "background"]);
+        // two are running: the third waits, but the window's jobs still go out
+        assert_eq!(name(q.pop()), "none");
+        q.normal.push_back(Job::Thumb { id: 1, key: "b".into(), dim: THUMB_DIM });
+        assert_eq!([name(q.pop()), name(q.pop())], ["normal", "none"]);
+        q.background_running -= 1;
+        assert_eq!([name(q.pop()), name(q.pop())], ["background", "none"]);
+        // too many thumbnails waiting never drops analysis jobs
+        q.background.push_back(background());
+        for id in 0..40 {
+            q.normal.push_back(Job::Thumb { id, key: "c".into(), dim: THUMB_DIM });
+        }
+        assert_eq!(q.forget_old_thumbs(10).len(), 34);
+        assert_eq!(q.background.len(), 1);
     }
 }

@@ -434,6 +434,22 @@ impl App {
                     {
                         t.stop.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
+                    if self.analysis.active() {
+                        ui.separator();
+                        let a = self.analysis;
+                        let count = format!("{} / {}", fmt_count(a.done), fmt_count(a.total));
+                        if a.paused {
+                            ui.label(RichText::new(format!("Analysis of the pictures paused ({count})")).size(12.0).weak());
+                        } else {
+                            ui.add(egui::ProgressBar::new(a.done as f32 / a.total.max(1) as f32).desired_width(120.0));
+                            ui.label(RichText::new(format!("Analysing pictures {count}")).size(12.0));
+                        }
+                        let (label, hint) = if a.paused { ("Resume", "Carry on analysing the pictures in the background") } else { ("Pause", "Stop analysing for now. What is done is kept; it also stops when AlbumCraft closes and carries on at the next start.") };
+                        if ui.small_button(label).on_hover_text(hint).clicked() {
+                            self.store.analysis_paused = !a.paused;
+                            self.dirty = true;
+                        }
+                    }
                     if self.using_samples {
                         ui.separator();
                         ui.label(

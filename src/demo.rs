@@ -298,6 +298,30 @@ impl App {
             let ok = list == [3, 7, 12] && self.selection.len() == 3;
             eprintln!("open check: {}", if ok { "kept" } else { "LOST" });
         }
+        if shot_view == "analysis" || shot_view == "packs" {
+            // the background analysis under way, as the status bar and Settings show it
+            self.analysis = crate::analysis::Progress { done: 1240, total: 18300, paused: std::env::var("ALBUMCRAFT_SHOT_PAUSED").is_ok() };
+        }
+        if shot_view == "packs" {
+            // Settings › AI features with packs to download (sample entries: no pack is published yet)
+            use crate::ai::models::{ModelFile, Pack};
+            let pack = |id: &str, title: &str, about: &str, licence: &str, size: u64| Pack {
+                id: id.into(),
+                title: title.into(),
+                about: about.into(),
+                licence: licence.into(),
+                version: 1,
+                release: "models-1".into(),
+                files: vec![ModelFile { name: format!("{id}.onnx"), size, sha256: "0".repeat(64) }],
+            };
+            self.packs = vec![
+                crate::analysis::PackState { pack: pack("faces", "Faces", "Finds faces and groups them by person; you name the groups.", "Apache 2.0", 9 << 20), installed: true },
+                crate::analysis::PackState { pack: pack("search-light", "Smart search: Light", "Find pictures by describing them, in English.", "MIT", 100 << 20), installed: false },
+                crate::analysis::PackState { pack: pack("search-multilingual", "Smart search: Multilingual", "Find pictures by describing them, in your language.", "Apache 2.0", 400 << 20), installed: false },
+            ];
+            self.packs_at = f64::INFINITY;
+            self.dialog = Some(Dialog::Settings { section: crate::settings_view::SettingsSection::Ai });
+        }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }

@@ -99,6 +99,21 @@ pub trait Library {
     fn import(&self, files: Vec<String>, dest: PathBuf, stop: Arc<AtomicBool>);
     /// Memory cards, cameras and USB drives plugged in now, as (label, folder).
     fn import_sources(&self) -> Vec<(String, PathBuf)>;
+
+    /// These are the library's pictures now: the AI features analyse the new and changed ones
+    /// in the background, whenever nothing else is waiting. Progress arrives as
+    /// `Done::Analysis`.
+    fn analyse(&self, files: Vec<FileStamp>);
+    /// Hold the background analysis, or let it carry on.
+    fn pause_analysis(&self, paused: bool);
+    /// The packs of networks this version knows and which are downloaded (a quick look at a
+    /// few files).
+    fn model_packs(&self) -> Vec<crate::analysis::PackState>;
+    /// Download a pack of networks, as a task (`Done::Progress`, then `Done::Report`). The one
+    /// connection the AI features make, and only when the user asks.
+    fn download_pack(&self, task: Task, id: String);
+    /// Remove a downloaded pack; what was computed with it is kept.
+    fn remove_pack(&self, id: &str) -> Result<(), String>;
 }
 
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).
@@ -106,6 +121,7 @@ pub struct LocalLibrary {
     pool: Pool,
     tx: Sender<Done>,
     wake: Wake,
+    analysis: crate::analysis::Analysis,
     saving: Option<JoinHandle<Result<(), String>>>,
     /// A save that finished (or failed) before it could go to another thread.
     saved: Option<Result<(), String>>,
@@ -116,7 +132,17 @@ impl LocalLibrary {
     pub fn new(tx: Sender<Done>, wake: Wake) -> LocalLibrary {
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 6);
         let pool = Pool::new(threads, tx.clone(), wake.clone());
-        LocalLibrary { pool, tx, wake, saving: None, saved: None }
+        let send: crate::analysis::Send_ = {
+            let (tx, wake) = (tx.clone(), wake.clone());
+            Arc::new(move |d: Done| {
+                let _ = tx.send(d);
+                wake();
+            })
+        };
+        // No analyser yet: they come with the features that need them (picture vectors for
+        // search, faces), each one when its pack of networks is downloaded.
+        let analysis = crate::analysis::Analysis::new(pool.clone(), send, crate::ai::store::analysis_dir());
+        LocalLibrary { pool, tx, wake, analysis, saving: None, saved: None }
     }
 
     /// Sends an answer to the window and wakes it; for use on any thread.
@@ -398,6 +424,26 @@ impl Library for LocalLibrary {
             send(done);
         });
     }
+
+    fn analyse(&self, files: Vec<FileStamp>) {
+        self.analysis.set_pictures(files);
+    }
+
+    fn pause_analysis(&self, paused: bool) {
+        self.analysis.set_paused(paused);
+    }
+
+    fn model_packs(&self) -> Vec<crate::analysis::PackState> {
+        crate::analysis::packs()
+    }
+
+    fn download_pack(&self, task: Task, id: String) {
+        self.run_task(task, "The download stopped: unexpected error.", move |step| crate::analysis::download_pack(&id, step));
+    }
+
+    fn remove_pack(&self, id: &str) -> Result<(), String> {
+        crate::analysis::remove_pack(id)
+    }
 }
 
 #[cfg(test)]
@@ -430,6 +476,20 @@ mod tests {
         assert!(matches!(next(&rx), Done::Scan(found, false, inis) if found.is_empty() && inis.is_empty()));
         assert!(lib.pictures()(&key, 50).is_some_and(|i| i.width().max(i.height()) == 50));
         assert!(lib.camera_info(&key).is_none() && lib.source_dims("/no/such/picture.jpg").is_none());
+    }
+
+    /// The AI features' part answers too, with nothing to do while no network is installed.
+    #[test]
+    fn analysis_and_packs_answer() {
+        let (lib, rx) = local();
+        lib.analyse(vec![("/no/such/picture.jpg".into(), 1, 2)]);
+        assert!(matches!(next(&rx), Done::Analysis(p) if !p.active() && !p.paused));
+        lib.pause_analysis(true);
+        assert!(matches!(next(&rx), Done::Analysis(p) if p.paused));
+        assert!(lib.remove_pack("no-such-pack").is_err());
+        lib.download_pack(Task { id: 3, stop: Arc::new(AtomicBool::new(false)) }, "no-such-pack".into());
+        assert!(matches!(next(&rx), Done::Report(r) if r.task == Some(3) && !r.ok));
+        assert_eq!(lib.model_packs().len(), crate::ai::models::manifest().packs.len());
     }
 
     #[test]

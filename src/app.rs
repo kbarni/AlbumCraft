@@ -477,6 +477,14 @@ pub struct App {
     pub slide: Option<Slideshow>,
     /// Bytes on disk of the thumbnail and map tile caches, for Settings (None until measured).
     pub cache_sizes: Option<(u64, u64)>,
+    /// How far the background analysis of the library (AI features) is.
+    pub analysis: crate::analysis::Progress,
+    /// The pause last told to the library (it follows `Store.analysis_paused`).
+    analysis_paused: bool,
+    /// The packs of networks and whether each is downloaded, for Settings (looked up again
+    /// about once a second while shown, `packs_at`).
+    pub packs: Vec<crate::analysis::PackState>,
+    pub packs_at: f64,
     pub print: Option<crate::print_view::PrintState>,
     pub collage: Option<Box<crate::collage_view::CollageState>>,
     pub dialog: Option<Dialog>,
@@ -660,6 +668,10 @@ impl App {
             },
             slide: None,
             cache_sizes: None,
+            analysis: Default::default(),
+            analysis_paused: false,
+            packs: vec![],
+            packs_at: f64::NEG_INFINITY,
             export: None,
             print: None,
             collage: None,
@@ -780,6 +792,9 @@ impl App {
                 self.source = Source::Library;
             }
         self.geo.start_index(&self.photos, &*self.lib);
+        if !samples {
+            self.lib.analyse(self.photos.iter().map(|p| (p.key.clone(), p.modified, p.bytes)).collect());
+        }
     }
 
     /// Picture numbers are positions in `photos` and change with every scan. Everything that
@@ -2139,6 +2154,7 @@ impl App {
                 }
                 Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
                 Done::CacheSizes { thumbs, tiles } => self.cache_sizes = Some((thumbs, tiles)),
+                Done::Analysis(progress) => self.analysis = progress,
                 Done::Progress { task, done, total } => {
                     if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
                         (t.done, t.total) = (done, total);
@@ -2147,6 +2163,8 @@ impl App {
                 Done::Report(report) => {
                     if let Some(id) = report.task {
                         self.tasks.retain(|t| t.id != id);
+                        // a download may have ended
+                        self.packs_at = f64::NEG_INFINITY;
                         if self.rescan_after == Some(id) {
                             self.rescan_after = None;
                             self.rescan();
@@ -2295,6 +2313,10 @@ impl eframe::App for App {
         self.geo_tick();
         library::trace_since("frame: geo", t0, 30);
         self.run_control_requests();
+        if self.analysis_paused != self.store.analysis_paused {
+            self.analysis_paused = self.store.analysis_paused;
+            self.lib.pause_analysis(self.analysis_paused);
+        }
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
         let closing = ctx.input(|i| i.viewport().close_requested());
@@ -2411,6 +2433,9 @@ impl crate::commands::Host for App {
     }
     fn file_gps(&mut self) -> &std::collections::HashMap<String, Option<crate::geo::LatLon>> {
         &self.geo.file_gps
+    }
+    fn analysis(&self) -> Option<crate::analysis::Progress> {
+        Some(self.analysis)
     }
 }
 

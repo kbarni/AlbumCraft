@@ -38,6 +38,10 @@ pub trait Host {
     /// The GPS positions stored in the picture files, by key (None: the file has none). Pictures
     /// not looked at yet may be missing.
     fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>>;
+    /// How far the background analysis of the library is (only the window runs it).
+    fn analysis(&self) -> Option<crate::analysis::Progress> {
+        None
+    }
 }
 
 /// The position to use for a picture: the place set by the user, else the file's GPS.
@@ -417,6 +421,26 @@ Call `rescan` afterwards to see the new pictures in the library.",
             name: "remove_location",
             description: "Remove the location of pictures, including the GPS position stored in the file (hidden, the file is not changed). With back_to_file, forget the location set in AlbumCraft and use the file's own GPS position again.",
             schema: || keys_schema(json!({ "back_to_file": { "type": "boolean", "default": false, "required": false } })),
+        },
+        Spec {
+            name: "ai_status",
+            description: "The AI features (faces, smart search, tag proposals; everything is computed on the user's computer): whether this build can run networks, the packs of networks that can be downloaded with their size, licence and whether they are installed, and how far the background analysis of the library is (only while the AlbumCraft window is open).",
+            schema: || json!({ "type": "object", "properties": {} }),
+        },
+        Spec {
+            name: "download_model_pack",
+            description: "Download a pack of networks for the AI features (see ai_status for the packs and their sizes) from AlbumCraft's own releases; continues a download that was cut. Nothing about the user or the pictures is sent. Ask the user first: packs are 10 to 400 MB.",
+            schema: || json!({ "type": "object", "properties": { "pack": { "type": "string", "description": "The pack's id, from ai_status" } }, "required": ["pack"] }),
+        },
+        Spec {
+            name: "remove_model_pack",
+            description: "Remove a downloaded pack of networks from the computer. What was computed with it is kept.",
+            schema: || json!({ "type": "object", "properties": { "pack": { "type": "string" } }, "required": ["pack"] }),
+        },
+        Spec {
+            name: "pause_analysis",
+            description: "Pause (or resume) the background analysis of the library by the AI features. What is analysed is kept.",
+            schema: || json!({ "type": "object", "properties": { "paused": { "type": "boolean" } }, "required": ["paused"] }),
         },
         Spec {
             name: "find_place",
@@ -944,6 +968,34 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     "failed": r.failed.iter().map(|(f, why)| json!({ "file": f, "error": why })).collect::<Vec<_>>(),
                 })))
             })))
+        }
+        "ai_status" => {
+            let packs: Vec<Value> = crate::analysis::packs()
+                .iter()
+                .map(|p| json!({ "id": p.pack.id, "title": p.pack.title, "about": p.pack.about, "licence": p.pack.licence, "version": p.pack.version, "bytes": p.pack.bytes(), "installed": p.installed }))
+                .collect();
+            let analysis = host.analysis().map(|a| json!({ "analysed": a.done, "to_analyse": a.total, "running": a.active() && !a.paused }));
+            now(json!({ "can_run_networks": crate::ai::runtime::available(), "packs": packs, "analysis_paused": host.store().analysis_paused, "analysis": analysis }))
+        }
+        "download_model_pack" => {
+            let id = str_arg(args, "pack")?.to_string();
+            if !crate::analysis::packs().iter().any(|p| p.pack.id == id) {
+                return Err(format!("no pack is named {id:?} (see ai_status)"));
+            }
+            Ok(Outcome::Later(Box::new(move || {
+                let report = crate::analysis::download_pack(&id, &|_, _| true);
+                if report.ok { Ok(Reply::json(json!({ "downloaded": id, "message": report.text }))) } else { Err(report.text) }
+            })))
+        }
+        "remove_model_pack" => {
+            let id = str_arg(args, "pack")?;
+            crate::analysis::remove_pack(id)?;
+            now(json!({ "removed": id }))
+        }
+        "pause_analysis" => {
+            let paused = opt_bool(args, "paused")?.ok_or("`paused` (true or false) is required")?;
+            host.store_mut().analysis_paused = paused;
+            now(json!({ "paused": paused }))
         }
         "set_sort_order" => {
             let order = match str_arg(args, "order")? {
@@ -1619,6 +1671,20 @@ mod tests {
     }
 
     #[test]
+    fn ai_status_and_pause() {
+        let (dir, mut h, _) = fixture("ai");
+        let Ok(Outcome::Now(reply)) = run(&mut h, "ai_status", &json!({})) else { panic!("ai_status answers at once") };
+        let status = reply.value;
+        assert_eq!(status["can_run_networks"], crate::ai::runtime::available());
+        assert_eq!(status["packs"].as_array().map(Vec::len), Some(crate::ai::models::manifest().packs.len()));
+        // without a window nothing is analysed; the pause is kept for the window
+        assert!(status["analysis"].is_null() && status["analysis_paused"] == false);
+        assert!(run(&mut h, "pause_analysis", &json!({ "paused": true })).is_ok());
+        assert!(h.store.analysis_paused);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn bad_input_is_an_error_not_a_crash() {
         let (dir, mut h, keys) = fixture("bad");
         let k = &keys[0];
@@ -1650,6 +1716,11 @@ mod tests {
             ("show_on_map", json!({ "keys": [] })),
             ("email_pictures", json!({ "keys": [] })),
             ("trash_rejected", json!({})),
+            ("download_model_pack", json!({})),
+            ("download_model_pack", json!({ "pack": "../../no-such-pack" })),
+            ("remove_model_pack", json!({ "pack": "no-such-pack" })),
+            ("pause_analysis", json!({})),
+            ("pause_analysis", json!({ "paused": "yes" })),
             ("trash_rejected", json!({ "confirm": "yes" })),
             ("trash_rejected", json!({ "confirm": false })),
             ("trash_rejected", json!({ "keys": [k], "confirm": true })),

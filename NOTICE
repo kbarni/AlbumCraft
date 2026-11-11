@@ -30,6 +30,11 @@ AlbumCraft builds embed map data (assets/geo/, details in assets/geo/README.md):
 When the user turns online maps on, map pictures and place searches come from OpenStreetMap
 (© OpenStreetMap contributors, Open Database License); they are not distributed with AlbumCraft.
 
+AlbumCraft builds include ONNX Runtime (Copyright Microsoft Corporation, MIT License), linked in
+through the ort crate (pyke.io, MIT OR Apache-2.0), to run the networks of the optional AI
+features. No network is distributed with AlbumCraft: each is downloaded when the user asks, and
+its licence is shown before.
+
 All other dependencies are Rust crates under their own licenses (see Cargo.lock; most are MIT
 and/or Apache-2.0). Movie export runs the separately installed FFmpeg program, which is not
 distributed with AlbumCraft.

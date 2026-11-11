@@ -8,6 +8,9 @@
 
 pub use albumcraft_edit::{decor, develop, looks, steps};
 
+pub use albumcraft_ai as ai;
+
+pub mod analysis;
 pub mod catalogue;
 pub mod commands;
 pub mod control;

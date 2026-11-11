@@ -1,0 +1,27 @@
+[package]
+name = "albumcraft-ai"
+description = "AlbumCraft's optional AI features: running networks (ONNX Runtime), downloading them, keeping what they found"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["onnx"]
+# Links ONNX Runtime into the program. Without it everything else still builds and
+# `runtime::available()` answers false.
+onnx = ["dep:ort"]
+
+[dependencies]
+dirs.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.11"
+ureq.workspace = true
+
+# ONNX Runtime, linked statically from the prebuilt libraries the `ort` crate downloads when
+# building (none exist for Windows with the GNU toolchain: the feature does nothing there).
+[target.'cfg(not(all(windows, target_env = "gnu")))'.dependencies]
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["std", "download-binaries", "tls-rustls"] }

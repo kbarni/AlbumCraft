@@ -5,7 +5,7 @@
 use crate::app::*;
 use crate::icons;
 use crate::library::{BarStyle, Cache, fmt_bytes};
-use crate::theme::Mode;
+use crate::theme::{Mode, t};
 use eframe::egui::{self, RichText};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -116,7 +116,7 @@ impl App {
                             SettingsSection::Export => self.settings_export(ui),
                             SettingsSection::Maps => self.settings_maps(ui),
                             SettingsSection::Storage => self.settings_storage(ui),
-                            SettingsSection::Ai => settings_ai(ui),
+                            SettingsSection::Ai => self.settings_ai(ui),
                         }
                     });
                 });
@@ -353,22 +353,98 @@ impl App {
     }
 }
 
-fn settings_ai(ui: &mut egui::Ui) {
-    note(ui, "Not available yet. Planned:");
-    ui.add_space(4.0);
-    for (title, text) in [
-        ("Faces", "find faces and group them by person; you name the groups. A download of about 10 to 40 MB."),
-        ("Smart search", "find pictures by describing them (\"snow\", \"birthday cake\"). Light (English, about 100 MB) or Multilingual (about 400 MB)."),
-        ("Tag suggestions", "tags proposed from what is in the picture."),
-    ] {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(title).strong());
-            ui.label(text);
-        });
+impl App {
+    fn settings_ai(&mut self, ui: &mut egui::Ui) {
+        note(ui, "Finding faces, searching by describing a picture, proposing tags. Everything is computed on this computer: no picture, face or search text is sent anywhere. The networks these features need are downloaded only when you ask, from AlbumCraft's own releases.");
+        if !crate::ai::runtime::available() {
+            ui.add_space(4.0);
+            ui.label(RichText::new("This build of AlbumCraft cannot run networks: these features are not available in it.").color(t().bad));
+        }
+
+        group(ui, "Networks");
+        let now = ui.input(|i| i.time);
+        if now - self.packs_at > 1.0 {
+            self.packs_at = now;
+            self.packs = self.lib.model_packs();
+        }
+        if self.packs.is_empty() {
+            ui.label("No network can be downloaded with this version yet. Planned:");
+            ui.add_space(2.0);
+            for (title, text) in [
+                ("Faces", "find faces and group them by person; you name the groups. A download of about 10 to 40 MB."),
+                ("Smart search", "find pictures by describing them (\"snow\", \"birthday cake\"). Light (English, about 100 MB) or Multilingual (about 400 MB)."),
+                ("Tag suggestions", "tags proposed from what is in the picture."),
+            ] {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(title).strong());
+                    ui.label(text);
+                });
+                ui.add_space(2.0);
+            }
+        }
+        let downloading = |id: &str, tasks: &[RunningTask]| tasks.iter().any(|t| t.label == download_label(id));
+        let (mut download, mut remove) = (None, None);
+        for p in &self.packs {
+            let pack = &p.pack;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(&pack.title).strong());
+                ui.label(RichText::new(format!("{}  ·  licence: {}", fmt_bytes(pack.bytes()), pack.licence)).size(12.0).weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if p.installed {
+                        if ui.button("Remove").on_hover_text("Remove the networks from this computer. What was found in your pictures is kept.").clicked() {
+                            remove = Some(pack.id.clone());
+                        }
+                        ui.label(RichText::new(format!("{} Downloaded", icons::CHECK)).size(12.0).color(t().good));
+                    } else if downloading(&pack.id, &self.tasks) {
+                        ui.spinner();
+                        ui.label(RichText::new("Downloading… (see the bar at the bottom)").size(12.0).weak());
+                    } else if ui.add_enabled(crate::ai::runtime::available(), egui::Button::new("Download")).clicked() {
+                        download = Some(pack.id.clone());
+                    }
+                });
+            });
+            if !pack.about.is_empty() {
+                note(ui, &pack.about);
+            }
+            ui.add_space(6.0);
+        }
+        if let Some(id) = download {
+            self.download_pack(&id);
+        }
+        if let Some(id) = remove {
+            if let Err(e) = self.lib.remove_pack(&id) {
+                self.error(format!("The networks could not be removed: {e}"));
+            }
+            self.packs_at = f64::NEG_INFINITY;
+        }
+
+        group(ui, "Analysis of the library");
+        note(ui, "Each picture is analysed once, in the background, while AlbumCraft has nothing else to do. It stops when AlbumCraft closes and carries on at the next start.");
         ui.add_space(2.0);
+        let a = self.analysis;
+        ui.label(if a.active() {
+            format!("{} of {} pictures analysed{}", fmt_count(a.done), fmt_count(a.total), if a.paused { " (paused)" } else { "" })
+        } else if self.packs.iter().any(|p| p.installed) {
+            "Every picture is analysed.".to_string()
+        } else {
+            "Nothing to analyse: no network is downloaded.".to_string()
+        });
+        if ui.checkbox(&mut self.store.analysis_paused, "Pause the analysis").changed() {
+            self.dirty = true;
+        }
     }
-    ui.add_space(6.0);
-    note(ui, "Everything will be computed on this computer; nothing is sent anywhere.");
+
+    /// Download a pack of networks, as a task in the status bar.
+    pub fn download_pack(&mut self, id: &str) {
+        let task = self.start_task(download_label(id));
+        self.lib.download_pack(task, id.to_string());
+    }
+}
+
+/// The status bar's label of a pack's download (also how a running download is recognised).
+fn download_label(id: &str) -> String {
+    let title = crate::ai::models::manifest().pack(id).map(|p| p.title.as_str()).unwrap_or(id);
+    format!("Downloading {title}")
 }
 
 /// `path` is the folder `root` or inside it.
