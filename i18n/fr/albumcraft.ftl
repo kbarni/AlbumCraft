@@ -1142,3 +1142,58 @@ print-too-small = Certaines de vos photos sont trop petites pour être bien impr
 print-quality-best = Qualité optimale ({ $ppi } pixels/pouce)
 print-quality-good = Bonne qualité ({ $ppi } pixels/pouce)
 print-quality-bad = Mauvaise qualité ({ $ppi } pixels/pouce)
+
+## Results of background work (src/backend.rs)
+
+backend-no-data-dir = Aucun dossier pour les données de l'application n'a été trouvé.
+backend-cache-fail = Le cache n'a pas pu être vidé ({ $error })
+fail-export = Exportation impossible : erreur inattendue.
+fail-trash = Impossible de mettre les photos à la corbeille : erreur inattendue.
+fail-email = Impossible de préparer l'e-mail : erreur inattendue.
+fail-gallery = Impossible de créer la galerie web : erreur inattendue.
+fail-movie = Impossible de créer le film : erreur inattendue
+fail-collage = Impossible d'enregistrer le collage : erreur inattendue.
+export-nothing = Rien n'a été exporté : { $error }.
+export-result =
+    { $ok } sur { $total ->
+        [one] { $total } photo exportée
+       *[other] { $total } photos exportées
+    } vers { $path }
+export-stopped = L'exportation a été arrêtée avant la fin.
+export-failed-list = Non exportées :
+export-more = … et { $n } autres
+gallery-ready =
+    La galerie web est prête :
+    { $path }
+gallery-left-out =
+    { $n ->
+        [one] { $n } photo n'a pas pu être lue et a été laissée de côté.
+       *[other] { $n } photos n'ont pas pu être lues et ont été laissées de côté.
+    }
+gallery-stopped = La galerie web n'a pas été créée : arrêt demandé.
+gallery-failed = Impossible de créer la galerie web : { $error }
+movie-ready =
+    Le film est prêt :
+    { $path }
+movie-stopped = Le film n'a pas été créé : arrêt demandé.
+movie-failed = Impossible de créer le film : { $error }
+collage-saved-many =
+    { $n } images enregistrées, la première est :
+    { $path }
+collage-saved =
+    Enregistré :
+    { $path }
+collage-save-failed = Impossible d'enregistrer le collage : { $error }
+import-unexpected = L'importation s'est arrêtée de manière inattendue.
+import-summary =
+    { $n ->
+        [one] { $n } photo importée dans { $path }.
+       *[other] { $n } photos importées dans { $path }.
+    }
+import-already-there =
+    { $n ->
+        [one] { $n } était déjà là.
+       *[other] { $n } étaient déjà là.
+    }
+import-was-stopped = L'importation a été arrêtée avant la fin.
+import-failed-count = { $n } n'ont pas pu être copiées :

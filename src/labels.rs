@@ -10,6 +10,7 @@ use crate::gallery::Style;
 use crate::i18n::tr;
 use crate::imaging::{Effect, EditOp};
 use crate::looks::Look;
+use crate::import::Report as ImportReport;
 use crate::print::{Paper, PrintLayout};
 
 pub fn look(l: &Look) -> String {
@@ -239,4 +240,26 @@ pub fn print_quality(grade: u8, ppi: f32) -> String {
         1 => tr!("print-quality-good", ppi = ppi),
         _ => tr!("print-quality-bad", ppi = ppi),
     }
+}
+
+/// `import::Report::summary` in the language of the window.
+pub fn import_summary(r: &ImportReport, dest: &std::path::Path) -> String {
+    let mut s = tr!("import-summary", n = r.copied.len(), path = dest.display().to_string());
+    if r.already_there > 0 {
+        s += &format!(" {}", tr!("import-already-there", n = r.already_there));
+    }
+    if r.stopped {
+        s += &format!(" {}", tr!("import-was-stopped"));
+    }
+    if !r.failed.is_empty() {
+        s += &format!("\n\n{}", tr!("import-failed-count", n = r.failed.len()));
+        for (f, why) in r.failed.iter().take(8) {
+            let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| f.clone());
+            s += &format!("\n{name}: {why}");
+        }
+        if r.failed.len() > 8 {
+            s += "\n…";
+        }
+    }
+    s
 }

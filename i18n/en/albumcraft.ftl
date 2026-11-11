@@ -1145,3 +1145,58 @@ print-too-small = Some of your pictures are too small to print well.  You can re
 print-quality-best = Best quality ({ $ppi } pixels/inch)
 print-quality-good = Good quality ({ $ppi } pixels/inch)
 print-quality-bad = Bad quality ({ $ppi } pixels/inch)
+
+## Results of background work (src/backend.rs)
+
+backend-no-data-dir = No folder for application data was found.
+backend-cache-fail = The cache could not be emptied ({ $error })
+fail-export = Could not export: unexpected error.
+fail-trash = Could not move the pictures to the trash: unexpected error.
+fail-email = Could not prepare the email: unexpected error.
+fail-gallery = Could not make the web gallery: unexpected error.
+fail-movie = Could not make the movie: unexpected error
+fail-collage = Could not save the collage: unexpected error.
+export-nothing = Nothing was exported: { $error }.
+export-result =
+    Exported { $ok } of { $total ->
+        [one] { $total } picture
+       *[other] { $total } pictures
+    } to { $path }
+export-stopped = The export was stopped before the end.
+export-failed-list = Not exported:
+export-more = … and { $n } more
+gallery-ready =
+    The web gallery is ready:
+    { $path }
+gallery-left-out =
+    { $n ->
+        [one] { $n } picture could not be read and was left out.
+       *[other] { $n } pictures could not be read and were left out.
+    }
+gallery-stopped = The web gallery was not made: stopped.
+gallery-failed = Could not make the web gallery: { $error }
+movie-ready =
+    The movie is ready:
+    { $path }
+movie-stopped = The movie was not made: stopped.
+movie-failed = Could not make the movie: { $error }
+collage-saved-many =
+    Saved { $n } pictures, the first one is:
+    { $path }
+collage-saved =
+    Saved:
+    { $path }
+collage-save-failed = Could not save the collage: { $error }
+import-unexpected = The import stopped unexpectedly.
+import-summary =
+    { $n ->
+        [one] Imported { $n } picture into { $path }.
+       *[other] Imported { $n } pictures into { $path }.
+    }
+import-already-there =
+    { $n ->
+        [one] { $n } was already there.
+       *[other] { $n } were already there.
+    }
+import-was-stopped = The import was stopped before the end.
+import-failed-count = { $n } could not be copied:
