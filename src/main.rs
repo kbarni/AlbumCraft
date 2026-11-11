@@ -17,6 +17,7 @@ mod online;
 mod print;
 mod print_view;
 mod search_box;
+mod settings_view;
 mod shell;
 mod slides;
 mod slideshow_view;

@@ -361,6 +361,10 @@ impl App {
             self.store.online_maps = Some(online);
             self.dirty = true;
         }
+        if ui.add(egui::Button::new("Settings…").shortcut_text("Ctrl+,")).clicked() {
+            self.open_settings(crate::settings_view::SettingsSection::default());
+            ui.close();
+        }
         if ui.button("About AlbumCraft…").clicked() {
             self.dialog = Some(Dialog::About);
             ui.close();
@@ -444,7 +448,11 @@ impl App {
             .frame(egui::Frame::new().fill(t().tray_bg).inner_margin(egui::Margin::symmetric(10, 6)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 let width = ui.available_width();
-                let labels = width > 1180.0;
+                let labels = match self.store.bar_labels {
+                    crate::library::BarLabels::Auto => width > 1180.0,
+                    crate::library::BarLabels::Always => true,
+                    crate::library::BarLabels::Never => false,
+                };
                 egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded).show(ui, |ui| {
                     ui.horizontal_centered(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
@@ -523,7 +531,7 @@ impl App {
                                     "Web page" => self.open_gallery_dialog(),
                                     "Email" => self.email(&tray),
                                     "Print" => self.open_print(),
-                                    "Export" => self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 }),
+                                    "Export" => self.dialog = Some(Dialog::Export { max_dim: self.store.export_size, quality: self.store.export_quality }),
                                     "Collage" => self.open_collage(false),
                                     _ => self.dialog = Some(Dialog::Movie { hd: false }),
                                 }
@@ -583,7 +591,7 @@ impl App {
                 ui.close();
             }
             if ui.button(format!("{} Export…", icons::EXPORT)).clicked() {
-                self.dialog = Some(Dialog::Export { max_dim: 0, quality: 90 });
+                self.dialog = Some(Dialog::Export { max_dim: self.store.export_size, quality: self.store.export_quality });
                 ui.close();
             }
             if !self.photos[id].is_sample() && ui.button("Show in file manager").clicked() {

@@ -46,6 +46,10 @@ pub trait Library {
     fn take_saved(&mut self, wait: bool) -> Option<Result<(), String>>;
     /// Tidy the caches (thumbnails), off the window's thread.
     fn tidy(&self);
+    /// How much disk the caches use; the answer arrives as `Done::CacheSizes`.
+    fn cache_sizes(&self);
+    /// Empty a cache, then send `Done::CacheSizes` (a failure arrives as `Done::Toast` first).
+    fn clear_cache(&self, which: library::Cache);
 
     /// Look for pictures in these folders; the result arrives as `Done::Scan`.
     /// `ini_done`: folders whose `.picasa.ini` was brought in already; for the others the scan
@@ -173,6 +177,25 @@ impl Library for LocalLibrary {
 
     fn tidy(&self) {
         std::thread::spawn(crate::thumbcache::prune);
+    }
+
+    fn cache_sizes(&self) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            let (thumbs, tiles) = library::cache_sizes();
+            send(Done::CacheSizes { thumbs, tiles });
+        });
+    }
+
+    fn clear_cache(&self, which: library::Cache) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            if let Err(e) = library::clear_cache(which) {
+                send(Done::Toast(format!("The cache could not be emptied ({e})")));
+            }
+            let (thumbs, tiles) = library::cache_sizes();
+            send(Done::CacheSizes { thumbs, tiles });
+        });
     }
 
     fn scan(&self, roots: Vec<String>, ini_done: Vec<String>) {

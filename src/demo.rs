@@ -122,6 +122,12 @@ impl App {
             let list = self.edit.list.clone();
             self.start_viewer(list, 2);
         }
+        if shot_view == "settings" {
+            use crate::settings_view::SettingsSection;
+            let wanted = std::env::var("ALBUMCRAFT_SHOT_SECTION").unwrap_or_default().to_lowercase();
+            let section = SettingsSection::ALL.into_iter().find(|s| format!("{s:?}").to_lowercase() == wanted).unwrap_or_default();
+            self.open_settings(section);
+        }
         if shot_view == "movie" {
             self.selection = [0usize, 1, 2, 3].into_iter().collect();
             self.dialog = Some(Dialog::Movie { hd: true });

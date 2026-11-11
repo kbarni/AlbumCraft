@@ -121,6 +121,60 @@ pub enum Sort {
     Rating,
 }
 
+/// When the selection bar's buttons show their names.
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum BarLabels {
+    /// Names when the window is wide enough, icons only when it is narrow.
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+/// A cache on disk that the settings can empty.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cache {
+    Thumbs,
+    Tiles,
+}
+
+/// The bytes of the files in `dir` and its subfolders (0 when it does not exist).
+pub fn dir_bytes(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let Ok(m) = e.metadata() else { continue };
+            if m.is_dir() {
+                stack.push(e.path());
+            } else {
+                total += m.len();
+            }
+        }
+    }
+    total
+}
+
+/// The bytes used by the thumbnail cache and the map tile cache.
+pub fn cache_sizes() -> (u64, u64) {
+    let of = |d: Option<PathBuf>| d.map(|d| dir_bytes(&d)).unwrap_or(0);
+    (of(crate::thumbcache::cache_dir()), of(crate::online::tile_cache_dir()))
+}
+
+/// Remove every file of a cache (they are made or downloaded again when needed).
+pub fn clear_cache(which: Cache) -> Result<(), String> {
+    let dir = match which {
+        Cache::Thumbs => crate::thumbcache::cache_dir(),
+        Cache::Tiles => crate::online::tile_cache_dir(),
+    };
+    match dir {
+        Some(d) if d.exists() => std::fs::remove_dir_all(&d).map_err(|e| format!("{}: {e}", d.display())),
+        _ => Ok(()),
+    }
+}
+
 /// A value from `library.json`, or the default when it holds one this version does not know
 /// (a newer version's setting must not make the whole library unreadable).
 fn or_default<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
@@ -170,6 +224,14 @@ pub struct Store {
     /// The order of the pictures in the library.
     #[serde(deserialize_with = "or_default")]
     pub sort: Sort,
+    /// When the selection bar's buttons show their names.
+    #[serde(deserialize_with = "or_default")]
+    pub bar_labels: BarLabels,
+    /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
+    pub edit_advanced: bool,
+    /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
+    pub export_size: u32,
+    pub export_quality: u8,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -198,6 +260,10 @@ impl Default for Store {
             collage: Default::default(),
             contact_sheet: Default::default(),
             sort: Sort::Name,
+            bar_labels: BarLabels::Auto,
+            edit_advanced: false,
+            export_size: 0,
+            export_quality: 90,
         }
     }
 }
@@ -1202,6 +1268,8 @@ pub enum Done {
     ImportProgress { done: usize, total: usize },
     /// The import into `dest` finished: what to tell the user, and whether anything was copied.
     ImportDone { dest: std::path::PathBuf, summary: String, copied: usize, problems: bool },
+    /// Bytes used on disk by the thumbnail cache and the map tile cache.
+    CacheSizes { thumbs: u64, tiles: u64 },
 }
 
 /// (photo id, key, what its header says).

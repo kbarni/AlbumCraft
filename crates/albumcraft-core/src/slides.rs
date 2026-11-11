@@ -18,11 +18,15 @@ pub struct SlideSettings {
     /// A music file played (looped) during the slideshow.
     pub music: Option<String>,
     pub music_on: bool,
+    /// Show each picture's caption under it.
+    pub captions: bool,
+    /// Pan and zoom further ("medium") than the usual subtle motion.
+    pub strong_motion: bool,
 }
 
 impl Default for SlideSettings {
     fn default() -> Self {
-        SlideSettings { interval: 4.0, fade: true, motion: true, music: None, music_on: false }
+        SlideSettings { interval: 4.0, fade: true, motion: true, music: None, music_on: false, captions: true, strong_motion: false }
     }
 }
 
@@ -44,11 +48,11 @@ fn smoothstep(t: f32) -> f32 {
 
 /// The part of the picture (u0, v0, u1, v1 in 0…1) shown at `t` (0…1 over the time the picture
 /// is on screen). Even pictures zoom in, odd ones zoom out, each panning a different way; the
-/// window never leaves the picture.
-pub fn ken_burns_uv(index: usize, t: f32) -> [f32; 4] {
-    const ZOOM: f32 = 0.15;
+/// window never leaves the picture. `strong`: a zoom of 25 % instead of 15 %.
+pub fn ken_burns_uv(index: usize, t: f32, strong: bool) -> [f32; 4] {
+    let zoom = if strong { 0.25 } else { 0.15 };
     let t = smoothstep(t);
-    let z = if index.is_multiple_of(2) { 1.0 + ZOOM * t } else { 1.0 + ZOOM * (1.0 - t) };
+    let z = if index.is_multiple_of(2) { 1.0 + zoom * t } else { 1.0 + zoom * (1.0 - t) };
     let s = 1.0 / z;
     let dirs = [(1.0, 0.6), (-1.0, 0.4), (0.7, -1.0), (-0.6, -0.8)];
     let (dx, dy) = dirs[(index * 7 + 3) % dirs.len()];
@@ -70,15 +74,19 @@ mod tests {
 
     #[test]
     fn motion_stays_inside_the_picture() {
-        for i in 0..8 {
-            for k in 0..=20 {
-                let [u0, v0, u1, v1] = ken_burns_uv(i, k as f32 / 20.0);
-                assert!(u0 >= -1e-6 && v0 >= -1e-6 && u1 <= 1.0 + 1e-6 && v1 <= 1.0 + 1e-6, "{i} {k}: {u0} {v0} {u1} {v1}");
-                assert!(u1 > u0 && v1 > v0);
+        for strong in [false, true] {
+            for i in 0..8 {
+                for k in 0..=20 {
+                    let [u0, v0, u1, v1] = ken_burns_uv(i, k as f32 / 20.0, strong);
+                    assert!(u0 >= -1e-6 && v0 >= -1e-6 && u1 <= 1.0 + 1e-6 && v1 <= 1.0 + 1e-6, "{i} {k}: {u0} {v0} {u1} {v1}");
+                    assert!(u1 > u0 && v1 > v0);
+                }
             }
         }
-        // it moves
-        assert_ne!(ken_burns_uv(0, 0.0), ken_burns_uv(0, 1.0));
+        // it moves, further when strong
+        assert_ne!(ken_burns_uv(0, 0.0, false), ken_burns_uv(0, 1.0, false));
+        let width = |uv: [f32; 4]| uv[2] - uv[0];
+        assert!(width(ken_burns_uv(0, 1.0, true)) < width(ken_burns_uv(0, 1.0, false)));
     }
 
     #[test]

@@ -218,6 +218,8 @@ pub enum Dialog {
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
+    /// The Settings dialog, showing this section (`settings_view`).
+    Settings { section: crate::settings_view::SettingsSection },
 }
 
 /// Where the editor goes next.
@@ -472,6 +474,8 @@ pub struct App {
 
     pub edit: EditState,
     pub slide: Option<Slideshow>,
+    /// Bytes on disk of the thumbnail and map tile caches, for Settings (None until measured).
+    pub cache_sizes: Option<(u64, u64)>,
     pub print: Option<crate::print_view::PrintState>,
     pub collage: Option<Box<crate::collage_view::CollageState>>,
     pub dialog: Option<Dialog>,
@@ -653,6 +657,7 @@ impl App {
                 person_buf: String::new(),
             },
             slide: None,
+            cache_sizes: None,
             print: None,
             collage: None,
             dialog: None,
@@ -1649,6 +1654,9 @@ impl App {
             list = vec![id];
         }
         self.edit.list = list;
+        if self.view != View::Edit {
+            self.edit.advanced = self.store.edit_advanced;
+        }
         self.set_edit_photo(id);
         self.edit.focus_second = false;
         self.edit.other = None;
@@ -2127,6 +2135,7 @@ impl App {
                     }
                 }
                 Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
+                Done::CacheSizes { thumbs, tiles } => self.cache_sizes = Some((thumbs, tiles)),
                 Done::Progress { task, done, total } => {
                     if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
                         (t.done, t.total) = (done, total);
@@ -2342,6 +2351,12 @@ impl eframe::App for App {
             && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P))
         {
             self.open_print();
+        }
+        if matches!(self.view, View::Library | View::Edit)
+            && self.dialog.is_none()
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Comma))
+        {
+            self.open_settings(crate::settings_view::SettingsSection::default());
         }
         self.dialogs(&ctx);
         self.toast_ui(&ctx);

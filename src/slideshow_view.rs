@@ -80,7 +80,7 @@ impl App {
                 self.paint_slide(ui, full, pid, pindex, (clock - pstarted) as f32, 1.0 - alpha, &settings);
             }
             self.paint_slide(ui, full, id, pos, since, alpha, &settings);
-            if let Some(c) = self.meta(id).map(|m| m.caption.clone()).filter(|c| !c.is_empty()) {
+            if let Some(c) = self.meta(id).map(|m| m.caption.clone()).filter(|c| settings.captions && !c.is_empty()) {
                 let shade = Color32::from_white_alpha((alpha * 255.0) as u8);
                 ui.painter().text(full.center_bottom() - egui::vec2(0.0, 80.0), egui::Align2::CENTER_CENTER, c, egui::FontId::proportional(20.0), shade);
             }
@@ -136,7 +136,7 @@ impl App {
         };
         let r = fit_rect(full.shrink(10.0), tex.size());
         let uv = if settings.motion {
-            let [u0, v0, u1, v1] = crate::slides::ken_burns_uv(index, since / settings.step_secs().max(0.1));
+            let [u0, v0, u1, v1] = crate::slides::ken_burns_uv(index, since / settings.step_secs().max(0.1), settings.strong_motion);
             Rect::from_min_max(Pos2::new(u0, v0), Pos2::new(u1, v1))
         } else {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))
@@ -168,7 +168,7 @@ impl App {
         let st = &mut show.settings;
         let mut changed = false;
         child.spacing_mut().slider_width = 90.0;
-        changed |= child.add(egui::Slider::new(&mut st.interval, 2.0..=15.0).suffix(" s").max_decimals(0)).on_hover_text("Seconds per picture").changed();
+        changed |= child.add(egui::Slider::new(&mut st.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).on_hover_text("Seconds per picture").changed();
         changed |= child.toggle_value(&mut st.fade, "Fade").on_hover_text("Crossfade between pictures").changed();
         changed |= child.toggle_value(&mut st.motion, "Motion").on_hover_text("Slow pan and zoom").changed();
         let music_label = if st.music.is_some() { format!("{} Music", icons::MUSIC) } else { format!("{} Choose music…", icons::MUSIC) };

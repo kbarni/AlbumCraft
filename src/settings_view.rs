@@ -1,0 +1,370 @@
+//! The Settings dialog (`Dialog::Settings`): the sections in a list on the left, the chosen one
+//! on the right. Changes apply and are saved at once; Esc or Close shuts it. Settings that also
+//! have a place elsewhere (theme button, slideshow bar, Export dialog) change the same saved value.
+
+use crate::app::*;
+use crate::icons;
+use crate::library::{BarLabels, Cache, fmt_bytes};
+use crate::theme::Mode;
+use eframe::egui::{self, RichText};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SettingsSection {
+    #[default]
+    Interface,
+    Folders,
+    Editing,
+    Slideshow,
+    Export,
+    Maps,
+    Storage,
+    Ai,
+}
+
+impl SettingsSection {
+    pub const ALL: [SettingsSection; 8] = [
+        SettingsSection::Interface,
+        SettingsSection::Folders,
+        SettingsSection::Editing,
+        SettingsSection::Slideshow,
+        SettingsSection::Export,
+        SettingsSection::Maps,
+        SettingsSection::Storage,
+        SettingsSection::Ai,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            SettingsSection::Interface => "Interface",
+            SettingsSection::Folders => "Folders",
+            SettingsSection::Editing => "Editing",
+            SettingsSection::Slideshow => "Slideshow",
+            SettingsSection::Export => "Export",
+            SettingsSection::Maps => "Maps",
+            SettingsSection::Storage => "Storage",
+            SettingsSection::Ai => "AI features",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            SettingsSection::Interface => icons::DESKTOP,
+            SettingsSection::Folders => icons::FOLDER,
+            SettingsSection::Editing => icons::EDIT,
+            SettingsSection::Slideshow => icons::PLAY,
+            SettingsSection::Export => icons::EXPORT,
+            SettingsSection::Maps => icons::MAP,
+            SettingsSection::Storage => icons::DRIVE,
+            SettingsSection::Ai => icons::AUTO_FIX,
+        }
+    }
+}
+
+/// A section's sub-heading.
+fn group(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(10.0);
+    ui.label(RichText::new(text).strong());
+    ui.add_space(2.0);
+}
+
+fn note(ui: &mut egui::Ui, text: &str) {
+    ui.label(RichText::new(text).size(12.0).weak());
+}
+
+impl App {
+    /// Open the Settings dialog (at `section`), and ask how big the caches are.
+    pub fn open_settings(&mut self, section: SettingsSection) {
+        self.cache_sizes = None;
+        self.lib.cache_sizes();
+        self.dialog = Some(Dialog::Settings { section });
+    }
+
+    pub(crate) fn settings_dialog(&mut self, ctx: &egui::Context, mut section: SettingsSection) {
+        let mut close = false;
+        let screen = ctx.content_rect().size();
+        let size = egui::vec2((screen.x - 80.0).clamp(420.0, 820.0), (screen.y - 140.0).clamp(260.0, 520.0));
+        #[allow(deprecated)]
+        let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
+            ui.set_width(size.x);
+            ui.heading("Settings");
+            ui.add_space(6.0);
+            // a fixed size: inside a modal, separators and scroll areas would grow without end
+            ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                ui.set_min_size(size);
+                ui.vertical(|ui| {
+                    ui.set_width(160.0);
+                    for s in SettingsSection::ALL {
+                        let text = RichText::new(format!("{}  {}", s.icon(), s.label())).size(14.0);
+                        let b = egui::Button::new(text).selected(section == s).frame_when_inactive(false).min_size(egui::vec2(160.0, 30.0));
+                        if ui.add(b).clicked() {
+                            section = s;
+                        }
+                    }
+                });
+                ui.separator();
+                let body = egui::vec2(size.x - 180.0, size.y);
+                ui.allocate_ui_with_layout(body, egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.set_min_size(body);
+                    egui::ScrollArea::vertical().id_salt(("settings", section as u8)).max_height(size.y).auto_shrink([false, true]).show(ui, |ui| {
+                        ui.set_max_width(body.x - 16.0);
+                        ui.heading(section.label());
+                        match section {
+                            SettingsSection::Interface => self.settings_interface(ui),
+                            SettingsSection::Folders => self.settings_folders(ui),
+                            SettingsSection::Editing => self.settings_editing(ui),
+                            SettingsSection::Slideshow => self.settings_slideshow(ui),
+                            SettingsSection::Export => self.settings_export(ui),
+                            SettingsSection::Maps => self.settings_maps(ui),
+                            SettingsSection::Storage => self.settings_storage(ui),
+                            SettingsSection::Ai => settings_ai(ui),
+                        }
+                    });
+                });
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                note(ui, "Changes are saved as you make them.");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+        });
+        // the folder list may have opened another dialog (none does today); keep it if so
+        if self.dialog.is_none() && !close && !modal.should_close() {
+            self.dialog = Some(Dialog::Settings { section });
+        }
+    }
+
+    fn settings_interface(&mut self, ui: &mut egui::Ui) {
+        group(ui, "Language");
+        ui.add_enabled_ui(false, |ui| {
+            egui::ComboBox::from_id_salt("language").selected_text("English").show_ui(ui, |_| {});
+        });
+        note(ui, "Only English for now.");
+
+        group(ui, "Theme");
+        let mut mode = Mode::from_name(&self.store.theme);
+        let before = mode;
+        for m in [Mode::System, Mode::Light, Mode::Dark] {
+            ui.radio_value(&mut mode, m, m.label());
+        }
+        if mode != before {
+            self.store.theme = mode.name().into();
+            self.dirty = true;
+        }
+
+        group(ui, "Selection bar buttons");
+        let b = &mut self.store.bar_labels;
+        let mut changed = ui.radio_value(b, BarLabels::Auto, "Names when the window is wide enough").changed();
+        changed |= ui.radio_value(b, BarLabels::Always, "Icons and names").changed();
+        changed |= ui.radio_value(b, BarLabels::Never, "Icons only").changed();
+        note(ui, "When the buttons don't fit, the bar scrolls sideways.");
+
+        group(ui, "Picture size in the library");
+        changed |= ui.add(egui::Slider::new(&mut self.store.thumb_size, 64.0..=256.0).show_value(false)).changed();
+        if changed {
+            self.dirty = true;
+        }
+    }
+
+    fn settings_folders(&mut self, ui: &mut egui::Ui) {
+        note(ui, "The library shows the pictures in these folders and their subfolders, where they are: nothing is copied or moved. To copy pictures from a memory card or a camera, use Import.");
+        ui.add_space(6.0);
+        if self.store.roots.is_empty() {
+            ui.weak("No folders yet: sample pictures are shown instead.");
+        }
+        let mut remove = None;
+        egui::Grid::new("settings_roots").num_columns(3).spacing([12.0, 6.0]).show(ui, |ui| {
+            for (i, r) in self.store.roots.iter().enumerate() {
+                ui.label(format!("{} {r}", icons::FOLDER));
+                let n: usize = self.folders.iter().filter(|f| under(&f.path, r)).map(|f| f.photos.len()).sum();
+                ui.label(RichText::new(format!("{n} picture{}", if n == 1 { "" } else { "s" })).weak());
+                if ui.small_button("Remove").on_hover_text("Stop showing this folder (its pictures and your notes on them are kept)").clicked() {
+                    remove = Some(i);
+                }
+                ui.end_row();
+            }
+        });
+        if let Some(i) = remove.filter(|&i| i < self.store.roots.len()) {
+            let path = self.store.roots.remove(i);
+            self.dirty = true;
+            self.rescan();
+            self.undoable(format!("Removed {path} from the library. The pictures and your notes on them are untouched."), Undo::Root { at: i, path });
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.button(format!("{} Add folder…", icons::ADD)).clicked() {
+                self.add_library_folder();
+            }
+            if ui.button(format!("{} Scan again", icons::REFRESH)).on_hover_text("Look for new, changed and removed pictures now").clicked() {
+                self.rescan();
+            }
+        });
+    }
+
+    fn settings_editing(&mut self, ui: &mut egui::Ui) {
+        group(ui, "The Edit tab opens on");
+        let a = &mut self.store.edit_advanced;
+        let mut changed = ui.radio_value(a, false, "Basic: one-click fixes and tools").changed();
+        changed |= ui.radio_value(a, true, "Advanced: the sliders").changed();
+        group(ui, "Info panel");
+        changed |= ui.checkbox(&mut self.store.info_open, "Show the info panel in the editor (I)").changed();
+        if changed {
+            self.dirty = true;
+        }
+    }
+
+    fn settings_slideshow(&mut self, ui: &mut egui::Ui) {
+        let s = &mut self.store.slideshow;
+        let mut changed = false;
+        group(ui, "Timing");
+        ui.horizontal(|ui| {
+            ui.label("Each picture for");
+            changed |= ui.add(egui::Slider::new(&mut s.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).changed();
+        });
+        note(ui, "Space pauses a slideshow, ← and → step through it.");
+
+        group(ui, "Effects");
+        changed |= ui.checkbox(&mut s.fade, "Crossfade between pictures").changed();
+        changed |= ui.checkbox(&mut s.motion, "Slow pan and zoom").changed();
+        ui.add_enabled_ui(s.motion, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(24.0);
+                changed |= ui.radio_value(&mut s.strong_motion, false, "Subtle").changed();
+                changed |= ui.radio_value(&mut s.strong_motion, true, "Medium").changed();
+            });
+        });
+        changed |= ui.checkbox(&mut s.captions, "Show captions").changed();
+        note(ui, "The full-screen viewer (F11 in the editor) always starts without crossfade and pan and zoom.");
+
+        group(ui, "Music");
+        match s.music.clone() {
+            Some(path) => {
+                changed |= ui.checkbox(&mut s.music_on, "Play music during slideshows").changed();
+                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(path.clone());
+                ui.horizontal(|ui| {
+                    ui.label(format!("{} {name}", icons::MUSIC)).on_hover_text(&path);
+                    if ui.button("Choose another…").clicked() {
+                        changed |= crate::slideshow_view::pick_music(s);
+                    }
+                    if ui.button("Remove").clicked() {
+                        s.music = None;
+                        s.music_on = false;
+                        changed = true;
+                    }
+                });
+            }
+            None => {
+                if ui.button(format!("{} Choose music…", icons::MUSIC)).clicked() {
+                    changed |= crate::slideshow_view::pick_music(s);
+                }
+            }
+        }
+        ui.add_space(8.0);
+        note(ui, "Movies made from pictures use these settings too.");
+        if changed {
+            self.dirty = true;
+        }
+    }
+
+    fn settings_export(&mut self, ui: &mut egui::Ui) {
+        note(ui, "What the Export dialog starts with.");
+        group(ui, "Picture size");
+        let mut changed = false;
+        for (dim, label) in [(0, "Original size"), (1600, "Large (1600 pixels)"), (800, "Small, for email (800 pixels)")] {
+            changed |= ui.radio_value(&mut self.store.export_size, dim, label).changed();
+        }
+        group(ui, "JPEG quality");
+        changed |= ui.add(egui::Slider::new(&mut self.store.export_quality, 50..=100)).changed();
+        group(ui, "Location");
+        changed |= ui
+            .checkbox(&mut self.store.export_location, "Include where the pictures were taken (GPS)")
+            .on_hover_text("Turn off before sharing pictures if you don't want others to see the location.")
+            .changed();
+        if changed {
+            self.dirty = true;
+        }
+    }
+
+    fn settings_maps(&mut self, ui: &mut egui::Ui) {
+        group(ui, "Online maps");
+        let mut online = self.store.online_maps == Some(true);
+        if ui.checkbox(&mut online, "Use online maps (OpenStreetMap)").changed() {
+            self.store.online_maps = Some(online);
+            self.dirty = true;
+        }
+        note(ui, "Detailed street maps and address search. Your pictures and their locations are never sent; the map servers see your internet address, the areas you look at and the places you search for. Off: only the built-in world map and city list, and no internet connections.");
+        group(ui, "Downloaded map tiles");
+        let tiles = self.cache_sizes.map(|c| c.1);
+        self.cache_row(ui, tiles, Cache::Tiles, "Map tiles are downloaded again when needed.");
+    }
+
+    fn settings_storage(&mut self, ui: &mut egui::Ui) {
+        group(ui, "Your notes");
+        note(ui, "Ratings, captions, tags, edits and albums are kept in one file; your picture files are never changed.");
+        if let Some(path) = crate::library::store_path() {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(path.to_string_lossy()).monospace().size(12.0));
+                if ui.small_button(format!("{} Show in folder", icons::FOLDER)).clicked()
+                    && let Err(e) = crate::library_view::reveal_in_file_manager(&path)
+                {
+                    self.toast(format!("Could not open the file manager: {e}"));
+                }
+            });
+        }
+        group(ui, "Thumbnails");
+        let thumbs = self.cache_sizes.map(|c| c.0);
+        self.cache_row(ui, thumbs, Cache::Thumbs, "Thumbnails are made again from the pictures when needed (slower for a while).");
+    }
+
+    /// The size of a cache and a button to empty it.
+    fn cache_row(&mut self, ui: &mut egui::Ui, bytes: Option<u64>, which: Cache, after: &str) {
+        ui.horizontal(|ui| {
+            ui.label(match bytes {
+                Some(b) => format!("{} on disk", fmt_bytes(b)),
+                None => "Measuring…".into(),
+            });
+            if ui.add_enabled(bytes.is_some_and(|b| b > 0), egui::Button::new("Empty")).on_hover_text(after).clicked() {
+                self.cache_sizes = None;
+                self.lib.clear_cache(which);
+            }
+        });
+    }
+}
+
+fn settings_ai(ui: &mut egui::Ui) {
+    note(ui, "Not available yet. Planned:");
+    ui.add_space(4.0);
+    for (title, text) in [
+        ("Faces", "find faces and group them by person; you name the groups. A download of about 10 to 40 MB."),
+        ("Smart search", "find pictures by describing them (\"snow\", \"birthday cake\"). Light (English, about 100 MB) or Multilingual (about 400 MB)."),
+        ("Tag suggestions", "tags proposed from what is in the picture."),
+    ] {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(title).strong());
+            ui.label(text);
+        });
+        ui.add_space(2.0);
+    }
+    ui.add_space(6.0);
+    note(ui, "Everything will be computed on this computer; nothing is sent anywhere.");
+}
+
+/// `path` is the folder `root` or inside it.
+fn under(path: &str, root: &str) -> bool {
+    path.strip_prefix(root).is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '\\']) || root.ends_with(['/', '\\']))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn folders_under_a_root() {
+        assert!(super::under("/p/a", "/p/a"));
+        assert!(super::under("/p/a/b", "/p/a"));
+        assert!(super::under("/p/a/b", "/p/a/"));
+        assert!(!super::under("/p/ab", "/p/a"));
+        assert!(super::under("C:\\p\\a", "C:\\p"));
+    }
+}
