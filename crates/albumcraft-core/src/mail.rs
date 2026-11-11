@@ -93,6 +93,22 @@ pub fn email(jobs: &[crate::commands::ExportJob], subject: &str, with_location: 
     }
 }
 
+/// A file name for an attached copy without the characters mail programs take apart: xdg-email
+/// gives Thunderbird every attachment in one comma-separated, quoted list
+/// (`attachment='a.jpg,b.jpg'`), so a comma cuts a path in two and a quote ends the list.
+/// Those, backslashes and spaces become `_` (no doubled or trailing ones).
+fn attachment_stem(stem: &str) -> String {
+    let mut out = String::with_capacity(stem.len());
+    for c in stem.chars() {
+        let c = if matches!(c, ',' | '\'' | '"' | '\\' | '%' | ';') || c.is_whitespace() || c.is_control() { '_' } else { c };
+        if !(c == '_' && out.ends_with('_')) {
+            out.push(c);
+        }
+    }
+    let out = out.trim_matches('_');
+    if out.is_empty() { "picture".into() } else { out.to_string() }
+}
+
 /// The small copies in `dir`, and how many pictures could not be read; None when stopped.
 fn copies(jobs: &[crate::commands::ExportJob], dir: &Path, with_location: bool, step: &dyn Fn(usize, usize) -> bool) -> Option<(Vec<PathBuf>, usize)> {
     let mut files = vec![];
@@ -101,7 +117,7 @@ fn copies(jobs: &[crate::commands::ExportJob], dir: &Path, with_location: bool, 
         if !step(i, jobs.len()) {
             return None;
         }
-        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
+        let stem = &attachment_stem(name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name));
         let gps = if with_location { crate::geo::effective(place.as_ref(), crate::geo::file_gps(key)) } else { None };
         let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::export::export_one(key, edits, dir, stem, MAX_DIM, QUALITY, gps)));
         match made {
@@ -208,6 +224,18 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_names_survive_the_mail_program() {
+        assert_eq!(
+            attachment_stem("Sunlight_through_clouds_and_view_of_Ginkaku-ji_Temple_from_above,_Kyoto,_Japan"),
+            "Sunlight_through_clouds_and_view_of_Ginkaku-ji_Temple_from_above_Kyoto_Japan"
+        );
+        assert_eq!(attachment_stem("Urin-in_(Kita-Ku_Kyoto)_Temple"), "Urin-in_(Kita-Ku_Kyoto)_Temple");
+        assert_eq!(attachment_stem("Togetsu_Café"), "Togetsu_Café");
+        assert_eq!(attachment_stem("John's \"best\" shot; 100%"), "John_s_best_shot_100");
+        assert_eq!(attachment_stem(",,,"), "picture");
+    }
 
     #[test]
     fn old_message_folders_are_tidied_new_ones_kept() {
