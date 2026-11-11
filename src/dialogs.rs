@@ -23,7 +23,6 @@ impl App {
             Dialog::NewAlbum { .. } => "New album".into(),
             Dialog::RenameAlbum { .. } => "Rename album".into(),
             Dialog::Tag { .. } => "Tags and people".into(),
-            Dialog::Export { .. } => "Export pictures".into(),
             Dialog::Gallery { .. } => "Web gallery".into(),
             Dialog::FolderNote { .. } => "Folder description".into(),
             Dialog::FolderManager => "Library folders".into(),
@@ -116,40 +115,6 @@ impl App {
                                     }
                                 }
                             }
-                            close = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            close = true;
-                        }
-                    });
-                }
-                Dialog::Export { max_dim, quality } => {
-                    ui.label(format!("{} picture(s) will be saved as new JPEG files with your edits applied.", targets.len()));
-                    ui.label("Your original files are never changed.");
-                    ui.add_space(4.0);
-                    ui.label("Image size:");
-                    ui.radio_value(max_dim, 0, "Use original size");
-                    ui.radio_value(max_dim, 1600, "Large (1600 pixels)");
-                    ui.radio_value(max_dim, 800, "Small, for email (800 pixels)");
-                    ui.add(egui::Slider::new(quality, 50..=100).text("JPEG quality"));
-                    if ui
-                        .checkbox(&mut self.store.export_location, "Include where the pictures were taken (GPS)")
-                        .on_hover_text("Turn off before sharing pictures if you don't want others to see the location.")
-                        .changed()
-                    {
-                        self.dirty = true;
-                    }
-                    if ui
-                        .checkbox(&mut self.store.export_exif, "Include the camera information (EXIF)")
-                        .on_hover_text("Camera, lens, exposure and the date taken, copied from the original file.")
-                        .changed()
-                    {
-                        self.dirty = true;
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button("Choose folder and export…").clicked() {
-                            let (m, q) = (*max_dim, *quality);
-                            self.export(targets.clone(), m, q);
                             close = true;
                         }
                         if ui.button("Cancel").clicked() {

@@ -492,7 +492,7 @@ impl App {
             "Web page" => self.open_gallery_dialog(),
             "Email" => self.email(tray),
             "Print" => self.open_print(),
-            "Export" => self.dialog = Some(Dialog::Export { max_dim: self.store.export_size, quality: self.store.export_quality }),
+            "Export" => self.open_export(tray.to_vec()),
             "Collage" => self.open_collage(false),
             _ => self.dialog = Some(Dialog::Movie { hd: false }),
         }
@@ -747,7 +747,7 @@ impl App {
                 ui.close();
             }
             if ui.button(format!("{} Export…", icons::EXPORT)).clicked() {
-                self.dialog = Some(Dialog::Export { max_dim: self.store.export_size, quality: self.store.export_quality });
+                self.open_export(tray.clone());
                 ui.close();
             }
             if !self.photos[id].is_sample() && ui.button("Show in file manager").clicked() {

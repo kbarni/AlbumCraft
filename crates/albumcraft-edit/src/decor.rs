@@ -225,17 +225,7 @@ fn draw_text(img: &mut RgbaImage, t: &TextOverlay) {
     let width: f32 = text.chars().map(|c| sf.h_advance(font.glyph_id(c))).sum();
     let height = sf.ascent() - sf.descent();
     let margin = px * 0.6;
-    let (col, row) = (t.anchor.min(8) % 3, t.anchor.min(8) / 3);
-    let x0 = match col {
-        0 => margin,
-        1 => (iw - width) / 2.0,
-        _ => iw - width - margin,
-    };
-    let top = match row {
-        0 => margin,
-        1 => (ih - height) / 2.0,
-        _ => ih - height - margin,
-    };
+    let (x0, top) = anchored(t.anchor, (iw, ih), (width, height), margin);
     // coverage of the text, so the halo can be a blurred copy of it
     let (w, h) = (img.width() as usize, img.height() as usize);
     let mut cov = vec![0f32; w * h];
@@ -284,9 +274,86 @@ fn draw_text(img: &mut RgbaImage, t: &TextOverlay) {
     });
 }
 
+/// Where something of `size` (w, h) goes on a picture of (iw, ih) at `anchor` (0…8 = top-left …
+/// bottom-right in reading order), `margin` pixels from the edges: its top-left corner.
+pub fn anchored(anchor: u8, (iw, ih): (f32, f32), (w, h): (f32, f32), margin: f32) -> (f32, f32) {
+    let (col, row) = (anchor.min(8) % 3, anchor.min(8) / 3);
+    let x = match col {
+        0 => margin,
+        1 => (iw - w) / 2.0,
+        _ => iw - w - margin,
+    };
+    let y = match row {
+        0 => margin,
+        1 => (ih - h) / 2.0,
+        _ => ih - h - margin,
+    };
+    (x, y)
+}
+
+/// Lay `logo` on `img` (a signature or watermark): its longer side `size` × the picture's
+/// shorter side, at `anchor` with a margin of 3 % of the shorter side, its own transparency
+/// times `opacity`.
+pub fn stamp(img: &mut RgbaImage, logo: &RgbaImage, anchor: u8, size: f32, opacity: f32) {
+    if logo.width() == 0 || logo.height() == 0 {
+        return;
+    }
+    let short = img.width().min(img.height()) as f32;
+    let long = (size.clamp(0.01, 1.0) * short).max(4.0);
+    let s = long / logo.width().max(logo.height()) as f32;
+    let (w, h) = (((logo.width() as f32 * s).round() as u32).max(1), ((logo.height() as f32 * s).round() as u32).max(1));
+    let scaled = image::imageops::resize(logo, w, h, image::imageops::FilterType::Lanczos3);
+    let (x, y) = anchored(anchor, (img.width() as f32, img.height() as f32), (w as f32, h as f32), short * 0.03);
+    let (x0, y0) = (x.round() as i64, y.round() as i64);
+    let opacity = opacity.clamp(0.0, 1.0);
+    for (lx, ly, px) in scaled.enumerate_pixels() {
+        let (tx, ty) = (x0 + lx as i64, y0 + ly as i64);
+        if tx < 0 || ty < 0 || tx >= img.width() as i64 || ty >= img.height() as i64 {
+            continue;
+        }
+        let a = px.0[3] as f32 / 255.0 * opacity;
+        if a <= 0.0 {
+            continue;
+        }
+        let dst = img.get_pixel_mut(tx as u32, ty as u32);
+        for k in 0..3 {
+            dst.0[k] = (px.0[k] as f32 * a + dst.0[k] as f32 * (1.0 - a)).round() as u8;
+        }
+    }
+}
+
+/// `over` laid on `under` at `opacity` (the same size; used to fade a drawn signature).
+pub fn blend(under: &RgbaImage, over: &RgbaImage, opacity: f32) -> RgbaImage {
+    let a = opacity.clamp(0.0, 1.0);
+    let mut out = under.clone();
+    out.pixels_mut().zip(over.pixels()).for_each(|(o, v)| {
+        for k in 0..3 {
+            o.0[k] = (v.0[k] as f32 * a + o.0[k] as f32 * (1.0 - a)).round() as u8;
+        }
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_logo_is_stamped_in_its_corner() {
+        let mut img = RgbaImage::from_pixel(200, 100, Rgba([0, 0, 0, 255]));
+        let logo = RgbaImage::from_pixel(10, 10, Rgba([255, 255, 255, 255]));
+        // bottom-right, 20 % of the shorter side (20 px), margin 3 px
+        stamp(&mut img, &logo, 8, 0.2, 1.0);
+        assert_eq!(img.get_pixel(190, 90).0[0], 255);
+        assert_eq!(img.get_pixel(198, 98).0[0], 0, "inside the margin");
+        assert_eq!(img.get_pixel(170, 90).0[0], 0, "left of the logo");
+        assert_eq!(img.get_pixel(10, 10).0[0], 0);
+        // half opacity
+        let mut faint = RgbaImage::from_pixel(200, 100, Rgba([0, 0, 0, 255]));
+        stamp(&mut faint, &logo, 0, 0.2, 0.5);
+        let v = faint.get_pixel(10, 10).0[0];
+        assert!((120..=135).contains(&v), "{v}");
+    }
 
     fn pic() -> RgbaImage {
         RgbaImage::from_pixel(200, 100, Rgba([120, 140, 160, 255]))

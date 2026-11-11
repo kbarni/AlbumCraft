@@ -214,6 +214,14 @@ pub struct Store {
     /// Exported copies keep the original's camera information (EXIF: camera, lens, exposure,
     /// date taken), without its GPS position, which follows `export_location`.
     pub export_exif: bool,
+    /// Written into exported and emailed copies (EXIF Artist and Copyright) when not empty.
+    pub export_creator: String,
+    pub export_copyright: String,
+    /// The signature or logo laid on exported pictures.
+    #[serde(deserialize_with = "or_default")]
+    pub export_signature: crate::export::Signature,
+    /// The folder the last export went to (offered first next time).
+    pub export_to: Option<String>,
     /// The folder the last import copied into a new folder of (offered first next time).
     pub import_to: Option<String>,
     /// The editor's info panel is shown.
@@ -242,6 +250,21 @@ fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> 
     s.collect_map(meta.iter().filter(|(key, _)| !key.starts_with(SAMPLE_PREFIX)))
 }
 
+impl Store {
+    /// The export settings as `export::Options` at this size and quality (the signature only
+    /// when it is switched on).
+    pub fn export_options(&self, max_dim: u32, quality: u8) -> crate::export::Options {
+        crate::export::Options {
+            max_dim,
+            quality,
+            camera_info: self.export_exif,
+            creator: self.export_creator.trim().to_string(),
+            copyright: self.export_copyright.trim().to_string(),
+            signature: self.export_signature.shows().then(|| self.export_signature.clone()),
+        }
+    }
+}
+
 impl Default for Store {
     fn default() -> Self {
         Self {
@@ -259,6 +282,10 @@ impl Default for Store {
             online_maps: None,
             export_location: true,
             export_exif: true,
+            export_creator: String::new(),
+            export_copyright: String::new(),
+            export_signature: Default::default(),
+            export_to: None,
             import_to: None,
             info_open: true,
             info_sections: HashMap::new(),

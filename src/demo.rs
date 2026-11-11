@@ -131,6 +131,16 @@ impl App {
             let section = SettingsSection::ALL.into_iter().find(|s| format!("{s:?}").to_lowercase() == wanted).unwrap_or_default();
             self.open_settings(section);
         }
+        if shot_view == "export" {
+            self.store.export_creator = "Ana Pérez".into();
+            self.store.export_copyright = "© 2026 Ana Pérez".into();
+            self.store.export_signature = crate::export::Signature { on: true, text: "© Ana Pérez".into(), ..Default::default() };
+            self.open_export(vec![0, 1, 2, 3, 4, 5]);
+            if let Some(e) = self.export.as_mut() {
+                e.skip.insert(4);
+                e.dest = "/home/ana/Pictures/Exports".into();
+            }
+        }
         if shot_view == "movie" {
             self.selection = [0usize, 1, 2, 3].into_iter().collect();
             self.dialog = Some(Dialog::Movie { hd: true });
