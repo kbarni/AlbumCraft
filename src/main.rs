@@ -13,6 +13,7 @@ mod icons;
 mod import_view;
 mod collage_view;
 mod info_panel;
+mod labels;
 mod library_view;
 mod map_view;
 mod online;

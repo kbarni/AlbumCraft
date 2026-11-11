@@ -195,7 +195,7 @@ impl App {
         }
         let folder = if p.is_sample() { Some("Built-in sample picture".to_string()) } else { self.folders.get(p.folder).map(|f| f.path.clone()) };
         row(ui, "Folder", folder);
-        let edits = self.meta(id).map(|m| m.edits.iter().map(|e| e.label()).collect::<Vec<_>>().join(", "));
+        let edits = self.meta(id).map(|m| m.edits.iter().map(crate::labels::op).collect::<Vec<_>>().join(", "));
         row(ui, "Edits", edits);
         if c.is_none() && !p.is_sample() {
             ui.label(RichText::new("No camera information (EXIF) in this picture.").size(12.0).color(t().text_weak));

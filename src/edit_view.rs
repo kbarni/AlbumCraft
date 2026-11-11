@@ -2,6 +2,7 @@
 
 use crate::icons;
 use crate::app::*;
+use crate::i18n::tr;
 use crate::develop::{self, Adjust};
 use crate::imaging::{self, EditOp};
 use crate::decor::{Decor, TextOverlay};
@@ -123,7 +124,7 @@ fn largest_box(ratio: f32, w: f32, h: f32) -> [f32; 4] {
 /// A slider with its name before it; a double-click on the name sets it back to zero.
 fn labelled_slider(ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, decimals: usize, suffix: &str, tip: &str) -> egui::Response {
     ui.horizontal(|ui| {
-        let l = ui.add_sized([74.0, 18.0], egui::Label::new(RichText::new(label).size(12.5)).sense(Sense::click())).on_hover_text(format!("{tip}\nDouble-click to reset"));
+        let l = ui.add_sized([74.0, 18.0], egui::Label::new(RichText::new(label).size(12.5)).sense(Sense::click())).on_hover_text(tr!("edit-slider-hint", tip = tip));
         if l.double_clicked() {
             *v = 0.0;
         }
@@ -159,7 +160,7 @@ impl App {
 
     fn auto_fix(&mut self, id: usize, what: AutoFix) {
         let Some(img) = self.analysis_image(id) else {
-            self.toast("The picture is still loading.");
+            self.toast(tr!("edit-loading"));
             return;
         };
         let mut a = self.current_adjust(id);
@@ -176,10 +177,10 @@ impl App {
                         let angle = (angle * 10.0).round() / 10.0;
                         let total = (self.current_geometry(id).0 + angle).clamp(-45.0, 45.0);
                         self.set_geometry(id, EditOp::Straighten(total), "");
-                        self.toast(format!("Straightened by {angle:+.1}°."));
+                        self.toast(tr!("edit-straightened", angle = format!("{angle:+.1}")));
                     }
-                    Some(_) => self.toast("This picture already looks level."),
-                    None => self.toast("No clear horizon or vertical lines found to straighten by."),
+                    Some(_) => self.toast(tr!("edit-already-level")),
+                    None => self.toast(tr!("edit-no-horizon")),
                 }
                 return;
             }
@@ -230,7 +231,7 @@ impl App {
             .corner_radius(3)
             .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
-                ui.label(RichText::new("Histogram and camera info").size(12.5));
+                ui.label(RichText::new(tr!("edit-histogram")).size(12.5));
                 // the main camera settings, always visible under the curves (
                 // make / model and focal length on the left; shutter, aperture, ISO on the right)
                 let draw_camera = |ui: &mut egui::Ui| {
@@ -238,19 +239,19 @@ impl App {
                     match cam.as_deref().filter(|c| c.has_camera_data()) {
                         Some(c) => {
                             egui::Grid::new("camera_box").num_columns(2).spacing([10.0, 1.0]).show(ui, |ui| {
-                                ui.label(small(c.camera().unwrap_or_else(|| "Unknown camera".into())));
+                                ui.label(small(c.camera().unwrap_or_else(|| tr!("edit-unknown-camera"))));
                                 ui.label(small(c.exposure_short().unwrap_or_default()));
                                 ui.end_row();
-                                ui.label(small(c.focal_35mm.map(|e| format!("(35mm equivalent: {e:3.0}mm)")).or(c.lens.clone()).unwrap_or_default()));
+                                ui.label(small(c.focal_35mm.map(|e| tr!("edit-35mm", mm = format!("{e:3.0}"))).or(c.lens.clone()).unwrap_or_default()));
                                 ui.label(small(c.fnumber.map(|f| format!("f/{f:3.1}")).unwrap_or_default()));
                                 ui.end_row();
-                                ui.label(small(c.focal_mm.map(|f| format!("Focal Length: {f:3.1}mm")).unwrap_or_default()));
-                                ui.label(small(c.iso.map(|i| format!("ISO: {i:2}")).unwrap_or_default()));
+                                ui.label(small(c.focal_mm.map(|f| tr!("edit-focal", mm = format!("{f:3.1}"))).unwrap_or_default()));
+                                ui.label(small(c.iso.map(|i| tr!("edit-iso", iso = format!("{i:2}"))).unwrap_or_default()));
                                 ui.end_row();
                             });
                         }
                         None => {
-                            ui.label(RichText::new("No camera information in this picture").size(11.0).weak());
+                            ui.label(RichText::new(tr!("edit-no-camera")).size(11.0).weak());
                         }
                     }
                 };
@@ -291,13 +292,13 @@ impl App {
                 if dark >= 0.5 || bright >= 0.5 {
                     let mut parts = vec![];
                     if dark >= 0.5 {
-                        parts.push(format!("shadows {dark:.1} %"));
+                        parts.push(tr!("edit-clip-shadows", pct = format!("{dark:.1}")));
                     }
                     if bright >= 0.5 {
-                        parts.push(format!("highlights {bright:.1} %"));
+                        parts.push(tr!("edit-clip-highlights", pct = format!("{bright:.1}")));
                     }
-                    ui.label(RichText::new(format!("Clipped: {}", parts.join(", "))).size(11.0).color(t().reject))
-                        .on_hover_text("Share of the picture that is pure black or pure white in at least one colour");
+                    ui.label(RichText::new(tr!("edit-clipped", parts = parts.join(", "))).size(11.0).color(t().reject))
+                        .on_hover_text(tr!("edit-clipped-hint"));
                 }
                 ui.add_space(2.0);
                 draw_camera(ui);
@@ -325,7 +326,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().toolbar_bg).inner_margin(egui::Margin::symmetric(8, 6)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.add(egui::Button::new(RichText::new(format!("{}  Back to Library", icons::ARROW_BACK)).strong()).min_size(egui::vec2(0.0, 28.0))).clicked() {
+                    if ui.add(egui::Button::new(RichText::new(format!("{}  {}", icons::ARROW_BACK, tr!("edit-back"))).strong()).min_size(egui::vec2(0.0, 28.0))).clicked() {
                         self.edit_go(PendingLeave::Library);
                     }
                     ui.separator();
@@ -334,8 +335,8 @@ impl App {
                     ui.label(RichText::new(format!("›  {}", p.name)).size(13.0).color(t().text_weak));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .selectable_label(self.store.info_open, format!("{} Info", icons::INFO))
-                            .on_hover_text("Properties, location and tags (I)")
+                            .selectable_label(self.store.info_open, format!("{} {}", icons::INFO, tr!("edit-info")))
+                            .on_hover_text(tr!("edit-info-hint"))
                             .clicked()
                         {
                             self.store.info_open = !self.store.info_open;
@@ -348,14 +349,14 @@ impl App {
                             let layout_icon = if self.edit.vertical { icons::SIDE_BY_SIDE } else { icons::ABOVE_BELOW };
                             if ui
                                 .button(RichText::new(layout_icon).size(15.0))
-                                .on_hover_text(if self.edit.vertical { "Show the pictures side by side" } else { "Show one picture above the other" })
+                                .on_hover_text(if self.edit.vertical { tr!("edit-side-by-side-hint") } else { tr!("edit-stacked-hint") })
                                 .clicked()
                             {
                                 self.edit.vertical = !self.edit.vertical;
                             }
                             if ui
                                 .button(RichText::new(icons::SWAP).size(15.0))
-                                .on_hover_text("Change the picture the focus is on (where your edits go)")
+                                .on_hover_text(tr!("edit-focus-hint"))
                                 .clicked()
                             {
                                 self.swap_2up_focus();
@@ -363,8 +364,8 @@ impl App {
                         }
                         let two = self.edit.compare == CompareMode::TwoPhotos;
                         if ui
-                            .add(egui::Button::new(RichText::new("Compare").size(12.5)).selected(two))
-                            .on_hover_text("This picture next to another one, side by side")
+                            .add(egui::Button::new(RichText::new(tr!("edit-compare")).size(12.5)).selected(two))
+                            .on_hover_text(tr!("edit-compare-hint"))
                             .clicked()
                         {
                             self.set_compare(if two { CompareMode::Single } else { CompareMode::TwoPhotos });
@@ -372,30 +373,31 @@ impl App {
                         // the picture without its edits, for as long as the button (or O) is held
                         let has_edits = self.meta(id).is_some_and(|m| !m.edits.is_empty());
                         let r = ui
-                            .add_enabled(has_edits, egui::Button::new(RichText::new("Original").size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
-                            .on_hover_text("Hold to see the picture without your edits (or hold O)");
+                            .add_enabled(has_edits, egui::Button::new(RichText::new(tr!("edit-original")).size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
+                            .on_hover_text(tr!("edit-original-hint"));
                         if r.is_pointer_button_down_on() {
                             self.edit.show_original = true;
                         }
                         ui.separator();
-                        if ui.button(format!("{} Slideshow", icons::PLAY)).clicked() {
+                        if ui.button(format!("{} {}", icons::PLAY, tr!("edit-slideshow"))).clicked() {
                             let list = self.edit.list.clone();
                             self.start_slideshow(list, id);
                         }
                         if ui
                             .button(RichText::new(icons::FULLSCREEN).size(15.0))
-                            .on_hover_text("Full screen (F11): from this picture on, one after the other, with music")
+                            .on_hover_text(tr!("edit-fullscreen-hint"))
                             .clicked()
                         {
                             let list = self.edit.list.clone();
                             self.start_viewer(list, id);
                         }
                         let pos = self.edit.list.iter().position(|&x| x == id).unwrap_or(0);
-                        if ui.add_enabled(pos + 1 < self.edit.list.len(), egui::Button::new(icons::CHEVRON_RIGHT)).on_hover_text("Next picture").clicked() {
+                        if ui.add_enabled(pos + 1 < self.edit.list.len(), egui::Button::new(icons::CHEVRON_RIGHT)).on_hover_text(tr!("edit-next")).clicked() {
                             self.step_photo(1);
                         }
-                        ui.label(format!("{} of {}", pos + 1, self.edit.list.len()));
-                        if ui.add_enabled(pos > 0, egui::Button::new(icons::CHEVRON_LEFT)).on_hover_text("Previous picture").clicked() {
+                        let (shown, total) = (pos + 1, self.edit.list.len());
+                        ui.label(tr!("edit-position", n = shown, total = total));
+                        if ui.add_enabled(pos > 0, egui::Button::new(icons::CHEVRON_LEFT)).on_hover_text(tr!("edit-previous")).clicked() {
                             self.step_photo(-1);
                         }
                     });
@@ -483,7 +485,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().left_bg).inner_margin(egui::Margin::same(8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for (t, label) in [(Tab::Edit, "Edit"), (Tab::Presets, "Presets"), (Tab::Effects, "Effects")] {
+                    for (t, label) in [(Tab::Edit, tr!("edit-tab-edit")), (Tab::Presets, tr!("edit-tab-presets")), (Tab::Effects, tr!("edit-tab-effects"))] {
                         if ui.selectable_label(self.edit.tab == t, RichText::new(label).strong()).clicked() {
                             self.edit.tab = t;
                         }
@@ -495,16 +497,16 @@ impl App {
                 egui::Panel::bottom("history").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6))).show(ui, |ui| {
                     let edits = self.edits(id);
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(!self.edit.undo.is_empty(), egui::Button::new(format!("{} Undo", icons::UNDO))).on_hover_text("Take back the last change (Ctrl+Z)").clicked() {
+                        if ui.add_enabled(!self.edit.undo.is_empty(), egui::Button::new(format!("{} {}", icons::UNDO, tr!("edit-undo")))).on_hover_text(tr!("edit-undo-hint")).clicked() {
                             self.undo();
                         }
-                        if ui.add_enabled(!self.edit.redo.is_empty(), egui::Button::new(format!("{} Redo", icons::REDO))).on_hover_text("Ctrl+Shift+Z").clicked() {
+                        if ui.add_enabled(!self.edit.redo.is_empty(), egui::Button::new(format!("{} {}", icons::REDO, tr!("edit-redo")))).on_hover_text("Ctrl+Shift+Z").clicked() {
                             self.redo();
                         }
                     });
-                    ui.label(RichText::new("Edits on this picture:").size(12.0).weak());
+                    ui.label(RichText::new(tr!("edit-list")).size(12.0).weak());
                     if edits.is_empty() {
-                        ui.label(RichText::new("(none — this is the original)").size(12.0).weak());
+                        ui.label(RichText::new(tr!("edit-list-none")).size(12.0).weak());
                     }
                     // a fixed height for up to six steps: inside a bottom panel, a scroll area left
                     // to size itself can get stuck at the panel's first, tiny height (one line)
@@ -513,10 +515,10 @@ impl App {
                     let mut back_to = None;
                     egui::ScrollArea::vertical().id_salt("edit_steps").min_scrolled_height(h).max_height(h).show(ui, |ui| {
                         for (i, e) in edits.iter().enumerate() {
-                            let t = RichText::new(format!("{}. {}", i + 1, e.label())).size(12.0);
+                            let t = RichText::new(format!("{}. {}", i + 1, crate::labels::op(e))).size(12.0);
                             let last = i + 1 == edits.len();
                             let r = ui.add(egui::Label::new(if last { t.strong() } else { t }).truncate().sense(Sense::click()));
-                            if !last && r.on_hover_text(format!("{}\nClick to go back to this step (the later ones are removed; Undo brings them back)", e.label())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            if !last && r.on_hover_text(tr!("edit-step-hint", label = crate::labels::op(e))).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 back_to = Some(i + 1);
                             }
                         }
@@ -524,15 +526,16 @@ impl App {
                     if let Some(n) = back_to {
                         self.change_edits(id, "", |e| e.truncate(n));
                     }
-                    ui.horizontal(|ui| {
-                        if !edits.is_empty() && ui.small_button("Undo all edits").clicked() {
+                    // wraps: in some languages the three buttons are wider than the panel
+                    ui.horizontal_wrapped(|ui| {
+                        if !edits.is_empty() && ui.small_button(tr!("menu-undo-edits")).clicked() {
                             self.change_edits(id, "", |e| e.clear());
                         }
-                        if !edits.is_empty() && ui.small_button("Copy edits").on_hover_text("Copy these edits to paste them on other pictures (Ctrl+Shift+C)").clicked() {
+                        if !edits.is_empty() && ui.small_button(tr!("menu-copy-edits")).on_hover_text(tr!("edit-copy-hint")).clicked() {
                             self.copy_edits(id);
                         }
                         if let Some(n) = self.copied_edits.as_ref().map(|e| e.len())
-                            && ui.small_button(format!("Paste {n}")).on_hover_text("Add the copied edits to this picture (Ctrl+Shift+V)").clicked() {
+                            && ui.small_button(tr!("edit-paste-n", n = n)).on_hover_text(tr!("edit-paste-hint")).clicked() {
                                 self.paste_edits(&[id]);
                             }
                     });
@@ -552,8 +555,8 @@ impl App {
         let id = self.edit.id;
         if self.edit.tool == Tool::None {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.edit.advanced, false, "Basic");
-                ui.selectable_value(&mut self.edit.advanced, true, "Advanced");
+                ui.selectable_value(&mut self.edit.advanced, false, tr!("edit-basic"));
+                ui.selectable_value(&mut self.edit.advanced, true, tr!("edit-advanced"));
             });
             ui.add_space(4.0);
             if self.edit.advanced {
@@ -563,17 +566,17 @@ impl App {
         }
         match self.edit.tool {
             Tool::PickNeutral => {
-                ui.label(RichText::new("White balance").strong().size(15.0));
-                ui.label("Click something in the picture that should be neutral gray or white.");
-                if ui.button("Cancel").clicked() {
+                ui.label(RichText::new(tr!("edit-wb-title")).strong().size(15.0));
+                ui.label(tr!("edit-wb-help"));
+                if ui.button(tr!("button-cancel")).clicked() {
                     self.edit.tool = Tool::None;
                 }
             }
             Tool::Crop => {
-                ui.label(RichText::new("Crop").strong().size(15.0));
-                ui.label("Drag the box's edges or corners, drag inside it to move it, or draw a new box. Enter applies.");
+                ui.label(RichText::new(tr!("op-crop")).strong().size(15.0));
+                ui.label(tr!("edit-crop-help"));
                 ui.add_space(4.0);
-                ui.label(RichText::new("Shape").size(12.5).color(t().text_weak));
+                ui.label(RichText::new(tr!("edit-crop-shape")).size(12.5).color(t().text_weak));
                 let before = self.edit.aspect;
                 egui::ComboBox::from_id_salt("crop_shape").selected_text(before.label()).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
                     for a in CropAspect::ALL {
@@ -587,11 +590,11 @@ impl App {
                 let shaped = !matches!(self.edit.aspect, CropAspect::Manual | CropAspect::Square);
                 ui.add_space(4.0);
                 ui.add_enabled_ui(shaped, |ui| {
-                    ui.label(RichText::new("Orientation").size(12.5).color(t().text_weak));
+                    ui.label(RichText::new(tr!("edit-crop-orientation")).size(12.5).color(t().text_weak));
                     ui.horizontal(|ui| {
                         let before = self.edit.crop_portrait;
-                        ui.selectable_value(&mut self.edit.crop_portrait, false, "Landscape").on_hover_text("Wider than tall");
-                        ui.selectable_value(&mut self.edit.crop_portrait, true, "Portrait").on_hover_text("Taller than wide");
+                        ui.selectable_value(&mut self.edit.crop_portrait, false, tr!("edit-landscape")).on_hover_text(tr!("edit-landscape-hint"));
+                        ui.selectable_value(&mut self.edit.crop_portrait, true, tr!("edit-portrait")).on_hover_text(tr!("edit-portrait-hint"));
                         if self.edit.crop_portrait != before {
                             self.edit.sel = None;
                             self.edit.crop_autofit = true;
@@ -600,15 +603,15 @@ impl App {
                 });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
+                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} {}", icons::CHECK, tr!("edit-apply")))).clicked() {
                         self.apply_tool();
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr!("button-cancel")).clicked() {
                         self.edit.tool = Tool::None;
                         self.edit.sel = None;
                     }
                     let has_crop = self.meta(id).is_some_and(|m| crate::steps::crop_of(&m.edits).is_some());
-                    if has_crop && ui.button("Remove crop").on_hover_text("Show the whole picture again").clicked() {
+                    if has_crop && ui.button(tr!("edit-remove-crop")).on_hover_text(tr!("edit-remove-crop-hint")).clicked() {
                         self.change_edits(id, "", |e| crate::steps::set_crop(e, None));
                         self.edit.tool = Tool::None;
                         self.edit.sel = None;
@@ -616,80 +619,80 @@ impl App {
                 });
             }
             Tool::Redeye => {
-                ui.label(RichText::new("Redeye").strong().size(15.0));
-                ui.label("Drag a box around the red eyes. Only red pupils inside the box are darkened.");
+                ui.label(RichText::new(tr!("op-redeye")).strong().size(15.0));
+                ui.label(tr!("edit-redeye-help"));
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} Apply", icons::CHECK))).clicked() {
+                    if ui.add_enabled(self.edit.sel.is_some(), egui::Button::new(format!("{} {}", icons::CHECK, tr!("edit-apply")))).clicked() {
                         self.apply_tool();
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr!("button-cancel")).clicked() {
                         self.edit.tool = Tool::None;
                         self.edit.sel = None;
                     }
                 });
             }
             Tool::Straighten => {
-                ui.label(RichText::new("Straighten").strong().size(15.0));
-                ui.label("Move the slider until the horizon lines up with the grid.");
+                ui.label(RichText::new(tr!("edit-straighten-title")).strong().size(15.0));
+                ui.label(tr!("edit-straighten-help"));
                 ui.add(egui::Slider::new(&mut self.edit.angle, -12.0..=12.0).suffix("°").step_by(0.1));
                 ui.horizontal(|ui| {
-                    if ui.button(format!("{} Apply", icons::CHECK)).clicked() {
+                    if ui.button(format!("{} {}", icons::CHECK, tr!("edit-apply"))).clicked() {
                         self.apply_tool();
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr!("button-cancel")).clicked() {
                         self.edit.tool = Tool::None;
                         self.edit.angle = 0.0;
                     }
                 });
             }
             Tool::None => {
-                ui.label(RichText::new("One-click fixes").size(12.0).weak());
+                ui.label(RichText::new(tr!("edit-oneclick")).size(12.0).weak());
                 let lucky = ui
-                    .add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new(format!("{}  I'm feeling lucky", icons::AUTO_FIX)).size(14.0)))
-                    .on_hover_text("Exposure, white balance, black point and a little vibrance, all at once (then fine-tune them in Advanced)");
+                    .add_sized([ui.available_width(), 34.0], egui::Button::new(RichText::new(format!("{}  {}", icons::AUTO_FIX, tr!("edit-lucky"))).size(14.0)))
+                    .on_hover_text(tr!("edit-lucky-hint"));
                 if lucky.clicked() {
                     self.auto_fix(id, AutoFix::Lucky);
                 }
                 ui.add_space(4.0);
                 egui::Grid::new("auto").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-                    if tool_button(ui, icons::WB_SUNNY, "Auto exposure").on_hover_text("Brighten or darken to a balanced exposure").clicked() {
+                    if tool_button(ui, icons::WB_SUNNY, &tr!("edit-auto-exposure")).on_hover_text(tr!("edit-auto-exposure-hint")).clicked() {
                         self.auto_fix(id, AutoFix::Exposure);
                     }
-                    if tool_button(ui, icons::PALETTE, "Auto colour").on_hover_text("Auto white balance: remove a colour cast").clicked() {
+                    if tool_button(ui, icons::PALETTE, &tr!("edit-auto-colour")).on_hover_text(tr!("edit-auto-colour-hint")).clicked() {
                         self.auto_fix(id, AutoFix::WhiteBalance);
                     }
                     ui.end_row();
-                    if tool_button(ui, icons::CONTRAST, "Auto contrast").on_hover_text("Stretch the darkest and brightest tones").clicked() {
+                    if tool_button(ui, icons::CONTRAST, &tr!("edit-auto-contrast")).on_hover_text(tr!("edit-auto-contrast-hint")).clicked() {
                         self.push_edit(id, EditOp::AutoContrast);
                     }
-                    if tool_button(ui, icons::STRAIGHTEN, "Auto straighten").on_hover_text("Level a tilted horizon or verticals").clicked() {
+                    if tool_button(ui, icons::STRAIGHTEN, &tr!("edit-auto-straighten")).on_hover_text(tr!("edit-auto-straighten-hint")).clicked() {
                         self.auto_fix(id, AutoFix::Straighten);
                     }
                     ui.end_row();
                 });
                 ui.add_space(10.0);
-                ui.label(RichText::new("Tools").size(12.0).weak());
+                ui.label(RichText::new(tr!("edit-tools")).size(12.0).weak());
                 egui::Grid::new("basic").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-                    if tool_button(ui, icons::CROP, "Crop").clicked() {
+                    if tool_button(ui, icons::CROP, &tr!("op-crop")).clicked() {
                         self.start_crop();
                     }
-                    if tool_button(ui, icons::STRAIGHTEN, "Straighten").clicked() {
+                    if tool_button(ui, icons::STRAIGHTEN, &tr!("edit-straighten-title")).clicked() {
                         self.edit.tool = Tool::Straighten;
                         self.edit.angle = 0.0;
                     }
                     ui.end_row();
-                    if tool_button(ui, icons::REDEYE, "Redeye").clicked() {
+                    if tool_button(ui, icons::REDEYE, &tr!("op-redeye")).clicked() {
                         self.edit.tool = Tool::Redeye;
                         self.edit.sel = None;
                     }
-                    if tool_button(ui, icons::EYEDROPPER, "Pick neutral").on_hover_text("Click something gray to set the white balance").clicked() {
+                    if tool_button(ui, icons::EYEDROPPER, &tr!("edit-pick-neutral")).on_hover_text(tr!("edit-pick-neutral-hint")).clicked() {
                         self.edit.tool = Tool::PickNeutral;
                     }
                     ui.end_row();
-                    if tool_button(ui, icons::ROTATE_LEFT, "Rotate left").clicked() {
+                    if tool_button(ui, icons::ROTATE_LEFT, &tr!("menu-rotate-left")).clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if tool_button(ui, icons::ROTATE_RIGHT, "Rotate right").clicked() {
+                    if tool_button(ui, icons::ROTATE_RIGHT, &tr!("menu-rotate-right")).clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.end_row();
@@ -708,49 +711,49 @@ impl App {
         };
         ui.spacing_mut().slider_width = 108.0;
         self.geometry_section(ui, id);
-        section(ui, "WHITE BALANCE");
-        let preset = develop::WB_PRESETS.iter().find(|(_, t, ti)| *t == a.temp && *ti == a.tint).map(|(n, _, _)| *n).unwrap_or("Custom");
+        section(ui, &tr!("edit-sec-wb"));
+        let preset = develop::WB_PRESETS.iter().find(|(_, t, ti)| *t == a.temp && *ti == a.tint).map(|(n, _, _)| crate::labels::wb_preset(n)).unwrap_or_else(|| tr!("wb-custom"));
         ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("wb_preset").selected_text(preset).width(120.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("wb_preset").selected_text(preset.clone()).width(120.0).show_ui(ui, |ui| {
                 for (name, t, ti) in develop::WB_PRESETS {
-                    if ui.selectable_label(preset == name, name).clicked() {
+                    if ui.selectable_label(preset == crate::labels::wb_preset(name), crate::labels::wb_preset(name)).clicked() {
                         (a.temp, a.tint) = (t, ti);
                     }
                 }
-                if ui.selectable_label(false, "Auto").clicked()
+                if ui.selectable_label(false, tr!("wb-auto")).clicked()
                     && let Some(img) = self.analysis_image(id)
                 {
                     (a.temp, a.tint) = develop::auto_white_balance(&img);
                 }
             });
-            if ui.button(format!("{} Pick", icons::EYEDROPPER)).on_hover_text("Click something gray in the picture").clicked() {
+            if ui.button(format!("{} {}", icons::EYEDROPPER, tr!("edit-wb-pick"))).on_hover_text(tr!("edit-wb-pick-hint")).clicked() {
                 self.edit.tool = Tool::PickNeutral;
             }
         });
         let slider = |ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, tip: &str| {
-            labelled_slider(ui, label, v, range, if label == "Exposure" { 2 } else { 0 }, "", tip);
+            labelled_slider(ui, label, v, range, 0, "", tip);
         };
-        slider(ui, "Temperature", &mut a.temp, -100.0..=100.0, "Bluer (left) or warmer (right)");
-        slider(ui, "Tint", &mut a.tint, -100.0..=100.0, "Greener (left) or more magenta (right)");
-        section(ui, "LIGHT");
-        slider(ui, "Exposure", &mut a.exposure, -3.0..=3.0, "Overall brightness, in stops");
-        slider(ui, "Highlights", &mut a.highlights, -100.0..=100.0, "Bright areas: left recovers detail, right brightens");
-        slider(ui, "Shadows", &mut a.shadows, -100.0..=100.0, "Dark areas: right opens them up");
-        slider(ui, "Blacks", &mut a.blacks, -100.0..=100.0, "Black point: left deepens, right lifts");
-        slider(ui, "Contrast", &mut a.contrast, -100.0..=100.0, "Difference between dark and bright");
-        section(ui, "COLOUR");
-        slider(ui, "Saturation", &mut a.saturation, -100.0..=100.0, "All colours");
-        slider(ui, "Vibrance", &mut a.vibrance, -100.0..=100.0, "Mostly the dull colours; spares skin and already vivid ones");
-        section(ui, "DETAIL");
-        slider(ui, "Clarity", &mut a.clarity, -100.0..=100.0, "Local contrast in the midtones");
-        slider(ui, "Sharpen", &mut a.sharpen, 0.0..=100.0, "Crisper fine detail");
-        slider(ui, "Noise", &mut a.noise, 0.0..=100.0, "Noise reduction: smooths grain while keeping edges");
+        slider(ui, &tr!("edit-s-temperature"), &mut a.temp, -100.0..=100.0, &tr!("edit-s-temperature-tip"));
+        slider(ui, &tr!("edit-s-tint"), &mut a.tint, -100.0..=100.0, &tr!("edit-s-tint-tip"));
+        section(ui, &tr!("edit-sec-light"));
+        labelled_slider(ui, &tr!("edit-s-exposure"), &mut a.exposure, -3.0..=3.0, 2, "", &tr!("edit-s-exposure-tip"));
+        slider(ui, &tr!("edit-s-highlights"), &mut a.highlights, -100.0..=100.0, &tr!("edit-s-highlights-tip"));
+        slider(ui, &tr!("edit-s-shadows"), &mut a.shadows, -100.0..=100.0, &tr!("edit-s-shadows-tip"));
+        slider(ui, &tr!("edit-s-blacks"), &mut a.blacks, -100.0..=100.0, &tr!("edit-s-blacks-tip"));
+        slider(ui, &tr!("edit-s-contrast"), &mut a.contrast, -100.0..=100.0, &tr!("edit-s-contrast-tip"));
+        section(ui, &tr!("edit-sec-colour"));
+        slider(ui, &tr!("edit-s-saturation"), &mut a.saturation, -100.0..=100.0, &tr!("edit-s-saturation-tip"));
+        slider(ui, &tr!("edit-s-vibrance"), &mut a.vibrance, -100.0..=100.0, &tr!("edit-s-vibrance-tip"));
+        section(ui, &tr!("edit-sec-detail"));
+        slider(ui, &tr!("edit-s-clarity"), &mut a.clarity, -100.0..=100.0, &tr!("edit-s-clarity-tip"));
+        slider(ui, &tr!("edit-s-sharpen"), &mut a.sharpen, 0.0..=100.0, &tr!("edit-s-sharpen-tip"));
+        slider(ui, &tr!("edit-s-noise"), &mut a.noise, 0.0..=100.0, &tr!("edit-s-noise-tip"));
         if a != before {
             self.set_adjust(id, a, "adjust");
         }
 
         ui.add_space(8.0);
-        if ui.add_enabled(!a.is_neutral(), egui::Button::new("Reset all")).clicked() {
+        if ui.add_enabled(!a.is_neutral(), egui::Button::new(tr!("edit-reset-all"))).clicked() {
             self.set_adjust(id, Adjust::default(), "");
         }
     }
@@ -760,13 +763,13 @@ impl App {
     /// alignment grid on the picture while they move.
     fn geometry_section(&mut self, ui: &mut egui::Ui, id: usize) {
         ui.add_space(6.0);
-        ui.label(RichText::new("GEOMETRY").size(12.0).strong().color(t().text_weak));
+        ui.label(RichText::new(tr!("edit-sec-geometry")).size(12.0).strong().color(t().text_weak));
         let has_crop = self.meta(id).is_some_and(|m| m.edits.iter().any(|e| matches!(e, EditOp::Crop(_))));
         ui.horizontal(|ui| {
-            if ui.button(format!("{}  Crop…", icons::CROP)).on_hover_text("Choose what part of the picture to keep, or change the crop").clicked() {
+            if ui.button(format!("{}  {}", icons::CROP, tr!("edit-crop-btn"))).on_hover_text(tr!("edit-crop-btn-hint")).clicked() {
                 self.start_crop();
             }
-            if has_crop && ui.button("Remove crop").on_hover_text("Show the whole picture again").clicked() {
+            if has_crop && ui.button(tr!("edit-remove-crop")).on_hover_text(tr!("edit-remove-crop-hint")).clicked() {
                 self.change_edits(id, "", |e| crate::steps::set_crop(e, None));
             }
         });
@@ -777,10 +780,10 @@ impl App {
             let r = labelled_slider(ui, label, v, range, decimals, suffix, tip);
             in_use |= r.dragged() || r.changed() || r.has_focus();
         };
-        geo_slider(ui, "Straighten", &mut angle, -45.0..=45.0, 1, "°", "Turn the picture a little to level the horizon (zooms in to hide the corners)");
+        geo_slider(ui, &tr!("edit-straighten-title"), &mut angle, -45.0..=45.0, 1, "°", &tr!("edit-s-straighten-tip"));
         let (mut pv, mut ph) = (persp.0 * 100.0, persp.1 * 100.0);
-        geo_slider(ui, "Vertical", &mut pv, -100.0..=100.0, 0, "", "Perspective: right widens the top, to stand up buildings that lean back when shot from below");
-        geo_slider(ui, "Horizontal", &mut ph, -100.0..=100.0, 0, "", "Perspective: right makes the right side taller, for a wall seen at an angle");
+        geo_slider(ui, &tr!("edit-s-vertical"), &mut pv, -100.0..=100.0, 0, "", &tr!("edit-s-vertical-tip"));
+        geo_slider(ui, &tr!("edit-s-horizontal"), &mut ph, -100.0..=100.0, 0, "", &tr!("edit-s-horizontal-tip"));
         persp = (pv / 100.0, ph / 100.0);
         if angle != angle0 {
             self.set_geometry(id, EditOp::Straighten(angle), "straighten");
@@ -893,9 +896,9 @@ impl App {
             }
         }
         if let Some((look, mut amount)) = current {
-            ui.label(RichText::new(look.label()).strong().size(15.0));
+            ui.label(RichText::new(crate::labels::look(&look)).strong().size(15.0));
             ui.horizontal(|ui| {
-                ui.label("Intensity");
+                ui.label(tr!("edit-intensity"));
                 ui.spacing_mut().slider_width = 120.0;
                 let mut pct = amount * 100.0;
                 if ui.add(egui::Slider::new(&mut pct, 0.0..=100.0).suffix(" %").max_decimals(0)).changed() {
@@ -903,12 +906,12 @@ impl App {
                     self.set_look(id, Some((look, amount)), "look");
                 }
             });
-            if ui.button("Remove preset").clicked() {
+            if ui.button(tr!("edit-remove-preset")).clicked() {
                 self.set_look(id, None, "");
             }
             ui.separator();
         } else {
-            ui.label(RichText::new("Looks for the whole picture. Click one, then set its intensity.").size(12.0).weak());
+            ui.label(RichText::new(tr!("edit-presets-help")).size(12.0).weak());
         }
         let mut chosen = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -925,8 +928,8 @@ impl App {
                     let img_area = Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), egui::vec2(68.0, 52.0));
                     let tex = self.look_previews.as_ref().and_then(|(_, _, t)| t.get(i));
                     paint_thumb(p, img_area, tex, true);
-                    p.text(rect.center_bottom() - egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, l.label(), egui::FontId::proportional(11.0), t().text);
-                    if resp.on_hover_text(l.tip()).clicked() {
+                    p.text(rect.center_bottom() - egui::vec2(0.0, 12.0), egui::Align2::CENTER_CENTER, crate::labels::look(l), egui::FontId::proportional(11.0), t().text);
+                    if resp.on_hover_text(crate::labels::look_tip(l)).clicked() {
                         chosen = Some(*l);
                     }
                     if i % 3 == 2 {
@@ -959,15 +962,15 @@ impl App {
 
     fn effects_tab(&mut self, ui: &mut egui::Ui) {
         let id = self.edit.id;
-        ui.label(RichText::new("Add on or around the picture").size(12.0).weak());
+        ui.label(RichText::new(tr!("edit-effects-add")).size(12.0).weak());
         let white = [255, 255, 255];
-        let adds: [(&str, &str, Decor); 6] = [
-            (icons::VIGNETTE, "Vignette", Decor::Vignette { amount: 0.5, size: 0.5 }),
-            (icons::BORDER, "Border", Decor::Border { width: 0.03, bottom: 0.0, color: white }),
-            (icons::FRAME, "Instant frame", Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }),
-            (icons::SHADOW, "Drop shadow", Decor::Shadow { size: 0.04, opacity: 0.55, background: white }),
-            (icons::ROUNDED, "Rounded corners", Decor::Rounded { radius: 0.06, background: white }),
-            (icons::TEXT, "Text", Decor::Text(TextOverlay { text: "Your text".into(), ..Default::default() })),
+        let adds: [(&str, String, Decor); 6] = [
+            (icons::VIGNETTE, tr!("decor-vignette"), Decor::Vignette { amount: 0.5, size: 0.5 }),
+            (icons::BORDER, tr!("decor-border"), Decor::Border { width: 0.03, bottom: 0.0, color: white }),
+            (icons::FRAME, tr!("edit-add-instant"), Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }),
+            (icons::SHADOW, tr!("decor-shadow"), Decor::Shadow { size: 0.04, opacity: 0.55, background: white }),
+            (icons::ROUNDED, tr!("decor-rounded"), Decor::Rounded { radius: 0.06, background: white }),
+            (icons::TEXT, tr!("edit-add-text"), Decor::Text(TextOverlay { text: tr!("edit-your-text"), ..Default::default() })),
         ];
         let mut add = None;
         egui::Grid::new("decor_add").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
@@ -986,12 +989,12 @@ impl App {
         }
         let Some(mut d) = self.current_decor(id) else {
             ui.add_space(8.0);
-            ui.label(RichText::new("Effects go on top of every other edit. Add one to adjust it here.").size(11.5).weak());
+            ui.label(RichText::new(tr!("edit-effects-note")).size(11.5).weak());
             return;
         };
         let before = d.clone();
         ui.separator();
-        ui.label(RichText::new(d.label()).strong().size(15.0));
+        ui.label(RichText::new(crate::labels::decor(&d)).strong().size(15.0));
         ui.spacing_mut().slider_width = 120.0;
         let pct = |ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32| {
             ui.horizontal(|ui| {
@@ -1004,30 +1007,30 @@ impl App {
         };
         match &mut d {
             Decor::Vignette { amount, size } => {
-                pct(ui, "Amount", amount, -100.0, 100.0);
-                pct(ui, "Size", size, 0.0, 100.0);
-                ui.label(RichText::new("Left of the middle lightens the corners instead.").size(11.0).weak());
+                pct(ui, &tr!("edit-p-amount"), amount, -100.0, 100.0);
+                pct(ui, &tr!("edit-p-size"), size, 0.0, 100.0);
+                ui.label(RichText::new(tr!("edit-vignette-note")).size(11.0).weak());
             }
             Decor::Border { width, bottom, color } => {
-                pct(ui, "Width", width, 0.0, 20.0);
-                pct(ui, "Bottom", bottom, 0.0, 30.0);
-                swatches(ui, "Colour", color);
+                pct(ui, &tr!("edit-p-width"), width, 0.0, 20.0);
+                pct(ui, &tr!("edit-p-bottom"), bottom, 0.0, 30.0);
+                swatches(ui, &tr!("edit-p-colour"), color);
             }
             Decor::Shadow { size, opacity, background } => {
-                pct(ui, "Size", size, 1.0, 10.0);
-                pct(ui, "Darkness", opacity, 0.0, 100.0);
-                swatches(ui, "Background", background);
+                pct(ui, &tr!("edit-p-size"), size, 1.0, 10.0);
+                pct(ui, &tr!("edit-p-darkness"), opacity, 0.0, 100.0);
+                swatches(ui, &tr!("edit-p-background"), background);
             }
             Decor::Rounded { radius, background } => {
-                pct(ui, "Radius", radius, 1.0, 25.0);
-                swatches(ui, "Background", background);
+                pct(ui, &tr!("edit-p-radius"), radius, 1.0, 25.0);
+                swatches(ui, &tr!("edit-p-background"), background);
             }
             Decor::Text(t) => {
-                ui.add(egui::TextEdit::singleline(&mut t.text).hint_text("Your text").desired_width(f32::INFINITY));
-                pct(ui, "Size", &mut t.size, 2.0, 25.0);
-                swatches(ui, "Colour", &mut t.color);
-                ui.checkbox(&mut t.halo, "Soft halo (readable on any picture)");
-                ui.label("Position");
+                ui.add(egui::TextEdit::singleline(&mut t.text).hint_text(tr!("edit-your-text")).desired_width(f32::INFINITY));
+                pct(ui, &tr!("edit-p-size"), &mut t.size, 2.0, 25.0);
+                swatches(ui, &tr!("edit-p-colour"), &mut t.color);
+                ui.checkbox(&mut t.halo, tr!("edit-halo"));
+                ui.label(tr!("export-sig-position"));
                 egui::Grid::new("text_anchor").spacing([2.0, 2.0]).show(ui, |ui| {
                     for a in 0..9u8 {
                         let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 20.0), Sense::click());
@@ -1049,7 +1052,7 @@ impl App {
             self.set_decor(id, d);
         }
         ui.add_space(6.0);
-        if ui.button("Remove this effect").clicked() {
+        if ui.button(tr!("edit-remove-effect")).clicked() {
             self.undo();
         }
     }
@@ -1062,46 +1065,46 @@ impl App {
                 ui.horizontal(|ui| {
                     use crate::library::Flag;
                     use crate::library_view::{pick_button, rating_input, reject_button};
-                    if pick_button(ui, self.flag(id) == Flag::Pick, egui::vec2(34.0, 28.0)).on_hover_text("Pick (P)").clicked() {
+                    if pick_button(ui, self.flag(id) == Flag::Pick, egui::vec2(34.0, 28.0)).on_hover_text(tr!("tile-pick-hint")).clicked() {
                         self.toggle_flag(&[id], Flag::Pick);
                     }
-                    if reject_button(ui, self.flag(id) == Flag::Reject, egui::vec2(34.0, 28.0)).on_hover_text("Reject (X)").clicked() {
+                    if reject_button(ui, self.flag(id) == Flag::Reject, egui::vec2(34.0, 28.0)).on_hover_text(tr!("tile-reject-hint")).clicked() {
                         self.toggle_flag(&[id], Flag::Reject);
                     }
                     if let Some(n) = rating_input(ui, egui::Id::unique(("edit_rating", id)), self.rating(id), 8.0) {
                         self.set_rating(&[id], n);
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text("Rotate left").clicked() {
+                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text("Rotate right").clicked() {
+                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.separator();
                     let mut caption = self.meta(id).map(|m| m.caption.clone()).unwrap_or_default();
-                    let r = ui.add(egui::TextEdit::singleline(&mut caption).hint_text("Make a caption!").desired_width((ui.available_width() - 560.0).max(120.0)));
+                    let r = ui.add(egui::TextEdit::singleline(&mut caption).hint_text(tr!("edit-caption-hint")).desired_width((ui.available_width() - 560.0).max(120.0)));
                     if r.changed() {
                         self.meta_mut(id).caption = caption;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(format!("{} Export", icons::EXPORT)).clicked() {
+                        if ui.button(format!("{} {}", icons::EXPORT, tr!("output-export"))).clicked() {
                             self.open_export(vec![id]);
                         }
-                        if crate::print::available() && ui.button(format!("{} Print", icons::PRINT)).on_hover_text("Print this picture (Ctrl+P)").clicked() {
+                        if crate::print::available() && ui.button(format!("{} {}", icons::PRINT, tr!("output-print"))).on_hover_text(tr!("edit-print-hint")).clicked() {
                             self.open_print();
                         }
-                        self.album_menu(ui, format!("{} Album {}", icons::ALBUM, icons::EXPAND_MORE), &[id]);
+                        self.album_menu(ui, format!("{} {} {}", icons::ALBUM, tr!("edit-album"), icons::EXPAND_MORE), &[id]);
                         ui.separator();
                         // Zoom: Fit, 1:1 and the zoom slider:
                         // the slider runs from Fit (left) through 1:1 (middle) to 400 % (right).
                         let fit = self.edit.fit_zoom;
                         let z_now = self.edit.zoom.unwrap_or(fit);
                         let mut p = if self.edit.zoom.is_some() { zoom_to_pos(z_now, fit) } else { 0.0 };
-                        ui.label(RichText::new(format!("{:.0} %", z_now * 100.0)).size(12.0)).on_hover_text("Zoom (100 % = the photo's real pixels)");
+                        ui.label(RichText::new(format!("{:.0} %", z_now * 100.0)).size(12.0)).on_hover_text(tr!("edit-zoom-hint"));
                         ui.spacing_mut().slider_width = 120.0;
                         let s = ui.add(egui::Slider::new(&mut p, 0.0..=1.0).show_value(false));
-                        if s.on_hover_text("Zoom: left = fit, middle = 1:1, right = 400 % (mouse wheel works too; drag the picture to zoom to 100 % and move it)").changed() {
+                        if s.on_hover_text(tr!("edit-zoom-slider-hint")).changed() {
                             self.edit.zoom_anim = None;
                             if p <= 0.001 {
                                 self.edit.zoom = None;
@@ -1113,14 +1116,14 @@ impl App {
                         let now = ui.input(|i| i.time);
                         if ui
                             .add(egui::Button::new(RichText::new("1:1").size(12.5)).selected(self.edit.zoom.is_some_and(|z| (z - 1.0).abs() < 0.005)))
-                            .on_hover_text("Original size (100 %): one photo pixel per screen pixel")
+                            .on_hover_text(tr!("edit-one-to-one-hint"))
                             .clicked()
                         {
                             self.edit.zoom_anim = Some(ZoomAnim { from: z_now, to: Some(1.0), t0: now, pan_from: self.edit.pan, focus: None });
                         }
                         if ui
-                            .add(egui::Button::new(RichText::new("Fit").size(12.5)).selected(self.edit.zoom.is_none()))
-                            .on_hover_text("Fit the whole picture in the window (double-click a zoomed picture does the same)")
+                            .add(egui::Button::new(RichText::new(tr!("edit-fit")).size(12.5)).selected(self.edit.zoom.is_none()))
+                            .on_hover_text(tr!("edit-fit-hint"))
                             .clicked()
                             && self.edit.zoom.is_some()
                         {
@@ -1131,13 +1134,13 @@ impl App {
                 // people chips (tags are in the info panel)
                 ui.horizontal_wrapped(|ui| {
                     let people = self.meta(id).map(|m| m.people.clone()).unwrap_or_default();
-                    ui.label(RichText::new("People:").size(12.0));
+                    ui.label(RichText::new(tr!("edit-people")).size(12.0));
                     for t in &people {
-                        if ui.small_button(format!("{} {t} {}", icons::PERSON, icons::CLOSE)).on_hover_text("Remove person").clicked() {
+                        if ui.small_button(format!("{} {t} {}", icons::PERSON, icons::CLOSE)).on_hover_text(tr!("edit-person-remove")).clicked() {
                             self.meta_mut(id).people.retain(|x| x != t);
                         }
                     }
-                    let r = ui.add(egui::TextEdit::singleline(&mut self.edit.person_buf).hint_text("add person").desired_width(90.0));
+                    let r = ui.add(egui::TextEdit::singleline(&mut self.edit.person_buf).hint_text(tr!("edit-person-add")).desired_width(90.0));
                     if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.edit.person_buf.trim().is_empty() {
                         let t = self.edit.person_buf.trim().to_string();
                         self.edit.person_buf.clear();
@@ -1228,9 +1231,9 @@ impl App {
                 let t = self.big_texture(o, &[]).or_else(|| self.thumbs.get(&o).cloned());
                 (t, self.photos[o].name.clone())
             }
-            None => (None, "No other picture in this folder".to_string()),
+            None => (None, tr!("edit-compare-none")),
         };
-        let a_label = "Selected";
+        let a_label = tr!("edit-compare-selected");
         // same zoom and position on both sides, so details line up
         let ppp = ui.ctx().pixels_per_point();
         let r_a = if self.big.contains_key(&id) { self.real_scale(id) } else { None };
@@ -1271,7 +1274,7 @@ impl App {
                     r.intersect(area)
                 }
                 None => {
-                    p.text(area.center(), egui::Align2::CENTER_CENTER, "Loading…", egui::FontId::proportional(14.0), Color32::WHITE);
+                    p.text(area.center(), egui::Align2::CENTER_CENTER, tr!("edit-view-loading"), egui::FontId::proportional(14.0), Color32::WHITE);
                     area
                 }
             };
@@ -1285,11 +1288,11 @@ impl App {
             p.rect_filled(pill, 4, fill);
             p.galley(pill.min + egui::vec2(10.0, 5.0), galley, Color32::WHITE);
         };
-        draw(a_rect, a_tex.as_ref(), r_a, a_label, true);
+        draw(a_rect, a_tex.as_ref(), r_a, &a_label, true);
         draw(b_rect, b_tex.as_ref(), r_b, &b_label, false);
 
         // clicking the other side moves the focus there
-        let tip = "Click to edit this picture instead";
+        let tip = tr!("edit-compare-swap-hint");
         let has_other = self.compare_partner().is_some();
         if has_other && resp_b.on_hover_text(tip).clicked() {
             self.swap_2up_focus();
@@ -1405,7 +1408,7 @@ impl App {
             self.start_zoom_anim(ui.ctx(), None);
         }
         if magnified && self.edit.zoom_req.is_some() && !matches!(&self.edit.zoom_tex, Some((zid, zops, _, _)) if *zid == id && *zops == ops) {
-            p.text(canvas.center_top() + egui::vec2(0.0, 16.0), egui::Align2::CENTER_CENTER, "Sharpening…", egui::FontId::proportional(13.0), Color32::WHITE);
+            p.text(canvas.center_top() + egui::vec2(0.0, 16.0), egui::Align2::CENTER_CENTER, tr!("edit-sharpening"), egui::FontId::proportional(13.0), Color32::WHITE);
         }
 
         // overview box in the corner ("Zoom 153 %")
@@ -1414,7 +1417,7 @@ impl App {
         let nav_size = egui::vec2(preview.size()[0] as f32 * s, preview.size()[1] as f32 * s);
         let frame = Rect::from_min_size(canvas.right_bottom() - nav_size - egui::vec2(22.0, 40.0), nav_size + egui::vec2(12.0, 30.0));
         p.rect_filled(frame, 4, Color32::from_rgba_unmultiplied(40, 40, 40, 200));
-        p.text(frame.left_top() + egui::vec2(6.0, 4.0), egui::Align2::LEFT_TOP, format!("Zoom {:.0} %", z * 100.0), egui::FontId::proportional(12.0), Color32::WHITE);
+        p.text(frame.left_top() + egui::vec2(6.0, 4.0), egui::Align2::LEFT_TOP, tr!("edit-zoom-label", pct = format!("{:.0}", z * 100.0)), egui::FontId::proportional(12.0), Color32::WHITE);
         let nav = Rect::from_min_size(frame.left_top() + egui::vec2(6.0, 22.0), nav_size);
         p.image(preview.id(), nav, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         // the part that is visible on screen
@@ -1464,7 +1467,7 @@ impl App {
             let Some(tex) = tex else {
                 if self.big_failed.contains(&id) {
                     // neither a preview nor a thumbnail: say so instead of waiting forever
-                    ui.painter().text(area.center(), egui::Align2::CENTER_CENTER, "This picture can't be read.", egui::FontId::proportional(15.0), Color32::WHITE);
+                    ui.painter().text(area.center(), egui::Align2::CENTER_CENTER, tr!("edit-unreadable"), egui::FontId::proportional(15.0), Color32::WHITE);
                     return;
                 }
                 self.want_thumb(id);
@@ -1523,13 +1526,13 @@ impl App {
             p.image(tex.id(), img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
             if original {
                 let font = egui::FontId::proportional(14.0);
-                let galley = p.layout_no_wrap("Original".to_string(), font, Color32::WHITE);
+                let galley = p.layout_no_wrap(tr!("edit-original"), font, Color32::WHITE);
                 let pill = Rect::from_min_size(Pos2::new(img_rect.right() - galley.size().x - 34.0, img_rect.top() + 14.0), galley.size() + egui::vec2(20.0, 10.0));
                 p.rect_filled(pill, 4, Color32::from_rgba_unmultiplied(45, 45, 45, 215));
                 p.galley(pill.min + egui::vec2(10.0, 5.0), galley, Color32::WHITE);
             }
             if !self.big.contains_key(&id) {
-                let note = if self.big_failed.contains(&id) { "The full picture can't be read." } else { "Loading full picture…" };
+                let note = if self.big_failed.contains(&id) { tr!("edit-full-unreadable") } else { tr!("edit-full-loading") };
                 p.text(img_rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, note, egui::FontId::proportional(13.0), Color32::WHITE);
             }
             if self.edit.tool == Tool::None && ui.input(|i| i.time) < self.edit.grid_until {
@@ -1629,7 +1632,7 @@ impl App {
                         p.text(
                             img_rect.center_bottom() - egui::vec2(0.0, 16.0),
                             egui::Align2::CENTER_CENTER,
-                            "Drag on the picture to draw a box",
+                            tr!("edit-draw-box"),
                             egui::FontId::proportional(14.0),
                             Color32::WHITE,
                         );
@@ -1650,7 +1653,7 @@ impl App {
                     p.text(
                         img_rect.center_bottom() - egui::vec2(0.0, 16.0),
                         egui::Align2::CENTER_CENTER,
-                        "Click something that should be gray or white",
+                        tr!("edit-click-neutral"),
                         egui::FontId::proportional(14.0),
                         Color32::WHITE,
                     );

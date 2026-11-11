@@ -132,7 +132,7 @@ impl App {
                     });
                     ui.label(tr!("gallery-style"));
                     for st in crate::gallery::Style::ALL {
-                        ui.radio_value(style, st, st.label());
+                        ui.radio_value(style, st, crate::labels::gallery_style(&st));
                     }
                     ui.label(tr!("gallery-size"));
                     ui.radio_value(size, 1280, tr!("gallery-size-medium"));

@@ -189,14 +189,14 @@ impl CropAspect {
             CropAspect::SixteenNine => Some(16.0 / 9.0),
         }
     }
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            CropAspect::Manual => "Free",
-            CropAspect::Original => "Original shape",
-            CropAspect::Square => "Square",
-            CropAspect::FourThree => "4 × 3",
-            CropAspect::ThreeTwo => "3 × 2 (10 × 15 print)",
-            CropAspect::SixteenNine => "16 × 9 (wide screen)",
+            CropAspect::Manual => crate::i18n::tr!("crop-free"),
+            CropAspect::Original => crate::i18n::tr!("crop-original"),
+            CropAspect::Square => crate::i18n::tr!("crop-square"),
+            CropAspect::FourThree => crate::i18n::tr!("crop-4-3"),
+            CropAspect::ThreeTwo => crate::i18n::tr!("crop-3-2"),
+            CropAspect::SixteenNine => crate::i18n::tr!("crop-16-9"),
         }
     }
 }
