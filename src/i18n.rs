@@ -20,8 +20,6 @@ struct Localizations;
 
 pub static LOADER: LazyLock<FluentLanguageLoader> = LazyLock::new(|| {
     let loader: FluentLanguageLoader = fluent_language_loader!();
-    // Fluent puts invisible direction marks around arguments; egui's fonts would draw them as boxes
-    loader.set_use_isolating(false);
     // tests read English text whatever language the machine is set to
     #[cfg(test)]
     let requested = vec!["en".parse().expect("language code")];
@@ -43,6 +41,9 @@ fn load(loader: &FluentLanguageLoader, requested: &[LanguageIdentifier]) {
     if let Err(e) = i18n_embed::select(loader, &Localizations, requested) {
         eprintln!("Could not load the interface's translations: {e}");
     }
+    // Fluent puts invisible direction marks around arguments, which egui's fonts would draw as
+    // boxes; loading a language starts over with them on, so this comes after it
+    loader.set_use_isolating(false);
 }
 
 /// Switch the interface to `language` (a code such as "fr", as saved in `Store::language`), or
@@ -121,6 +122,17 @@ mod tests {
             let extra: Vec<_> = other.difference(&en).collect();
             assert!(missing.is_empty() && extra.is_empty(), "{code}: missing {missing:?}, not in English {extra:?}");
         }
+    }
+
+    /// Text with arguments has no invisible direction marks (egui would draw them as boxes).
+    #[test]
+    fn arguments_are_not_isolated() {
+        let text = tr!("op-look", look = "Vivid", amount = "50");
+        assert_eq!(text, "Vivid 50 %");
+        // a loader of its own: the global one's language is not changed by tests (they run together)
+        let fr: FluentLanguageLoader = fluent_language_loader!();
+        load(&fr, &["fr".parse().expect("language code")]);
+        assert_eq!(i18n_embed_fl::fl!(fr, "op-look", look = "Éclatant", amount = "50"), "Éclatant 50 %");
     }
 
     #[test]
