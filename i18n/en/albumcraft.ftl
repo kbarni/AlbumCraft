@@ -968,3 +968,78 @@ collage-print-failed = Printing didn't finish: { $error }
 collage-hint-swap = Drag a picture onto another to swap them. Click one to select it (Delete leaves it out).
 collage-hint-free = Drag a picture to move it, scroll over it to turn it. Click one to select it (Delete leaves it out).
 collage-page-of = Page { $page } of { $total }
+
+## Places map (src/map_view.rs)
+
+map-search-still = Still looking for GPS positions in your pictures: try again in a moment.
+map-none-located =
+    { $n ->
+        [one] This picture has no location yet. Select it and click { $icon } (Set location) in the selection bar to place it.
+       *[other] None of these { $n } pictures has a location yet. Select them and click { $icon } (Set location) in the selection bar to place them.
+    }
+map-location-set =
+    { $n ->
+        [one] Location set for { $n } picture.
+       *[other] Location set for { $n } pictures.
+    }
+map-location-removed =
+    { $n ->
+        [one] Location removed from { $n } picture.
+       *[other] Location removed from { $n } pictures.
+    }
+map-nothing-online = Nothing found online.
+map-set-location = Set location
+map-sub-scope =
+    { $n } of { $total ->
+        [one] { $total } picture
+       *[other] { $total } pictures
+    } with a location
+map-sub-indexing = { $n } with a location · looking for GPS positions…
+map-sub-all =
+    { $n ->
+        [one] { $n } picture with a location
+       *[other] { $n } pictures with a location
+    }
+map-title-scope = Places · { $title }
+map-show-whole = Show the whole library
+map-online = Online map
+map-builtin = Built-in map
+map-online-tip = Showing OpenStreetMap. Click to use the built-in map only (no internet connections).
+map-builtin-tip = Showing the built-in world map. Click to show detailed maps from OpenStreetMap (downloads map pictures from the internet).
+map-show-all = Show all
+map-show-all-hint = Zoom to show every picture on the map
+map-search-online-hint = Search a place or address
+map-search-builtin-hint = Search a city or coordinates
+map-no-city-builtin = No city by that name in the built-in list.
+map-no-city-hint = No city by that name. Try coordinates, like 44.84, -0.58.
+map-cities = CITIES
+map-cities-builtin = CITIES (BUILT-IN LIST)
+map-searching = Searching online…
+map-places-osm = PLACES AND ADDRESSES (OPENSTREETMAP)
+map-search-addresses = Search addresses online   (Enter)
+map-where = Where were these taken?
+map-where-help = Search for a place above, or click on the map to drop a pin. You can drag the pin afterwards.
+map-name-hint = Name of the place (optional)
+map-drag-pin = Drag the pin to adjust it.
+map-drag-pin-offline = Drag the pin to adjust it. Online maps show streets.
+map-set-n =
+    { $n ->
+        [one] Set location for { $n } picture
+       *[other] Set location for { $n } pictures
+    }
+map-remove-location = Remove location
+map-remove-location-hint = These pictures will have no location, even if the camera stored one (the files are not changed)
+map-close-hint = Close (Esc)
+map-change-location = Change location…
+map-select-in-library = Select in library
+map-select-in-library-hint = Select these pictures in the library
+map-show-hint = Show on the map
+map-preparing = Preparing the map…
+map-hover = { $pictures } · { $place }
+map-credit-builtin = Built-in map: Natural Earth · GeoNames
+map-problem = { $problem }. Showing the built-in map.
+map-empty-indexing = Looking for GPS positions in your pictures…
+map-empty =
+    No pictures with a location yet.
+
+    Pictures from phones and GPS cameras show up here by themselves. To place others, select them and click { $icon } (Set location) in the selection bar.

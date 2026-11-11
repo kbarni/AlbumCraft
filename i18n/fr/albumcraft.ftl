@@ -965,3 +965,78 @@ collage-print-failed = L'impression ne s'est pas terminée : { $error }
 collage-hint-swap = Faites glisser une photo sur une autre pour les échanger. Cliquez sur une photo pour la sélectionner (Suppr l'exclut).
 collage-hint-free = Faites glisser une photo pour la déplacer, faites défiler dessus pour la faire tourner. Cliquez sur une photo pour la sélectionner (Suppr l'exclut).
 collage-page-of = Page { $page } sur { $total }
+
+## Places map (src/map_view.rs)
+
+map-search-still = Recherche des positions GPS de vos photos en cours : réessayez dans un instant.
+map-none-located =
+    { $n ->
+        [one] Cette photo n'a pas encore de lieu. Sélectionnez-la et cliquez sur { $icon } (Définir le lieu) dans la barre de sélection pour la placer.
+       *[other] Aucune de ces { $n } photos n'a encore de lieu. Sélectionnez-les et cliquez sur { $icon } (Définir le lieu) dans la barre de sélection pour les placer.
+    }
+map-location-set =
+    { $n ->
+        [one] Lieu défini pour { $n } photo.
+       *[other] Lieu défini pour { $n } photos.
+    }
+map-location-removed =
+    { $n ->
+        [one] Lieu retiré de { $n } photo.
+       *[other] Lieu retiré de { $n } photos.
+    }
+map-nothing-online = Rien trouvé en ligne.
+map-set-location = Définir le lieu
+map-sub-scope =
+    { $n } sur { $total ->
+        [one] { $total } photo
+       *[other] { $total } photos
+    } avec un lieu
+map-sub-indexing = { $n } avec un lieu · recherche des positions GPS…
+map-sub-all =
+    { $n ->
+        [one] { $n } photo avec un lieu
+       *[other] { $n } photos avec un lieu
+    }
+map-title-scope = Lieux · { $title }
+map-show-whole = Afficher toute la bibliothèque
+map-online = Carte en ligne
+map-builtin = Carte intégrée
+map-online-tip = OpenStreetMap est affiché. Cliquez pour utiliser seulement la carte intégrée (aucune connexion à Internet).
+map-builtin-tip = La carte du monde intégrée est affichée. Cliquez pour afficher les cartes détaillées d'OpenStreetMap (télécharge des images de carte depuis Internet).
+map-show-all = Tout afficher
+map-show-all-hint = Zoomer pour montrer toutes les photos sur la carte
+map-search-online-hint = Rechercher un lieu ou une adresse
+map-search-builtin-hint = Rechercher une ville ou des coordonnées
+map-no-city-builtin = Aucune ville de ce nom dans la liste intégrée.
+map-no-city-hint = Aucune ville de ce nom. Essayez des coordonnées, comme 44,84, -0,58.
+map-cities = VILLES
+map-cities-builtin = VILLES (LISTE INTÉGRÉE)
+map-searching = Recherche en ligne…
+map-places-osm = LIEUX ET ADRESSES (OPENSTREETMAP)
+map-search-addresses = Rechercher des adresses en ligne   (Entrée)
+map-where = Où ont-elles été prises ?
+map-where-help = Recherchez un lieu ci-dessus, ou cliquez sur la carte pour poser une épingle. Vous pourrez ensuite la faire glisser.
+map-name-hint = Nom du lieu (facultatif)
+map-drag-pin = Faites glisser l'épingle pour l'ajuster.
+map-drag-pin-offline = Faites glisser l'épingle pour l'ajuster. Les cartes en ligne montrent les rues.
+map-set-n =
+    { $n ->
+        [one] Définir le lieu de { $n } photo
+       *[other] Définir le lieu de { $n } photos
+    }
+map-remove-location = Retirer le lieu
+map-remove-location-hint = Ces photos n'auront aucun lieu, même si l'appareil en avait enregistré un (les fichiers ne sont pas modifiés)
+map-close-hint = Fermer (Échap)
+map-change-location = Modifier le lieu…
+map-select-in-library = Sélectionner dans la bibliothèque
+map-select-in-library-hint = Sélectionner ces photos dans la bibliothèque
+map-show-hint = Afficher sur la carte
+map-preparing = Préparation de la carte…
+map-hover = { $pictures } · { $place }
+map-credit-builtin = Carte intégrée : Natural Earth · GeoNames
+map-problem = { $problem }. La carte intégrée est affichée.
+map-empty-indexing = Recherche des positions GPS de vos photos…
+map-empty =
+    Aucune photo avec un lieu pour l'instant.
+
+    Les photos des téléphones et des appareils GPS apparaissent ici toutes seules. Pour placer les autres, sélectionnez-les et cliquez sur { $icon } (Définir le lieu) dans la barre de sélection.
