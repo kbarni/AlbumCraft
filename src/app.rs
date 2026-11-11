@@ -549,6 +549,7 @@ impl App {
         if let Ok(v) = std::env::var("ALBUMCRAFT_THEME") {
             store.theme = v;
         }
+        crate::i18n::set_language(&store.language);
         if first_run
             && let Some(p) = dirs::picture_dir() {
                 store.roots.push(p.to_string_lossy().to_string());

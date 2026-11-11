@@ -142,11 +142,11 @@ impl Mode {
             Mode::Dark => "dark",
         }
     }
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Mode::System => "Same as system",
-            Mode::Light => "Light",
-            Mode::Dark => "Dark",
+            Mode::System => crate::i18n::tr!("theme-system"),
+            Mode::Light => crate::i18n::tr!("theme-light"),
+            Mode::Dark => crate::i18n::tr!("theme-dark"),
         }
     }
     pub fn next(self) -> Mode {
@@ -319,6 +319,22 @@ mod glyph_tests {
                         }
                     }
                     prev = c;
+                }
+            }
+        }
+        // the translations (i18n/<language>/albumcraft.ftl): every character but in # comments
+        let i18n = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("i18n");
+        for entry in std::fs::read_dir(&i18n).unwrap().flatten() {
+            let path = entry.path().join("albumcraft.ftl");
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let name = format!("i18n/{}", entry.file_name().to_string_lossy());
+            for line in text.lines().filter(|l| !l.trim_start().starts_with('#')) {
+                for c in line.chars().filter(|c| !c.is_ascii() && !c.is_whitespace()) {
+                    let emoji_ok = !c.is_emoji_char() || text_fonts[0].glyph_id(c).0 != 0;
+                    let found = (text_fonts.iter().any(|f| f.glyph_id(c).0 != 0) && emoji_ok) || icons.glyph_id(c).0 != 0;
+                    if !found && !missing.iter().any(|(_, m)| *m == c) {
+                        missing.push((name.clone(), c));
+                    }
                 }
             }
         }

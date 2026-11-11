@@ -1,0 +1,5 @@
+# Fluent translations of the interface (see src/i18n.rs): i18n/<language>/albumcraft.ftl
+fallback_language = "en"
+
+[fluent]
+assets_dir = "i18n"

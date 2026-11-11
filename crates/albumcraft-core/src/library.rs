@@ -205,6 +205,8 @@ pub struct Store {
     pub print: crate::print::PrintSettings,
     /// Appearance: "system", "light" or "dark".
     pub theme: String,
+    /// The interface's language, as a code ("en", "fr"…); empty = the system's.
+    pub language: String,
     /// Slideshow (and movie) settings.
     pub slideshow: crate::slides::SlideSettings,
     /// Online maps (OpenStreetMap tiles and place search): None until the user has been asked.
@@ -278,6 +280,7 @@ impl Default for Store {
             dont_ask_end_2up: false,
             print: Default::default(),
             theme: "system".into(),
+            language: String::new(),
             slideshow: Default::default(),
             online_maps: None,
             export_location: true,

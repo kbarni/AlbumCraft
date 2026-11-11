@@ -3,6 +3,7 @@
 //! have a place elsewhere (theme button, slideshow bar, Export dialog) change the same saved value.
 
 use crate::app::*;
+use crate::i18n::{self, tr};
 use crate::icons;
 use crate::library::{BarStyle, Cache, fmt_bytes};
 use crate::theme::Mode;
@@ -33,16 +34,16 @@ impl SettingsSection {
         SettingsSection::Ai,
     ];
 
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            SettingsSection::Interface => "Interface",
-            SettingsSection::Folders => "Folders",
-            SettingsSection::Editing => "Editing",
-            SettingsSection::Slideshow => "Slideshow",
-            SettingsSection::Export => "Export",
-            SettingsSection::Maps => "Maps",
-            SettingsSection::Storage => "Storage",
-            SettingsSection::Ai => "AI features",
+            SettingsSection::Interface => tr!("settings-section-interface"),
+            SettingsSection::Folders => tr!("settings-section-folders"),
+            SettingsSection::Editing => tr!("settings-section-editing"),
+            SettingsSection::Slideshow => tr!("settings-section-slideshow"),
+            SettingsSection::Export => tr!("settings-section-export"),
+            SettingsSection::Maps => tr!("settings-section-maps"),
+            SettingsSection::Storage => tr!("settings-section-storage"),
+            SettingsSection::Ai => tr!("settings-section-ai"),
         }
     }
 
@@ -86,7 +87,7 @@ impl App {
         #[allow(deprecated)]
         let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
             ui.set_width(size.x);
-            ui.heading("Settings");
+            ui.heading(tr!("settings-title"));
             ui.add_space(6.0);
             // a fixed size: inside a modal, separators and scroll areas would grow without end
             ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Min), |ui| {
@@ -123,9 +124,9 @@ impl App {
             });
             ui.separator();
             ui.horizontal(|ui| {
-                note(ui, "Changes are saved as you make them.");
+                note(ui, &tr!("settings-saved-note"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(tr!("settings-close")).clicked() {
                         close = true;
                     }
                 });
@@ -138,13 +139,26 @@ impl App {
     }
 
     fn settings_interface(&mut self, ui: &mut egui::Ui) {
-        group(ui, "Language");
-        ui.add_enabled_ui(false, |ui| {
-            egui::ComboBox::from_id_salt("language").selected_text("English").show_ui(ui, |_| {});
+        group(ui, &tr!("settings-language"));
+        let languages = i18n::available();
+        let name_of = |code: &str| languages.iter().find(|l| l.0 == code).map(|l| l.1.clone());
+        let system = tr!("settings-language-system", language = i18n::system_language().and_then(|c| name_of(&c)).unwrap_or_else(|| name_of("en").unwrap_or_default()));
+        let shown = name_of(&self.store.language).unwrap_or_else(|| system.clone());
+        let mut chosen = self.store.language.clone();
+        egui::ComboBox::from_id_salt("language").selected_text(shown).show_ui(ui, |ui| {
+            ui.selectable_value(&mut chosen, String::new(), system);
+            for (code, name) in &languages {
+                ui.selectable_value(&mut chosen, code.clone(), name);
+            }
         });
-        note(ui, "Only English for now.");
+        if chosen != self.store.language {
+            i18n::set_language(&chosen);
+            self.store.language = chosen;
+            self.dirty = true;
+        }
+        note(ui, &tr!("settings-language-note"));
 
-        group(ui, "Theme");
+        group(ui, &tr!("settings-theme"));
         let mut mode = Mode::from_name(&self.store.theme);
         let before = mode;
         for m in [Mode::System, Mode::Light, Mode::Dark] {
