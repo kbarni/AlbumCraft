@@ -126,7 +126,7 @@ impl App {
             ui.horizontal(|ui| {
                 note(ui, &tr!("settings-saved-note"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr!("settings-close")).clicked() {
+                    if ui.button(tr!("button-close")).clicked() {
                         close = true;
                     }
                 });
@@ -204,14 +204,14 @@ impl App {
             let path = self.store.roots.remove(i);
             self.dirty = true;
             self.rescan();
-            self.undoable(format!("Removed {path} from the library. The pictures and your notes on them are untouched."), Undo::Root { at: i, path });
+            self.undoable(tr!("removed-root", path = path.as_str()), Undo::Root { at: i, path });
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.button(format!("{} Add folder…", icons::ADD)).clicked() {
+            if ui.button(format!("{} {}", icons::ADD, tr!("add-folder"))).clicked() {
                 self.add_library_folder();
             }
-            if ui.button(format!("{} Scan again", icons::REFRESH)).on_hover_text("Look for new, changed and removed pictures now").clicked() {
+            if ui.button(format!("{} {}", icons::REFRESH, tr!("scan-again"))).on_hover_text("Look for new, changed and removed pictures now").clicked() {
                 self.rescan();
             }
         });

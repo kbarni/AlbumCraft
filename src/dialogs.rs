@@ -2,6 +2,7 @@
 //! presses the main button of the simple ones) and the notices (`App.notices`).
 
 use crate::app::*;
+use crate::i18n::tr;
 use crate::icons;
 use crate::library::Album;
 use eframe::egui::{self, Color32};
@@ -20,18 +21,18 @@ impl App {
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let title = match &dialog {
             Dialog::Info { title, .. } => title.clone(),
-            Dialog::NewAlbum { .. } => "New album".into(),
-            Dialog::RenameAlbum { .. } => "Rename album".into(),
-            Dialog::Tag { .. } => "Tags and people".into(),
-            Dialog::Gallery { .. } => "Web gallery".into(),
-            Dialog::FolderNote { .. } => "Folder description".into(),
-            Dialog::FolderManager => "Library folders".into(),
-            Dialog::Movie { .. } => "Movie".into(),
-            Dialog::About => "About AlbumCraft".into(),
-            Dialog::OnlineMaps => "Maps".into(),
-            Dialog::PrintReview { .. } => "Review".into(),
-            Dialog::TrashRejects { .. } => "Move to the trash".into(),
-            Dialog::Settings { .. } => "Settings".into(),
+            Dialog::NewAlbum { .. } => tr!("dialog-new-album"),
+            Dialog::RenameAlbum { .. } => tr!("dialog-rename-album"),
+            Dialog::Tag { .. } => tr!("dialog-tags"),
+            Dialog::Gallery { .. } => tr!("dialog-gallery"),
+            Dialog::FolderNote { .. } => tr!("dialog-folder-note"),
+            Dialog::FolderManager => tr!("dialog-folder-manager"),
+            Dialog::Movie { .. } => tr!("dialog-movie"),
+            Dialog::About => tr!("dialog-about"),
+            Dialog::OnlineMaps => tr!("dialog-online-maps"),
+            Dialog::PrintReview { .. } => tr!("dialog-print-review"),
+            Dialog::TrashRejects { .. } => tr!("dialog-trash"),
+            Dialog::Settings { .. } => tr!("settings-title"),
         };
         let targets = self.targets();
         #[allow(deprecated)]
@@ -44,19 +45,19 @@ impl App {
                 Dialog::Info { text, .. } => {
                     ui.label(text.as_str());
                     ui.add_space(8.0);
-                    if ui.button("OK").clicked() || enter {
+                    if ui.button(tr!("button-ok")).clicked() || enter {
                         close = true;
                     }
                 }
                 Dialog::NewAlbum { name } => {
-                    ui.label("Album name:");
+                    ui.label(tr!("new-album-name"));
                     let r = ui.text_edit_singleline(name);
                     r.request_focus();
                     if !targets.is_empty() {
-                        ui.label(format!("The {} selected picture(s) will be added.", targets.len()));
+                        ui.label(tr!("new-album-adds", n = targets.len()));
                     }
                     ui.horizontal(|ui| {
-                        if (ui.button("Create").clicked() || enter) && !name.trim().is_empty() {
+                        if (ui.button(tr!("new-album-create")).clicked() || enter) && !name.trim().is_empty() {
                             self.store.albums.push(Album { name: name.trim().to_string(), keys: vec![] });
                             let idx = self.store.albums.len() - 1;
                             self.dirty = true;
@@ -66,7 +67,7 @@ impl App {
                             self.source = Source::Album(idx);
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
@@ -74,30 +75,30 @@ impl App {
                 Dialog::RenameAlbum { idx, name } => {
                     ui.text_edit_singleline(name);
                     ui.horizontal(|ui| {
-                        if (ui.button("Rename").clicked() || enter) && !name.trim().is_empty() {
+                        if (ui.button(tr!("rename-album-rename")).clicked() || enter) && !name.trim().is_empty() {
                             if let Some(a) = self.store.albums.get_mut(*idx) {
                                 a.name = name.trim().to_string();
                                 self.dirty = true;
                             }
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Dialog::Tag { tags, people } => {
-                    ui.label(format!("Add to the {} selected picture(s). Separate words with commas.", targets.len()));
+                    ui.label(tr!("tags-intro", n = targets.len()));
                     egui::Grid::new("tagdlg").num_columns(2).show(ui, |ui| {
-                        ui.label("Tags:");
+                        ui.label(tr!("tags-tags"));
                         ui.text_edit_singleline(tags);
                         ui.end_row();
-                        ui.label("People:");
+                        ui.label(tr!("tags-people"));
                         ui.text_edit_singleline(people);
                         ui.end_row();
                     });
                     ui.horizontal(|ui| {
-                        if ui.button("Add").clicked() || enter {
+                        if ui.button(tr!("tags-add")).clicked() || enter {
                             let split = |s: &str| -> Vec<String> {
                                 s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect()
                             };
@@ -117,42 +118,42 @@ impl App {
                             }
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Dialog::Gallery { title, style, size, captions } => {
-                    ui.label(format!("A web page with {} picture(s) and your edits, viewable in any browser or uploadable to a web host.", targets.len()));
+                    ui.label(tr!("gallery-intro", n = targets.len()));
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label("Title:");
+                        ui.label(tr!("gallery-title"));
                         ui.text_edit_singleline(title);
                     });
-                    ui.label("Style:");
+                    ui.label(tr!("gallery-style"));
                     for st in crate::gallery::Style::ALL {
                         ui.radio_value(style, st, st.label());
                     }
-                    ui.label("Picture size:");
-                    ui.radio_value(size, 1280, "Medium (1280 pixels, small files)");
-                    ui.radio_value(size, 2048, "Large (2048 pixels, for big screens)");
-                    ui.checkbox(captions, "Show captions");
+                    ui.label(tr!("gallery-size"));
+                    ui.radio_value(size, 1280, tr!("gallery-size-medium"));
+                    ui.radio_value(size, 2048, tr!("gallery-size-large"));
+                    ui.checkbox(captions, tr!("gallery-captions"));
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(!targets.is_empty(), egui::Button::new("Choose folder and make…")).clicked() {
+                        if ui.add_enabled(!targets.is_empty(), egui::Button::new(tr!("gallery-make"))).clicked() {
                             let opts = crate::gallery::Options { title: title.clone(), style: *style, size: *size, captions: *captions };
                             self.make_gallery(targets.clone(), opts);
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Dialog::FolderNote { path, text } => {
-                    ui.label("A short description shown under the folder name:");
+                    ui.label(tr!("folder-note-intro"));
                     ui.text_edit_multiline(text);
                     ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
+                        if ui.button(tr!("button-save")).clicked() {
                             if text.trim().is_empty() {
                                 self.store.folder_notes.remove(path.as_str());
                             } else {
@@ -161,23 +162,23 @@ impl App {
                             self.dirty = true;
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Dialog::FolderManager => {
-                    ui.label("The library shows the pictures in these folders and their subfolders, where they are: nothing is copied or moved.");
-                    ui.weak("To copy pictures from a memory card or a camera, use Import.");
+                    ui.label(tr!("folders-intro"));
+                    ui.weak(tr!("folders-import-hint"));
                     ui.add_space(4.0);
                     let mut remove = None;
                     if self.store.roots.is_empty() {
-                        ui.weak("(none yet — sample pictures are shown instead)");
+                        ui.weak(tr!("folders-none"));
                     }
                     for (i, r) in self.store.roots.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(format!("{} {r}", icons::FOLDER));
-                            if ui.small_button("Remove").clicked() {
+                            if ui.small_button(tr!("button-remove")).clicked() {
                                 remove = Some(i);
                             }
                         });
@@ -186,17 +187,17 @@ impl App {
                         let path = self.store.roots.remove(i);
                         self.dirty = true;
                         self.rescan();
-                        self.undoable(format!("Removed {path} from the library. The pictures and your notes on them are untouched."), Undo::Root { at: i, path });
+                        self.undoable(tr!("removed-root", path = path.as_str()), Undo::Root { at: i, path });
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button(format!("{} Add folder…", icons::ADD)).clicked() {
+                        if ui.button(format!("{} {}", icons::ADD, tr!("add-folder"))).clicked() {
                             self.add_library_folder();
                         }
-                        if ui.button(format!("{} Scan again", icons::REFRESH)).clicked() {
+                        if ui.button(format!("{} {}", icons::REFRESH, tr!("scan-again"))).clicked() {
                             self.rescan();
                         }
-                        if ui.button("Close").clicked() {
+                        if ui.button(tr!("button-close")).clicked() {
                             close = true;
                         }
                     });
@@ -205,68 +206,60 @@ impl App {
                     let list = if targets.len() > 1 { targets.clone() } else { self.visible_flat() };
                     let ffmpeg = *self.ffmpeg.get_or_insert_with(crate::movie::ffmpeg_available);
                     let st = self.store.slideshow.clone();
-                    ui.label(format!(
-                        "A video of {} picture(s) as in the slideshow: {} s each{}{}.",
-                        list.len(),
-                        st.interval.round(),
-                        if st.fade { ", crossfades" } else { "" },
-                        if st.motion { ", pan and zoom" } else { "" }
-                    ));
-                    ui.label(egui::RichText::new(format!("About {:.0} s long. Change the timing and effects in the slideshow's control bar or in Settings.", crate::movie::duration(list.len(), &st))).weak());
+                    let yes_no = |b: bool| if b { "yes" } else { "no" };
+                    ui.label(tr!("movie-intro", n = list.len(), seconds = st.interval.round(), fade = yes_no(st.fade), motion = yes_no(st.motion)));
+                    ui.label(egui::RichText::new(tr!("movie-length", seconds = crate::movie::duration(list.len(), &st).round())).weak());
                     ui.add_space(4.0);
                     ui.radio_value(hd, false, "720p (1280 × 720)");
                     ui.radio_value(hd, true, "1080p (1920 × 1080)");
                     let s = &mut self.store.slideshow;
                     ui.horizontal(|ui| {
                         if s.music.is_some() {
-                            if ui.checkbox(&mut s.music_on, "Music").changed() {
+                            if ui.checkbox(&mut s.music_on, tr!("movie-music")).changed() {
                                 self.dirty = true;
                             }
                             let name = s.music.as_deref().and_then(|m| std::path::Path::new(m).file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                             ui.label(egui::RichText::new(name).weak());
                         }
-                        if ui.button(if s.music.is_some() { "Other music…" } else { "Add music…" }).clicked() && crate::slideshow_view::pick_music(s) {
+                        if ui.button(if s.music.is_some() { tr!("movie-other-music") } else { tr!("movie-add-music") }).clicked() && crate::slideshow_view::pick_music(s) {
                             self.dirty = true;
                         }
                     });
                     if !ffmpeg {
                         ui.add_space(6.0);
-                        ui.label(egui::RichText::new("Making movies needs the free FFmpeg program, which wasn't found.").color(crate::theme::t().reject));
-                        ui.label("Install it from ffmpeg.org (or your system's package manager), then open this window again.");
+                        ui.label(egui::RichText::new(tr!("movie-no-ffmpeg")).color(crate::theme::t().reject));
+                        ui.label(tr!("movie-install-ffmpeg"));
                         ui.hyperlink_to("ffmpeg.org/download", "https://ffmpeg.org/download.html");
                     }
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(ffmpeg && !list.is_empty(), egui::Button::new("Choose file and make…")).clicked() {
+                        if ui.add_enabled(ffmpeg && !list.is_empty(), egui::Button::new(tr!("movie-make"))).clicked() {
                             let size = if *hd { (1920, 1080) } else { (1280, 720) };
                             self.make_movie(list.clone(), size);
                             close = true;
                         }
-                        if ui.button(format!("{} Preview as slideshow", icons::PLAY)).clicked() {
+                        if ui.button(format!("{} {}", icons::PLAY, tr!("movie-preview"))).clicked() {
                             let first = list.first().copied().unwrap_or(0);
                             self.start_slideshow(list.clone(), first);
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Dialog::TrashRejects { keys, bytes } => {
                     let n = keys.len();
-                    let what = if n == 1 { "the rejected picture".to_string() } else { format!("the {} rejected pictures", crate::app::fmt_count(n)) };
-                    ui.label(format!(
-                        "Move {what} ({}) to the trash?\n\nThe files are removed from their folders. You can get them back from the system's trash until it is emptied.",
-                        crate::library::fmt_bytes(*bytes)
-                    ));
+                    let question = tr!("trash-question", n = n, count = crate::app::fmt_count(n), size = crate::library::fmt_bytes(*bytes));
+                    ui.label(format!("{question}\n\n{}", tr!("trash-explain")));
                     ui.add_space(8.0);
                     // no Enter here: this one removes files
                     ui.horizontal(|ui| {
-                        if ui.button("Move to the trash").clicked() {
+                        if ui.button(tr!("trash-move")).clicked() {
                             let keys = std::mem::take(keys);
                             self.trash_files(keys);
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
@@ -293,50 +286,50 @@ impl App {
                     let before = *before_print;
                     ui.horizontal(|ui| {
                         if before && !bad.is_empty() {
-                            if ui.button("Remove These Pictures").clicked() {
+                            if ui.button(tr!("print-review-remove")).clicked() {
                                 close = true;
                                 self.print_remove_bad(&bad);
                             }
-                            if ui.button("Print Anyway").clicked() {
+                            if ui.button(tr!("print-review-print")).clicked() {
                                 close = true;
                                 self.start_print_job();
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(tr!("button-cancel")).clicked() {
                                 close = true;
                             }
-                        } else if ui.button("OK").clicked() {
+                        } else if ui.button(tr!("button-ok")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Dialog::About => {
                     ui.heading("AlbumCraft");
-                    ui.label("A desktop photo organizer: browse your picture folders, make albums, pick, reject and rate pictures, fix and touch up photos, and play slideshows.");
-                    ui.label("Edits never change your original files; they are applied when you look at or export a picture.");
+                    ui.label(tr!("about-text"));
+                    ui.label(tr!("about-edits"));
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Built-in map: Natural Earth (public domain). City list: GeoNames (CC BY 4.0). Online maps: © OpenStreetMap contributors (ODbL).").size(11.5).weak());
-                    if ui.button("OK").clicked() || enter {
+                    ui.label(egui::RichText::new(tr!("about-credits")).size(11.5).weak());
+                    if ui.button(tr!("button-ok")).clicked() || enter {
                         close = true;
                     }
                 }
                 Dialog::OnlineMaps => {
-                    ui.label(egui::RichText::new("Show detailed maps from the internet?").strong().size(15.0));
+                    ui.label(egui::RichText::new(tr!("online-maps-question")).strong().size(15.0));
                     ui.add_space(4.0);
-                    ui.label("AlbumCraft can show where your pictures were taken. With online maps, it downloads street maps from OpenStreetMap and can look up addresses when you set a location.");
+                    ui.label(tr!("online-maps-what"));
                     ui.add_space(4.0);
-                    ui.label("Your pictures and their locations are never sent. The map servers see your internet address, the areas you look at and the places you search for.");
+                    ui.label(tr!("online-maps-privacy"));
                     ui.add_space(4.0);
-                    ui.label("Without online maps, AlbumCraft uses its built-in world map and list of cities, and makes no internet connections.");
+                    ui.label(tr!("online-maps-offline"));
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("You can change this later on the map, or in Settings (main menu): Maps.").size(12.0).weak());
+                    ui.label(egui::RichText::new(tr!("online-maps-later")).size(12.0).weak());
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.add(egui::Button::new(egui::RichText::new("Use online maps").color(Color32::WHITE).strong()).fill(t().accent)).clicked() {
+                        if ui.add(egui::Button::new(egui::RichText::new(tr!("online-maps-use")).color(Color32::WHITE).strong()).fill(t().accent)).clicked() {
                             self.store.online_maps = Some(true);
                             self.dirty = true;
                             close = true;
                         }
-                        if ui.button("Built-in map only").clicked() {
+                        if ui.button(tr!("online-maps-builtin")).clicked() {
                             self.store.online_maps = Some(false);
                             self.dirty = true;
                             close = true;
@@ -374,8 +367,8 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(n.text.as_str()).color(Color32::WHITE));
                             let label = match &n.action {
-                                Some(NoticeAction::Undo(_)) => Some(format!("{} Undo", icons::UNDO)),
-                                Some(NoticeAction::Show(_)) => Some(format!("{} Show in folder", icons::FOLDER)),
+                                Some(NoticeAction::Undo(_)) => Some(format!("{} {}", icons::UNDO, tr!("notice-undo"))),
+                                Some(NoticeAction::Show(_)) => Some(format!("{} {}", icons::FOLDER, tr!("notice-show"))),
                                 None => None,
                             };
                             if let Some(label) = label
@@ -384,7 +377,7 @@ impl App {
                                 act = Some(i);
                             }
                             // short plain notes need no button: they are gone in a moment
-                            if (n.life.is_none() || n.action.is_some()) && ui.small_button(icons::CLOSE).on_hover_text("Close this message").clicked() {
+                            if (n.life.is_none() || n.action.is_some()) && ui.small_button(icons::CLOSE).on_hover_text(tr!("notice-close")).clicked() {
                                 close = Some(i);
                             }
                         });
@@ -401,7 +394,7 @@ impl App {
                 Some(NoticeAction::Undo(undo)) => self.undo_action(undo),
                 Some(NoticeAction::Show(path)) => {
                     if let Err(e) = crate::library_view::reveal_in_file_manager(&path) {
-                        self.toast(format!("Could not open the file manager: {e}"));
+                        self.toast(tr!("notice-no-file-manager", error = e.to_string()));
                     }
                 }
                 None => {}
