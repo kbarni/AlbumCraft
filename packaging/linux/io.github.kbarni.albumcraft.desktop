@@ -2,7 +2,9 @@
 Type=Application
 Name=AlbumCraft
 GenericName=Photo Organizer
+GenericName[fr]=Organiseur de photos
 Comment=Organize, edit and share your pictures
+Comment[fr]=Organisez, retouchez et partagez vos photos
 Exec=albumcraft
 TryExec=albumcraft
 Icon=io.github.kbarni.albumcraft
@@ -11,3 +13,4 @@ StartupNotify=true
 StartupWMClass=io.github.kbarni.albumcraft
 Categories=Graphics;2DGraphics;RasterGraphics;Photography;Viewer;
 Keywords=photo;picture;album;raw;slideshow;
+Keywords[fr]=photo;image;album;raw;diaporama;
