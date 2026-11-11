@@ -1040,3 +1040,53 @@ map-empty =
     Aucune photo avec un lieu pour l'instant.
 
     Les photos des téléphones et des appareils GPS apparaissent ici toutes seules. Pour placer les autres, sélectionnez-les et cliquez sur { $icon } (Définir le lieu) dans la barre de sélection.
+
+## Import (src/import_view.rs)
+
+import-subtitle = Copier des photos dans votre bibliothèque
+import-from = Depuis
+import-choose = Choisir…
+import-refresh-hint = Chercher à nouveau les cartes et les disques, et relire le dossier
+import-hide-dups = Masquer les { $n } déjà dans la bibliothèque
+import-dups-hint = Photos au même contenu qu'une photo de votre bibliothèque, même sous un autre nom
+import-uncheck-all = Tout décocher
+import-check-all = Tout cocher
+import-copy-into = Copier dans
+import-another-folder = Un autre dossier…
+import-name-hint = Nom du nouveau dossier, p. ex. Été en Espagne
+import-checked = { $chosen } sur { $shown } cochées. Rien n'est écrasé ; les originaux ne sont pas modifiés.
+import-go =
+    { $n ->
+        [one] Importer { $n } photo
+       *[other] Importer { $n } photos
+    }
+import-dest-dialog = Placer le nouveau dossier dans…
+import-from-dialog = Importer des photos depuis…
+import-pick-dest = Choisissez où placer le nouveau dossier.
+import-running = Une importation est encore en cours : attendez qu'elle se termine (voir la barre d'état).
+import-started =
+    { $n ->
+        [one] Importation de { $n } photo dans { $path }…
+       *[other] Importation de { $n } photos dans { $path }…
+    }
+import-listing-in = Recherche des photos dans { $from }…
+import-none-in = Aucune photo dans { $path }.
+import-choose-another = Choisir un autre dossier…
+import-heading = Importer depuis une carte mémoire, un appareil photo ou un dossier
+import-copy-note = Les photos sont copiées dans un nouveau dossier de votre bibliothèque. Les originaux ne sont pas modifiés.
+import-no-cards = Aucune carte mémoire ni aucun appareil photo trouvé. Branchez-en un et cliquez sur { $icon } ci-dessus.
+import-instead = Pour afficher des photos là où elles sont déjà, sans les copier :
+import-add-instead = ajoutez plutôt un dossier à la bibliothèque
+import-all-dups =
+    { $n ->
+        [one] La photo est déjà dans votre bibliothèque.
+       *[other] Les { $n } photos sont toutes déjà dans votre bibliothèque.
+    }
+import-show-anyway = Les afficher quand même
+import-truncated = Seules les { $n } premières photos sont listées.
+import-group-hint = Cocher ou décocher tout ce groupe
+import-in-library = Dans la bibliothèque
+import-click-preview = Cliquez sur une photo pour la voir ici
+import-this = Importer cette photo
+import-this-hint = Espace
+import-already = déjà dans votre bibliothèque

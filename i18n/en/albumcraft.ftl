@@ -1043,3 +1043,53 @@ map-empty =
     No pictures with a location yet.
 
     Pictures from phones and GPS cameras show up here by themselves. To place others, select them and click { $icon } (Set location) in the selection bar.
+
+## Import (src/import_view.rs)
+
+import-subtitle = Copy pictures into your library
+import-from = From
+import-choose = Choose…
+import-refresh-hint = Look for cards and drives again, and read the folder again
+import-hide-dups = Hide the { $n } already in the library
+import-dups-hint = Pictures with the same content as one in your library, even under another name
+import-uncheck-all = Uncheck all
+import-check-all = Check all
+import-copy-into = Copy into
+import-another-folder = Another folder…
+import-name-hint = New folder name, e.g. Summer in Spain
+import-checked = { $chosen } of { $shown } checked. Nothing is overwritten; the originals are not changed.
+import-go =
+    { $n ->
+        [one] Import { $n } picture
+       *[other] Import { $n } pictures
+    }
+import-dest-dialog = Put the new folder in…
+import-from-dialog = Import pictures from…
+import-pick-dest = Choose where to put the new folder.
+import-running = An import is still running: wait for it to finish (see the status bar).
+import-started =
+    { $n ->
+        [one] Importing { $n } picture into { $path }…
+       *[other] Importing { $n } pictures into { $path }…
+    }
+import-listing-in = Looking for pictures in { $from }…
+import-none-in = No pictures in { $path }.
+import-choose-another = Choose another folder…
+import-heading = Import from a memory card, a camera or a folder
+import-copy-note = The pictures are copied into a new folder of your library. The originals are not changed.
+import-no-cards = No memory card or camera found. Plug one in and click { $icon } above.
+import-instead = To show pictures where they already are, without copying them:
+import-add-instead = add a folder to the library instead
+import-all-dups =
+    { $n ->
+        [one] The picture is already in your library.
+       *[other] All { $n } pictures are already in your library.
+    }
+import-show-anyway = Show them anyway
+import-truncated = Only the first { $n } pictures are listed.
+import-group-hint = Check or uncheck this whole group
+import-in-library = In the library
+import-click-preview = Click a picture to see it here
+import-this = Import this picture
+import-this-hint = Space
+import-already = already in your library
