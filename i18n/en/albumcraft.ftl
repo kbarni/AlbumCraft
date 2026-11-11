@@ -285,3 +285,165 @@ export-credit-note = Written into each copy. The signature, creator and copyrigh
 
 export-left-out = Left out: click to export it too
 export-leave-out = Click to leave this picture out
+
+## Library: top bar, sidebar, grid (src/shell.rs)
+
+nav-all = All pictures
+nav-picks = Picks
+nav-places = Places
+nav-places-hint = Your pictures on a map
+nav-albums = Albums
+nav-people = People
+nav-folders = Folders
+people-hint = Tag people from the selection bar.
+scanning = Looking for pictures…
+
+bar-import = Import
+bar-import-hint = Copy pictures from a memory card, a camera or a folder into your library
+bar-folders = Folders
+bar-folders-hint = The folders shown in the library, where they are (nothing is copied)
+bar-appearance = Appearance: { $mode } (click to change)
+bar-size-hint = Picture size
+bar-picks-hint = Show only picks
+bar-hide-rejects = Hide rejected pictures
+
+sort-name = File name
+sort-taken = Date taken
+sort-rating = Rating
+sort-hint = Order of the pictures: { $order }
+
+filter-any = Any
+filter-any-no-rejects = Any, no rejects
+filter-min = { $n }+
+filter-min-no-rejects = { $n }+, no rejects
+filter-hint = Filter by rating; hide rejected pictures
+filter-any-rating = Any rating
+filter-or-more = { $rating } or more
+
+album-rename = Rename…
+album-delete = Delete album
+album-show-map = Show on map
+album-slideshow = Play as slideshow
+album-deleted = Deleted the album "{ $name }". Its pictures are untouched.
+
+empty-scanning = Looking for pictures…
+empty-no-match = Nothing matches your search or filter.
+empty-album = This album is empty. Select pictures and add them from the selection bar.
+empty-person = Nobody tagged yet.
+empty-picks = No picks yet. Hover a picture and click its flag, or press P.
+empty-unreachable = No pictures were found in your library's folders. If they are on a disk that is not connected, connect it and scan again.
+empty-library = Your library is empty. Import pictures, or add a folder you already have.
+empty-folders-hint = The folders shown in the library
+empty-import = Import pictures
+empty-import-hint = Copy pictures from a memory card, a camera or a folder
+empty-add = Add a folder
+empty-add-hint = Show the pictures of a folder where they are, without copying them
+
+folder-play-hint = Play this folder as a slideshow
+folder-edit-hint = Edit description
+folder-map-hint = Show this folder on the map
+tile-pick-hint = Pick (P)
+tile-reject-hint = Reject (X)
+
+## Library: menus, bars, tray (src/library_view.rs)
+
+rating-none = No rating
+rating-stars = { $n ->
+    [one] { $n } star
+   *[other] { $n } stars
+}
+flag-pick = Pick
+flag-unpick = Unpick
+flag-reject = Reject
+flag-unreject = Unreject
+flag-rating = Rating
+album-new = New album…
+menu-copy-edits = Copy edits
+menu-paste-edits = Paste edits
+menu-paste-n = { $n ->
+    [one] Paste { $n } edit
+   *[other] Paste { $n } edits
+}
+copy-edits-select-one = Select one picture to copy its edits.
+menu-import = Import pictures…
+menu-add-folder = Add folder to library…
+menu-folders = Library folders…
+menu-scan = Scan folders again
+menu-select-all = Select all
+menu-select-none = Select none
+menu-rotate-left = Rotate left
+menu-rotate-right = Rotate right
+menu-trash-rejects = Move rejected pictures to the trash…
+menu-trash-rejects-hint = Remove the files of the rejected pictures from their folders, after a confirmation
+menu-contact-sheet = Contact sheet…
+menu-contact-sheet-hint = Pages of small pictures with a title and their file names, to print or save as PDF
+menu-undo-edits = Undo all edits
+menu-settings = Settings…
+menu-about = About AlbumCraft…
+menu-exit = Exit
+edits-removed = { $n ->
+    [one] Removed the edits of { $n } picture.
+   *[other] Removed the edits of { $n } pictures.
+}
+
+status-library = Library: { $folders ->
+    [one] { $folders } folder
+   *[other] { $folders } folders
+}, { $pictures ->
+    [one] { $pictures } picture
+   *[other] { $pictures } pictures
+}, { $size } on disk
+status-importing = Importing { $done } of { $total }…
+status-stop = Stop
+status-stop-hint = Stop after the current picture (the ones copied stay)
+task-running = { $label }…
+task-stopping = { $label }: stopping…
+task-cancel-hint = Stop after the current picture
+status-samples = Showing sample pictures. Use Import or Folders to bring in your own.
+
+selected-count = { $n ->
+    [one] { $n } picture
+   *[other] { $count } pictures
+}
+# $n only matters in other languages (agreement of "selected")
+selected-all = { $n ->
+    [one] { $pictures } selected
+   *[other] { $pictures } selected
+}
+selected-set = { $name } · { $pictures }
+fallback-folder = Folder
+fallback-album = Album
+tray-nothing = Nothing selected
+tray-click = Click pictures to select them
+
+output-web = Web page
+output-web-tip = Make a web gallery of these pictures
+output-mail = Email
+output-mail-tip = Small copies, attached to a new message in your mail program
+output-print = Print
+output-print-tip = Print these pictures (Ctrl+P)
+output-export = Export
+output-export-tip = Save edited copies to a folder
+output-collage = Collage
+output-collage-tip = Make a collage or a contact sheet
+output-movie = Movie
+output-movie-tip = Make a movie
+
+bar-clear-hint = Clear the selection (Esc)
+bar-pick-hint = Pick / unpick (P)
+bar-reject-hint = Reject / unreject (X)
+bar-rotate-left = Rotate left (Ctrl+[)
+bar-rotate-right = Rotate right (Ctrl+])
+bar-tags = Tags and people
+bar-location = Set location: where these pictures were taken, on a map
+bar-to-album = To album
+bar-clear = Clear
+
+ctx-open = Open in editor
+ctx-slideshow = View slideshow from here
+ctx-add-to-album = Add to album
+ctx-remove-from-album = Remove from album
+ctx-tags = Tags and people…
+ctx-location = Set location…
+ctx-export = Export…
+ctx-show-file = Show in file manager

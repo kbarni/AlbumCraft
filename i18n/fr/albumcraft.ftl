@@ -283,3 +283,164 @@ export-credit-note = Écrits dans chaque copie. La signature, l'auteur et le cop
 
 export-left-out = Exclue : cliquez pour l'exporter aussi
 export-leave-out = Cliquez pour exclure cette photo
+
+## Library: top bar, sidebar, grid (src/shell.rs)
+
+nav-all = Toutes les photos
+nav-picks = Choisies
+nav-places = Lieux
+nav-places-hint = Vos photos sur une carte
+nav-albums = Albums
+nav-people = Personnes
+nav-folders = Dossiers
+people-hint = Indiquez les personnes depuis la barre de sélection.
+scanning = Recherche des photos…
+
+bar-import = Importer
+bar-import-hint = Copier des photos d'une carte mémoire, d'un appareil photo ou d'un dossier dans votre bibliothèque
+bar-folders = Dossiers
+bar-folders-hint = Les dossiers affichés dans la bibliothèque, là où ils sont (rien n'est copié)
+bar-appearance = Apparence : { $mode } (cliquez pour changer)
+bar-size-hint = Taille des photos
+bar-picks-hint = Afficher seulement les photos choisies
+bar-hide-rejects = Masquer les photos rejetées
+
+sort-name = Nom du fichier
+sort-taken = Date de prise de vue
+sort-rating = Note
+sort-hint = Ordre des photos : { $order }
+
+filter-any = Toutes
+filter-any-no-rejects = Toutes, sans les rejetées
+filter-min = { $n }+
+filter-min-no-rejects = { $n }+, sans les rejetées
+filter-hint = Filtrer par note ; masquer les photos rejetées
+filter-any-rating = Toutes les notes
+filter-or-more = { $rating } ou plus
+
+album-rename = Renommer…
+album-delete = Supprimer l'album
+album-show-map = Afficher sur la carte
+album-slideshow = Lire en diaporama
+album-deleted = L'album « { $name } » a été supprimé. Ses photos sont intactes.
+
+empty-scanning = Recherche des photos…
+empty-no-match = Aucune photo ne correspond à votre recherche ou à votre filtre.
+empty-album = Cet album est vide. Sélectionnez des photos et ajoutez-les depuis la barre de sélection.
+empty-person = Personne n'est encore indiqué.
+empty-picks = Aucune photo choisie pour l'instant. Survolez une photo et cliquez sur son drapeau, ou appuyez sur P.
+empty-unreachable = Aucune photo n'a été trouvée dans les dossiers de votre bibliothèque. Si elles sont sur un disque non connecté, connectez-le et analysez à nouveau.
+empty-library = Votre bibliothèque est vide. Importez des photos, ou ajoutez un dossier que vous avez déjà.
+empty-folders-hint = Les dossiers affichés dans la bibliothèque
+empty-import = Importer des photos
+empty-import-hint = Copier des photos d'une carte mémoire, d'un appareil photo ou d'un dossier
+empty-add = Ajouter un dossier
+empty-add-hint = Afficher les photos d'un dossier là où elles sont, sans les copier
+
+folder-play-hint = Lire ce dossier en diaporama
+folder-edit-hint = Modifier la description
+folder-map-hint = Afficher ce dossier sur la carte
+tile-pick-hint = Choisir (P)
+tile-reject-hint = Rejeter (X)
+
+## Library: menus, bars, tray (src/library_view.rs)
+
+rating-none = Aucune note
+rating-stars = { $n ->
+    [one] { $n } étoile
+   *[other] { $n } étoiles
+}
+flag-pick = Choisir
+flag-unpick = Ne plus choisir
+flag-reject = Rejeter
+flag-unreject = Ne plus rejeter
+flag-rating = Note
+album-new = Nouvel album…
+menu-copy-edits = Copier les retouches
+menu-paste-edits = Coller les retouches
+menu-paste-n = { $n ->
+    [one] Coller { $n } retouche
+   *[other] Coller { $n } retouches
+}
+copy-edits-select-one = Sélectionnez une seule photo pour copier ses retouches.
+menu-import = Importer des photos…
+menu-add-folder = Ajouter un dossier à la bibliothèque…
+menu-folders = Dossiers de la bibliothèque…
+menu-scan = Analyser à nouveau les dossiers
+menu-select-all = Tout sélectionner
+menu-select-none = Ne rien sélectionner
+menu-rotate-left = Pivoter à gauche
+menu-rotate-right = Pivoter à droite
+menu-trash-rejects = Mettre les photos rejetées à la corbeille…
+menu-trash-rejects-hint = Retirer de leurs dossiers les fichiers des photos rejetées, après confirmation
+menu-contact-sheet = Planche contact…
+menu-contact-sheet-hint = Des pages de petites photos avec un titre et leurs noms de fichier, à imprimer ou à enregistrer en PDF
+menu-undo-edits = Annuler toutes les retouches
+menu-settings = Paramètres…
+menu-about = À propos d'AlbumCraft…
+menu-exit = Quitter
+edits-removed = { $n ->
+    [one] Les retouches de { $n } photo ont été retirées.
+   *[other] Les retouches de { $n } photos ont été retirées.
+}
+
+status-library = Bibliothèque : { $folders ->
+    [one] { $folders } dossier
+   *[other] { $folders } dossiers
+}, { $pictures ->
+    [one] { $pictures } photo
+   *[other] { $pictures } photos
+}, { $size } sur le disque
+status-importing = Importation de { $done } sur { $total }…
+status-stop = Arrêter
+status-stop-hint = Arrêter après la photo en cours (celles déjà copiées restent)
+task-running = { $label }…
+task-stopping = { $label } : arrêt en cours…
+task-cancel-hint = Arrêter après la photo en cours
+status-samples = Photos d'exemple affichées. Utilisez Importer ou Dossiers pour ajouter les vôtres.
+
+selected-count = { $n ->
+    [one] { $n } photo
+   *[other] { $count } photos
+}
+selected-all = { $n ->
+    [one] { $pictures } sélectionnée
+   *[other] { $pictures } sélectionnées
+}
+selected-set = { $name } · { $pictures }
+fallback-folder = Dossier
+fallback-album = Album
+tray-nothing = Aucune sélection
+tray-click = Cliquez sur des photos pour les sélectionner
+
+output-web = Page web
+output-web-tip = Créer une galerie web avec ces photos
+output-mail = E-mail
+output-mail-tip = De petites copies, jointes à un nouveau message dans votre logiciel de messagerie
+output-print = Imprimer
+output-print-tip = Imprimer ces photos (Ctrl+P)
+output-export = Exporter
+output-export-tip = Enregistrer des copies retouchées dans un dossier
+output-collage = Collage
+output-collage-tip = Créer un collage ou une planche contact
+output-movie = Film
+output-movie-tip = Créer un film
+
+bar-clear-hint = Effacer la sélection (Échap)
+bar-pick-hint = Choisir / ne plus choisir (P)
+bar-reject-hint = Rejeter / ne plus rejeter (X)
+bar-rotate-left = Pivoter à gauche (Ctrl+[)
+bar-rotate-right = Pivoter à droite (Ctrl+])
+bar-tags = Mots-clés et personnes
+bar-location = Définir le lieu : où ces photos ont été prises, sur une carte
+bar-to-album = Vers un album
+bar-clear = Effacer
+
+ctx-open = Ouvrir dans l'éditeur
+ctx-slideshow = Lire le diaporama à partir d'ici
+ctx-add-to-album = Ajouter à un album
+ctx-remove-from-album = Retirer de l'album
+ctx-tags = Mots-clés et personnes…
+ctx-location = Définir le lieu…
+ctx-export = Exporter…
+ctx-show-file = Afficher dans le gestionnaire de fichiers
