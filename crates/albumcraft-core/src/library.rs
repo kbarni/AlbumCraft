@@ -121,15 +121,16 @@ pub enum Sort {
     Rating,
 }
 
-/// When the selection bar's buttons show their names.
+/// The bar at the bottom of the library.
 #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum BarLabels {
-    /// Names when the window is wide enough, icons only when it is narrow.
+pub enum BarStyle {
+    /// One line, shown while something is selected; the buttons lose their names when the
+    /// window is narrow.
     #[default]
-    Auto,
-    Always,
-    Never,
+    Compact,
+    /// Always shown: thumbnails of the selection and large buttons.
+    Tray,
 }
 
 /// A cache on disk that the settings can empty.
@@ -227,9 +228,9 @@ pub struct Store {
     /// The order of the pictures in the library.
     #[serde(deserialize_with = "or_default")]
     pub sort: Sort,
-    /// When the selection bar's buttons show their names.
+    /// The bar at the bottom of the library: compact or the tray.
     #[serde(deserialize_with = "or_default")]
-    pub bar_labels: BarLabels,
+    pub bar_style: BarStyle,
     /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
     pub edit_advanced: bool,
     /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
@@ -264,7 +265,7 @@ impl Default for Store {
             collage: Default::default(),
             contact_sheet: Default::default(),
             sort: Sort::Name,
-            bar_labels: BarLabels::Auto,
+            bar_style: BarStyle::Compact,
             edit_advanced: false,
             export_size: 0,
             export_quality: 90,

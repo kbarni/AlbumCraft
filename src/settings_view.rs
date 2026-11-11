@@ -4,7 +4,7 @@
 
 use crate::app::*;
 use crate::icons;
-use crate::library::{BarLabels, Cache, fmt_bytes};
+use crate::library::{BarStyle, Cache, fmt_bytes};
 use crate::theme::Mode;
 use eframe::egui::{self, RichText};
 
@@ -155,12 +155,11 @@ impl App {
             self.dirty = true;
         }
 
-        group(ui, "Selection bar buttons");
-        let b = &mut self.store.bar_labels;
-        let mut changed = ui.radio_value(b, BarLabels::Auto, "Names when the window is wide enough").changed();
-        changed |= ui.radio_value(b, BarLabels::Always, "Icons and names").changed();
-        changed |= ui.radio_value(b, BarLabels::Never, "Icons only").changed();
-        note(ui, "When the buttons don't fit, the bar scrolls sideways.");
+        group(ui, "Bar at the bottom of the library");
+        let b = &mut self.store.bar_style;
+        let mut changed = ui.radio_value(b, BarStyle::Compact, "Compact: one line, shown while pictures are selected").changed();
+        changed |= ui.radio_value(b, BarStyle::Tray, "Tray: thumbnails of the selected pictures and large buttons").changed();
+        note(ui, "In the compact bar, the buttons lose their names when the window is narrow. When the buttons don't fit, the bar scrolls sideways.");
 
         group(ui, "Picture size in the library");
         changed |= ui.add(egui::Slider::new(&mut self.store.thumb_size, 64.0..=256.0).show_value(false)).changed();

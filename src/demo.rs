@@ -27,6 +27,9 @@ impl App {
             self.store.meta.entry(p.key.clone()).or_default().flag = Flag::Reject;
         }
         let shot_view = std::env::var("ALBUMCRAFT_SHOT_VIEW").unwrap_or_default();
+        if std::env::var("ALBUMCRAFT_SHOT_BAR").is_ok_and(|b| b == "tray") {
+            self.store.bar_style = crate::library::BarStyle::Tray;
+        }
         if self.photos.len() > 5 {
             let k = self.photos[5].key.clone();
             self.store.meta.entry(k).or_default().people.push("Grandma".into());
