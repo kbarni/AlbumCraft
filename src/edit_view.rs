@@ -177,7 +177,7 @@ impl App {
                         let angle = (angle * 10.0).round() / 10.0;
                         let total = (self.current_geometry(id).0 + angle).clamp(-45.0, 45.0);
                         self.set_geometry(id, EditOp::Straighten(total), "");
-                        self.toast(tr!("edit-straightened", angle = format!("{angle:+.1}")));
+                        self.toast(tr!("edit-straightened", angle = crate::locale::decimal(&format!("{angle:+.1}"))));
                     }
                     Some(_) => self.toast(tr!("edit-already-level")),
                     None => self.toast(tr!("edit-no-horizon")),
@@ -245,7 +245,7 @@ impl App {
                                 ui.label(small(c.focal_35mm.map(|e| tr!("edit-35mm", mm = format!("{e:3.0}"))).or(c.lens.clone()).unwrap_or_default()));
                                 ui.label(small(c.fnumber.map(|f| format!("f/{f:3.1}")).unwrap_or_default()));
                                 ui.end_row();
-                                ui.label(small(c.focal_mm.map(|f| tr!("edit-focal", mm = format!("{f:3.1}"))).unwrap_or_default()));
+                                ui.label(small(c.focal_mm.map(|f| tr!("edit-focal", mm = crate::locale::decimal(&format!("{f:3.1}")))).unwrap_or_default()));
                                 ui.label(small(c.iso.map(|i| tr!("edit-iso", iso = format!("{i:2}"))).unwrap_or_default()));
                                 ui.end_row();
                             });
@@ -292,10 +292,10 @@ impl App {
                 if dark >= 0.5 || bright >= 0.5 {
                     let mut parts = vec![];
                     if dark >= 0.5 {
-                        parts.push(tr!("edit-clip-shadows", pct = format!("{dark:.1}")));
+                        parts.push(tr!("edit-clip-shadows", pct = crate::locale::decimal(&format!("{dark:.1}"))));
                     }
                     if bright >= 0.5 {
-                        parts.push(tr!("edit-clip-highlights", pct = format!("{bright:.1}")));
+                        parts.push(tr!("edit-clip-highlights", pct = crate::locale::decimal(&format!("{bright:.1}"))));
                     }
                     ui.label(RichText::new(tr!("edit-clipped", parts = parts.join(", "))).size(11.0).color(t().reject))
                         .on_hover_text(tr!("edit-clipped-hint"));

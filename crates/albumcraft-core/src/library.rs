@@ -1021,9 +1021,8 @@ pub fn fmt_time(ts: i64) -> String {
 }
 
 fn fmt_date_utc(ts: i64) -> String {
-    const M: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let (y, m, d) = civil(ts);
-    format!("{} {}, {}", M[(m as usize).saturating_sub(1).min(11)], d, y)
+    crate::locale::date(y, m, d)
 }
 
 fn fmt_time_utc(ts: i64) -> String {
@@ -1047,12 +1046,13 @@ mod date_tests {
 }
 
 pub fn fmt_bytes(b: u64) -> String {
+    use crate::locale::{decimal, unit};
     if b >= 1 << 30 {
-        format!("{:.1} GB", b as f64 / (1u64 << 30) as f64)
+        format!("{} {}", decimal(&format!("{:.1}", b as f64 / (1u64 << 30) as f64)), unit(2))
     } else if b >= 1 << 20 {
-        format!("{:.1} MB", b as f64 / (1u64 << 20) as f64)
+        format!("{} {}", decimal(&format!("{:.1}", b as f64 / (1u64 << 20) as f64)), unit(1))
     } else {
-        format!("{} KB", (b / 1024).max(1))
+        format!("{} {}", (b / 1024).max(1), unit(0))
     }
 }
 

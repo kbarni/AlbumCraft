@@ -1197,3 +1197,14 @@ import-already-there =
     }
 import-was-stopped = L'importation a été arrêtée avant la fin.
 import-failed-count = { $n } n'ont pas pu être copiées :
+
+## Dates, numbers and sizes (applied to the core crate by src/i18n.rs)
+
+locale-months-short = janv., févr., mars, avr., mai, juin, juil., août, sept., oct., nov., déc.
+locale-months-long = janvier, février, mars, avril, mai, juin, juillet, août, septembre, octobre, novembre, décembre
+locale-date = { $day } { $month } { $year }
+locale-decimal = ,
+locale-group = { " " }
+locale-unit-kb = Ko
+locale-unit-mb = Mo
+locale-unit-gb = Go

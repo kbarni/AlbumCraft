@@ -52,7 +52,7 @@ fn name_cell(ui: &mut egui::Ui, name: &str) {
 fn coords(at: LatLon) -> String {
     let ns = if at.lat >= 0.0 { tr!("coord-n") } else { tr!("coord-s") };
     let ew = if at.lon >= 0.0 { tr!("coord-e") } else { tr!("coord-w") };
-    tr!("info-coords", lat = format!("{:.5}", at.lat.abs()), ns = ns, lon = format!("{:.5}", at.lon.abs()), ew = ew)
+    tr!("info-coords", lat = crate::locale::decimal(&format!("{:.5}", at.lat.abs())), ns = ns, lon = crate::locale::decimal(&format!("{:.5}", at.lon.abs())), ew = ew)
 }
 
 fn orientation_text(o: u32) -> Option<String> {

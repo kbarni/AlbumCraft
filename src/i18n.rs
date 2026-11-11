@@ -26,6 +26,7 @@ pub static LOADER: LazyLock<FluentLanguageLoader> = LazyLock::new(|| {
     #[cfg(not(test))]
     let requested = DesktopLanguageRequester::requested_languages();
     load(&loader, &requested);
+    apply_locale(&loader);
     loader
 });
 
@@ -53,6 +54,20 @@ pub fn set_language(language: &str) {
     let mut requested: Vec<LanguageIdentifier> = chosen.parse().into_iter().collect();
     requested.extend(DesktopLanguageRequester::requested_languages());
     load(&LOADER, &requested);
+    apply_locale(&LOADER);
+}
+
+/// Give the core crate the way this language writes dates, numbers and sizes.
+fn apply_locale(loader: &FluentLanguageLoader) {
+    let list = |id: &str| loader.get(id).split(',').map(|w| w.trim().to_string()).collect::<Vec<_>>();
+    crate::locale::set(crate::locale::Locale {
+        months_short: list("locale-months-short"),
+        months_long: list("locale-months-long"),
+        date: i18n_embed_fl::fl!(loader, "locale-date", month = "{month}", day = "{day}", year = "{year}"),
+        decimal: loader.get("locale-decimal"),
+        group: loader.get("locale-group"),
+        units: [loader.get("locale-unit-kb"), loader.get("locale-unit-mb"), loader.get("locale-unit-gb")],
+    });
 }
 
 /// The languages there are translations for, as (code, the language's own name), English first

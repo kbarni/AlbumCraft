@@ -981,7 +981,6 @@ pub fn contact_sheet(s: &SheetSettings, pics: &[Pic], title: &str, subtitle: &st
 
 /// "37 pictures, April 2006" / "12 pictures, March – May 2006" from the pictures' dates.
 pub fn sheet_subtitle(times: &[i64]) -> String {
-    const M: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     let n = times.len();
     let count = if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
     let (Some(&lo), Some(&hi)) = (times.iter().min(), times.iter().max()) else { return count };
@@ -991,8 +990,8 @@ pub fn sheet_subtitle(times: &[i64]) -> String {
         Some((d.year(), d.month0() as usize))
     };
     let (Some((y0, m0)), Some((y1, m1))) = (ym(lo), ym(hi)) else { return count };
-    let (m0, m1) = (M[m0.min(11)], M[m1.min(11)]);
-    let when = if (y0, m0) == (y1, m1) {
+    let (m0, m1) = (crate::locale::month_long(m0.min(11)), crate::locale::month_long(m1.min(11)));
+    let when = if (y0, m0.as_str()) == (y1, m1.as_str()) {
         format!("{m0} {y0}")
     } else if y0 == y1 {
         format!("{m0} – {m1} {y0}")

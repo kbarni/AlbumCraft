@@ -2207,15 +2207,7 @@ impl App {
 
 /// A count with thousands separators from 1000 up.
 pub fn fmt_count(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    crate::locale::group(n as u64)
 }
 
 /// The selection line of the status bar: "No Selection"; for one picture its name, date, pixel

@@ -1200,3 +1200,15 @@ import-already-there =
     }
 import-was-stopped = The import was stopped before the end.
 import-failed-count = { $n } could not be copied:
+
+## Dates, numbers and sizes (applied to the core crate by src/i18n.rs)
+
+locale-months-short = Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
+locale-months-long = January, February, March, April, May, June, July, August, September, October, November, December
+# how a date reads; $month is the short name
+locale-date = { $month } { $day }, { $year }
+locale-decimal = .
+locale-group = ,
+locale-unit-kb = KB
+locale-unit-mb = MB
+locale-unit-gb = GB

@@ -118,7 +118,7 @@ pub fn op(e: &EditOp) -> String {
         EditOp::Rotate(n) if *n > 0 => tr!("op-rotate-right"),
         EditOp::Rotate(_) => tr!("op-rotate-left"),
         EditOp::Crop(_) => tr!("op-crop"),
-        EditOp::Straighten(a) => tr!("op-straighten", angle = format!("{a:+.1}")),
+        EditOp::Straighten(a) => tr!("op-straighten", angle = crate::locale::decimal(&format!("{a:+.1}"))),
         EditOp::Perspective { vertical, horizontal } => {
             let (v, h) = (format!("{:+.0}", vertical * 100.0), format!("{:+.0}", horizontal * 100.0));
             match (*vertical != 0.0, *horizontal != 0.0) {
@@ -229,7 +229,7 @@ pub fn print_layout(l: &PrintLayout) -> String {
 /// `Paper::describe` in the language of the window.
 pub fn paper(p: &Paper) -> String {
     let orientation = if p.landscape() { tr!("edit-landscape") } else { tr!("edit-portrait") };
-    tr!("print-paper-describe", dpi = p.dpi, w = format!("{:.1}", p.sheet_w / 25.4), h = format!("{:.1}", p.sheet_h / 25.4), orientation = orientation)
+    tr!("print-paper-describe", dpi = p.dpi, w = crate::locale::decimal(&format!("{:.1}", p.sheet_w / 25.4)), h = crate::locale::decimal(&format!("{:.1}", p.sheet_h / 25.4)), orientation = orientation)
 }
 
 /// `print::quality_text` in the language of the window.
