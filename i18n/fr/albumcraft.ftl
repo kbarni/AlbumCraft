@@ -860,3 +860,108 @@ selection-none = Aucune sélection
 selection-one = { $name }     { $date }     { $w }x{ $h } pixels     { $size }
 selection-several = { $pictures }     { $a }      { $size } sur le disque
 selection-range = { $pictures }     du { $a } au { $b }     { $size } sur le disque
+
+## Collage and contact sheet (src/collage_view.rs)
+
+cstyle-pile = Tas de photos
+cstyle-pile-tip = Des photos éparpillées, comme des tirages jetés sur une table
+cstyle-mosaic = Mosaïque
+cstyle-mosaic-tip = Des photos de tailles différentes remplissent la page
+cstyle-frame = Photo centrale
+cstyle-frame-tip = Une mosaïque autour d'une grande photo au milieu
+cstyle-grid = Grille
+cstyle-grid-tip = Des lignes et des colonnes régulières
+cstyle-film = Pellicule
+cstyle-film-tip = Des photos sur des bandes de pellicule
+cstyle-clothesline = Corde à linge
+cstyle-clothesline-tip = Des photos instantanées pincées sur des cordes
+cstyle-fan = Éventail
+cstyle-fan-tip = Étalées comme un jeu de cartes
+cstyle-shape = Forme
+cstyle-shape-tip = Un cœur, un cercle ou une étoile fait de photos
+cstyle-blend = Exposition multiple
+cstyle-blend-tip = Les photos vues les unes à travers les autres (idéal avec 2 à 4)
+cstyle-sheet = Planche contact
+cstyle-sheet-tip = Des pages de petites photos avec un titre et leurs noms de fichier
+shape-heart = Cœur
+shape-circle = Cercle
+shape-star = Étoile
+fmt-a4 = A4
+fmt-a3 = A3
+fmt-letter = Lettre US
+fmt-10x15 = 10 x 15 cm
+fmt-13x18 = 13 x 18 cm
+fmt-20x30 = 20 x 30 cm
+fmt-square = Carré
+fmt-wide = Écran (16:9)
+grad-vertical = De haut en bas
+grad-diagonal = Diagonale
+grad-radial = Depuis le centre
+collage-need-sheet = Sélectionnez d'abord les photos de la planche contact.
+collage-need-two = Sélectionnez au moins deux photos pour créer un collage.
+collage-unreadable = Cette photo n'a pas pu être lue.
+collage-new-layout = Nouvelle disposition
+collage-new-layout-hint = Autres positions, rotations et tailles
+collage-shuffle = Mélanger
+collage-shuffle-hint = Mettre les photos dans un ordre aléatoire
+collage-spacing = Espace entre les photos
+border-none = Aucune
+border-white = Blanche
+border-instant = Instantané
+collage-frame-text = Texte sur les cadres
+cap-none = Aucun
+cap-caption = Légende
+collage-shadows = Ombres
+bg-gradient = Dégradé
+bg-picture = Image
+collage-to = à
+collage-use-selected = Utiliser la photo sélectionnée
+collage-use-selected-hint = Cliquez d'abord sur une photo du collage
+collage-choose-file = Choisir un fichier…
+collage-no-bg = Aucune image choisie pour l'instant
+collage-bg-dialog = Image d'arrière-plan
+collage-page = Page
+collage-size = Taille de l'image
+collage-px = { $px } pixels
+collage-centre = Mettre au milieu
+collage-put-back = Remettre
+collage-put-back-hint = Annuler les déplacements de cette photo
+collage-leave-out = Exclure
+collage-leave-out-hint = Retirer cette photo du collage (Suppr)
+collage-title = Titre
+collage-no-title = Sans titre
+collage-no-subtitle = Pas de deuxième ligne
+collage-header = Titre sur la première page
+collage-under = Sous chaque photo
+collage-date = Date
+collage-pictures = Photos
+collage-page-numbers = Numéros de page
+collage-sending = Envoi de la page { $page } sur { $total } à l'imprimante…
+collage-count-pages =
+    { $pictures }, { $pages ->
+        [one] { $pages } page
+       *[other] { $pages } pages
+    }
+collage-no-printer = Aucune imprimante disponible
+collage-save-pdf = Enregistrer en PDF…
+collage-save-picture = Enregistrer l'image…
+collage-save-picture-hint = Enregistrer le collage en image JPEG ou PNG
+collage-file-sheet = Planche contact
+collage-file-collage = Collage
+collage-save-pdf-title = Enregistrer en PDF
+collage-save-picture-title = Enregistrer le collage en image
+filter-pdf = Document PDF
+filter-jpeg = Image JPEG
+filter-png = Image PNG
+collage-saving-sheet = Enregistrement de la planche contact…
+collage-saving = Enregistrement du collage…
+task-save-collage = Enregistrement du collage
+collage-printed =
+    { $n ->
+        [one] { $n } page envoyée à { $printer }.
+       *[other] { $n } pages envoyées à { $printer }.
+    }
+collage-print-failed = L'impression ne s'est pas terminée : { $error }
+collage-hint-swap = Faites glisser une photo sur une autre pour les échanger. Cliquez sur une photo pour la sélectionner (Suppr l'exclut).
+collage-hint-free = Faites glisser une photo pour la déplacer, faites défiler dessus pour la faire tourner. Cliquez sur une photo pour la sélectionner (Suppr l'exclut).
+collage-page-of = Page { $page } sur { $total }

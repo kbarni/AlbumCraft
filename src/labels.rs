@@ -5,6 +5,7 @@
 
 use crate::decor::Decor;
 use crate::develop::Adjust;
+use crate::collage::{Format, Gradient, ShapeKind, Style as CollageStyle};
 use crate::gallery::Style;
 use crate::i18n::tr;
 use crate::imaging::{Effect, EditOp};
@@ -156,5 +157,62 @@ pub fn gallery_style(s: &Style) -> String {
         Style::Light => tr!("gallery-style-light"),
         Style::Dark => tr!("gallery-style-dark"),
         Style::Masonry => tr!("gallery-style-masonry"),
+    }
+}
+
+pub fn collage_style(s: &CollageStyle) -> String {
+    match s {
+        CollageStyle::Pile => tr!("cstyle-pile"),
+        CollageStyle::Mosaic => tr!("cstyle-mosaic"),
+        CollageStyle::Frame => tr!("cstyle-frame"),
+        CollageStyle::Grid => tr!("cstyle-grid"),
+        CollageStyle::FilmStrip => tr!("cstyle-film"),
+        CollageStyle::Clothesline => tr!("cstyle-clothesline"),
+        CollageStyle::Fan => tr!("cstyle-fan"),
+        CollageStyle::Shape => tr!("cstyle-shape"),
+        CollageStyle::Blend => tr!("cstyle-blend"),
+    }
+}
+
+pub fn collage_style_tip(s: &CollageStyle) -> String {
+    match s {
+        CollageStyle::Pile => tr!("cstyle-pile-tip"),
+        CollageStyle::Mosaic => tr!("cstyle-mosaic-tip"),
+        CollageStyle::Frame => tr!("cstyle-frame-tip"),
+        CollageStyle::Grid => tr!("cstyle-grid-tip"),
+        CollageStyle::FilmStrip => tr!("cstyle-film-tip"),
+        CollageStyle::Clothesline => tr!("cstyle-clothesline-tip"),
+        CollageStyle::Fan => tr!("cstyle-fan-tip"),
+        CollageStyle::Shape => tr!("cstyle-shape-tip"),
+        CollageStyle::Blend => tr!("cstyle-blend-tip"),
+    }
+}
+
+pub fn shape_kind(k: &ShapeKind) -> String {
+    match k {
+        ShapeKind::Heart => tr!("shape-heart"),
+        ShapeKind::Circle => tr!("shape-circle"),
+        ShapeKind::Star => tr!("shape-star"),
+    }
+}
+
+pub fn page_format(f: &Format) -> String {
+    match f {
+        Format::A4 => tr!("fmt-a4"),
+        Format::A3 => tr!("fmt-a3"),
+        Format::Letter => tr!("fmt-letter"),
+        Format::Cm10x15 => tr!("fmt-10x15"),
+        Format::Cm13x18 => tr!("fmt-13x18"),
+        Format::Cm20x30 => tr!("fmt-20x30"),
+        Format::Square => tr!("fmt-square"),
+        Format::Wide => tr!("fmt-wide"),
+    }
+}
+
+pub fn gradient(g: &Gradient) -> String {
+    match g {
+        Gradient::Vertical => tr!("grad-vertical"),
+        Gradient::Diagonal => tr!("grad-diagonal"),
+        Gradient::Radial => tr!("grad-radial"),
     }
 }

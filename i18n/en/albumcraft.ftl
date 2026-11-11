@@ -863,3 +863,108 @@ selection-none = No Selection
 selection-one = { $name }     { $date }     { $w }x{ $h } pixels     { $size }
 selection-several = { $pictures }     { $a }      { $size } on disk
 selection-range = { $pictures }     { $a } to { $b }     { $size } on disk
+
+## Collage and contact sheet (src/collage_view.rs)
+
+cstyle-pile = Photo pile
+cstyle-pile-tip = Scattered pictures, like prints thrown on a table
+cstyle-mosaic = Mosaic
+cstyle-mosaic-tip = Pictures of different sizes fill the page
+cstyle-frame = Centre stage
+cstyle-frame-tip = A mosaic around one big picture in the middle
+cstyle-grid = Grid
+cstyle-grid-tip = Regular rows and columns
+cstyle-film = Film strip
+cstyle-film-tip = Pictures on strips of film
+cstyle-clothesline = Clothesline
+cstyle-clothesline-tip = Instant pictures pegged on lines
+cstyle-fan = Fan
+cstyle-fan-tip = Spread out like a hand of cards
+cstyle-shape = Shape
+cstyle-shape-tip = A heart, circle or star made of pictures
+cstyle-blend = Multiple exposure
+cstyle-blend-tip = The pictures shown through each other (best with 2 to 4)
+cstyle-sheet = Contact sheet
+cstyle-sheet-tip = Pages of small pictures with a title and their file names
+shape-heart = Heart
+shape-circle = Circle
+shape-star = Star
+fmt-a4 = A4
+fmt-a3 = A3
+fmt-letter = Letter
+fmt-10x15 = 10 x 15 cm
+fmt-13x18 = 13 x 18 cm
+fmt-20x30 = 20 x 30 cm
+fmt-square = Square
+fmt-wide = Screen (16:9)
+grad-vertical = Top to bottom
+grad-diagonal = Diagonal
+grad-radial = From the centre
+collage-need-sheet = Select the pictures for the contact sheet first.
+collage-need-two = Select at least two pictures to make a collage.
+collage-unreadable = That picture could not be read.
+collage-new-layout = New layout
+collage-new-layout-hint = Other positions, turns and sizes
+collage-shuffle = Shuffle
+collage-shuffle-hint = Put the pictures in a random order
+collage-spacing = Space between pictures
+border-none = None
+border-white = White
+border-instant = Instant
+collage-frame-text = Text on the frames
+cap-none = None
+cap-caption = Caption
+collage-shadows = Shadows
+bg-gradient = Gradient
+bg-picture = Picture
+collage-to = to
+collage-use-selected = Use the selected picture
+collage-use-selected-hint = Click a picture of the collage first
+collage-choose-file = Choose a file…
+collage-no-bg = No picture chosen yet
+collage-bg-dialog = Background picture
+collage-page = Page
+collage-size = Picture size
+collage-px = { $px } pixels
+collage-centre = Put in the middle
+collage-put-back = Put back
+collage-put-back-hint = Undo the moves of this picture
+collage-leave-out = Leave out
+collage-leave-out-hint = Take this picture out of the collage (Delete)
+collage-title = Title
+collage-no-title = No title
+collage-no-subtitle = No second line
+collage-header = Title on the first page
+collage-under = Under each picture
+collage-date = Date
+collage-pictures = Pictures
+collage-page-numbers = Page numbers
+collage-sending = Sending page { $page } of { $total } to the printer…
+collage-count-pages =
+    { $pictures }, { $pages ->
+        [one] { $pages } page
+       *[other] { $pages } pages
+    }
+collage-no-printer = No printer is available
+collage-save-pdf = Save as PDF…
+collage-save-picture = Save picture…
+collage-save-picture-hint = Save the collage as a JPEG or PNG picture
+collage-file-sheet = Contact sheet
+collage-file-collage = Collage
+collage-save-pdf-title = Save as PDF
+collage-save-picture-title = Save the collage as a picture
+filter-pdf = PDF document
+filter-jpeg = JPEG picture
+filter-png = PNG picture
+collage-saving-sheet = Saving the contact sheet…
+collage-saving = Saving the collage…
+task-save-collage = Saving the collage
+collage-printed =
+    { $n ->
+        [one] Sent { $n } page to { $printer }.
+       *[other] Sent { $n } pages to { $printer }.
+    }
+collage-print-failed = Printing didn't finish: { $error }
+collage-hint-swap = Drag a picture onto another to swap them. Click one to select it (Delete leaves it out).
+collage-hint-free = Drag a picture to move it, scroll over it to turn it. Click one to select it (Delete leaves it out).
+collage-page-of = Page { $page } of { $total }
