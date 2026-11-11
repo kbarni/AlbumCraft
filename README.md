@@ -13,7 +13,7 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 ## What it does
 
 **Organize**
-- Point it at your picture folders; it finds every picture (JPEG, PNG, TIFF, WebP, GIF, BMP and camera raw files) and shows them by folder, newest first, in a justified grid. Large folders on slow or external disks stay fast.
+- Point it at your picture folders; it finds every picture (JPEG, PNG, TIFF, WebP, GIF, BMP and camera raw files) and shows them by folder, newest first, in a justified grid, sorted by file name, date taken or rating. Large folders on slow or external disks stay fast, and the library shows at once when it starts.
 - **Import** from a memory card, a camera or any folder: pictures grouped by time, the ones already in your library left out, copied into a new folder you name. Nothing is ever overwritten and the originals stay as they are. (Adding a folder to the library, by contrast, copies nothing.)
 - Pick or reject pictures, give them 1–5 stars, captions, tags and people; filter by any of those.
 - **One search box** for everything: words in names and captions, tags, people, albums, folders and places, with suggestions as you type. Places are found by city, region or country, also for pictures that only have the camera's GPS position.
@@ -33,6 +33,7 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 **Share**
 - Export edited copies (any size, JPEG quality), collages (photo pile, mosaic, centre stage, grid, film strip, clothesline, fan, heart / circle / star, multiple exposure; colour, gradient or picture background; drag pictures to arrange them), contact sheets (title, file names, several pages, PDF), prints (Windows printing, or CUPS on Linux and macOS).
 - Full-screen slideshow with crossfades, slow pan and zoom, and music.
+- Email: small copies attached to a new message in your mail program (Thunderbird, Evolution, KMail, Outlook, Apple Mail).
 - A web gallery: a self-contained folder with an `index.html` (three styles, lightbox), ready to open or upload anywhere.
 - A slideshow movie (MP4, 720p or 1080p, with music) when [FFmpeg](https://ffmpeg.org/download.html) is installed.
 
@@ -43,10 +44,11 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 ## Use it from an AI agent (MCP)
 
 `albumcraft --mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on
-stdin/stdout. It offers 29 tools: search the library (also by tag, place or position), import pictures from a card or folder, read a picture's details,
+stdin/stdout. It offers 33 tools: search the library (also by tag, place or position), import pictures from a card or folder, read a picture's details,
 flag, rate, caption, tag, manage albums, set or remove locations and look up places, apply edits
-and one-click fixes, render a preview image, export, make a web gallery or a movie, and open a
-picture or a set of pictures on the map in the window.
+and one-click fixes, render a preview image, export, make a web gallery, a movie, a collage or a
+contact sheet, prepare an email, move rejected pictures to the trash (only with a confirmation),
+set the sort order, and open a picture or a set of pictures on the map in the window.
 
 ```sh
 claude mcp add albumcraft -- /path/to/albumcraft --mcp      # Claude Code
