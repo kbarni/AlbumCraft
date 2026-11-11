@@ -221,10 +221,16 @@ impl App {
         let mut changed = false;
         group(ui, "Timing");
         ui.horizontal(|ui| {
-            ui.label("Each picture for");
-            changed |= ui.add(egui::Slider::new(&mut s.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).changed();
+            changed |= ui.checkbox(&mut s.auto_advance, "Next picture after").changed();
+            ui.add_enabled_ui(s.auto_advance, |ui| {
+                changed |= ui.add(egui::Slider::new(&mut s.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).changed();
+            });
         });
-        note(ui, "Space pauses a slideshow, ← and → step through it.");
+        if s.auto_advance {
+            note(ui, "Space pauses a slideshow, ← and → step through it.");
+        } else {
+            note(ui, "Each picture stays until you move on with → or the buttons. The full-screen viewer (F11) still moves on by itself.");
+        }
 
         group(ui, "Effects");
         changed |= ui.checkbox(&mut s.fade, "Crossfade between pictures").changed();
@@ -278,11 +284,16 @@ impl App {
         }
         group(ui, "JPEG quality");
         changed |= ui.add(egui::Slider::new(&mut self.store.export_quality, 50..=100)).changed();
-        group(ui, "Location");
+        group(ui, "Information in the copies");
         changed |= ui
             .checkbox(&mut self.store.export_location, "Include where the pictures were taken (GPS)")
             .on_hover_text("Turn off before sharing pictures if you don't want others to see the location.")
             .changed();
+        changed |= ui
+            .checkbox(&mut self.store.export_exif, "Include the camera information (EXIF)")
+            .on_hover_text("Camera, lens, exposure and the date taken, copied from the original file. The location follows the setting above.")
+            .changed();
+        note(ui, "Emailed copies follow these two settings too.");
         if changed {
             self.dirty = true;
         }

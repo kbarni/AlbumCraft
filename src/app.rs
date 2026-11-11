@@ -1701,6 +1701,7 @@ impl App {
     /// without pan and zoom, advancing by itself, with the music when a music file is chosen.
     pub fn start_viewer(&mut self, list: Vec<usize>, start: usize) {
         let mut settings = self.store.slideshow.clone();
+        settings.auto_advance = true;
         settings.fade = false;
         settings.motion = false;
         settings.music_on = settings.music.is_some();
@@ -1906,7 +1907,7 @@ impl App {
         let Some(dir) = rfd::FileDialog::new().set_title("Export pictures to…").pick_folder() else { return };
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
         let task = self.start_task(format!("Exporting {} picture(s)", jobs.len()));
-        self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location);
+        self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location, self.store.export_exif);
     }
 
     /// Ask whether to move the library's rejected pictures to the trash.
@@ -1940,7 +1941,7 @@ impl App {
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
         let task = self.start_task(format!("Preparing {} picture(s) for an email", jobs.len()));
         let subject = self.tray_title();
-        self.lib.email(task, jobs, subject, self.store.export_location);
+        self.lib.email(task, jobs, subject, self.store.export_location, self.store.export_exif);
     }
 
     /// A name for what is in the tray: the album, the person, or the folder of its first picture.

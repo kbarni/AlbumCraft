@@ -308,7 +308,8 @@ Call `rescan` afterwards to see the new pictures in the library.",
                     "folder": { "type": "string" },
                     "max_size": { "type": "integer", "minimum": 0, "description": "Longest side; 0 = full size", "default": 0, "required": false },
                     "quality": { "type": "integer", "minimum": 50, "maximum": 100, "default": 90, "required": false },
-                    "include_location": { "type": "boolean", "description": "Write the picture's location (GPS) into the copy; default: the setting of the Export window", "required": false }
+                    "include_location": { "type": "boolean", "description": "Write the picture's location (GPS) into the copy; default: the setting of the Export window", "required": false },
+                    "include_camera_info": { "type": "boolean", "description": "Copy the original's camera information (EXIF: camera, lens, exposure, date taken; not the location) into the copy; default: the setting of the Export window", "required": false }
                 }))
             },
         },
@@ -1081,6 +1082,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let max = opt_u64(args, "max_size")?.unwrap_or(0).min(20_000) as u32;
             let quality = opt_u64(args, "quality")?.unwrap_or(90).clamp(50, 100) as u8;
             let with_location = opt_bool(args, "include_location")?.unwrap_or(host.store().export_location);
+            let camera_info = opt_bool(args, "include_camera_info")?.unwrap_or(host.store().export_exif);
             let jobs: Vec<ExportJob> = ids.iter().map(|&id| export_job(host, id)).collect();
             Ok(Outcome::Later(Box::new(move || {
                 let mut done = vec![];
@@ -1088,7 +1090,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 for (key, name, edits, place) in &jobs {
                     let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
                     let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
-                    match crate::export::export_one(key, edits, &dir, stem, max, quality, gps) {
+                    match crate::export::export_one(key, edits, &dir, stem, max, quality, gps, camera_info) {
                         Ok(p) => done.push(p.to_string_lossy().to_string()),
                         Err(e) => failed.push(json!({ "key": key, "error": e })),
                     }
@@ -1124,9 +1126,10 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let ids = ids(host, args)?;
             let subject = opt_str(args, "subject").unwrap_or("Pictures").to_string();
             let with_location = host.store().export_location;
+            let camera_info = host.store().export_exif;
             let jobs: Vec<ExportJob> = ids.iter().map(|&id| export_job(host, id)).collect();
             Ok(Outcome::Later(Box::new(move || {
-                let r = crate::mail::email(&jobs, &subject, with_location, &|_, _| true);
+                let r = crate::mail::email(&jobs, &subject, with_location, camera_info, &|_, _| true);
                 let folder = r.show.as_ref().map(|p| p.to_string_lossy().to_string());
                 if r.ok { Ok(Reply::json(json!({ "message": r.text, "folder": folder }))) } else { Err(r.text) }
             })))

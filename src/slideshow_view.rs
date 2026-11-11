@@ -59,7 +59,7 @@ impl App {
                 }
             });
         }
-        if s.playing && s.paused_at.is_none() && now - s.started >= step {
+        if settings.auto_advance && s.playing && s.paused_at.is_none() && now - s.started >= step {
             go = 1;
         }
         // draw
@@ -168,7 +168,8 @@ impl App {
         let st = &mut show.settings;
         let mut changed = false;
         child.spacing_mut().slider_width = 90.0;
-        changed |= child.add(egui::Slider::new(&mut st.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).on_hover_text("Seconds per picture").changed();
+        let tip = if st.auto_advance { "Seconds per picture" } else { "Off: pictures change only with → or the buttons (Settings, Slideshow)" };
+        changed |= child.add_enabled(st.auto_advance, egui::Slider::new(&mut st.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).on_disabled_hover_text(tip).on_hover_text(tip).changed();
         changed |= child.toggle_value(&mut st.fade, "Fade").on_hover_text("Crossfade between pictures").changed();
         changed |= child.toggle_value(&mut st.motion, "Motion").on_hover_text("Slow pan and zoom").changed();
         let music_label = if st.music.is_some() { format!("{} Music", icons::MUSIC) } else { format!("{} Choose music…", icons::MUSIC) };

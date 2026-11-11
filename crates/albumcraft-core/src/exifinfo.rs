@@ -260,6 +260,46 @@ pub fn write_demo_jpeg(path: &std::path::Path) -> std::io::Result<()> {
     std::fs::write(path, jpeg_with_exif(&main, &fields, Some(&thumb))?)
 }
 
+/// The original's EXIF fields worth keeping in an exported copy: camera, lens, exposure, dates,
+/// author and copyright. Left out: what the copy changes (orientation, pixel sizes, thumbnails),
+/// the camera maker's private notes, very long values, and the GPS position (which exports add
+/// only when asked, from `Meta.place`). Empty when the file has no EXIF.
+pub fn fields_to_keep(path: &str) -> Vec<exif::Field> {
+    use exif::Context;
+    const TIFF_KEPT: [Tag; 7] = [Tag::Make, Tag::Model, Tag::DateTime, Tag::Artist, Tag::Copyright, Tag::ImageDescription, Tag::Software];
+    const EXIF_LEFT_OUT: [Tag; 4] = [Tag::MakerNote, Tag::PixelXDimension, Tag::PixelYDimension, Tag::UserComment];
+    let Ok(file) = std::fs::File::open(path) else { return vec![] };
+    let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)) else { return vec![] };
+    exif.fields()
+        .filter(|f| f.ifd_num == In::PRIMARY)
+        .filter(|f| match f.tag.context() {
+            Context::Tiff => TIFF_KEPT.contains(&f.tag),
+            Context::Exif => !EXIF_LEFT_OUT.contains(&f.tag),
+            _ => false,
+        })
+        .filter(|f| value_bytes(&f.value) <= 4096)
+        .cloned()
+        .collect()
+}
+
+/// About how many bytes a value takes in the file.
+fn value_bytes(v: &Value) -> usize {
+    match v {
+        Value::Ascii(parts) => parts.iter().map(|p| p.len() + 1).sum(),
+        Value::Undefined(b, _) | Value::Byte(b) => b.len(),
+        Value::SByte(b) => b.len(),
+        Value::Short(x) => x.len() * 2,
+        Value::SShort(x) => x.len() * 2,
+        Value::Long(x) => x.len() * 4,
+        Value::SLong(x) => x.len() * 4,
+        Value::Float(x) => x.len() * 4,
+        Value::Rational(x) => x.len() * 8,
+        Value::SRational(x) => x.len() * 8,
+        Value::Double(x) => x.len() * 8,
+        Value::Unknown(..) => usize::MAX,
+    }
+}
+
 /// A JPEG file: `jpeg` (an encoded picture) with an EXIF block holding `fields` and an optional
 /// embedded thumbnail. For tests and demo pictures.
 pub fn jpeg_with_exif(jpeg: &[u8], fields: &[exif::Field], thumb: Option<&[u8]>) -> std::io::Result<Vec<u8>> {

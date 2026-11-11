@@ -139,6 +139,13 @@ impl App {
                     {
                         self.dirty = true;
                     }
+                    if ui
+                        .checkbox(&mut self.store.export_exif, "Include the camera information (EXIF)")
+                        .on_hover_text("Camera, lens, exposure and the date taken, copied from the original file.")
+                        .changed()
+                    {
+                        self.dirty = true;
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Choose folder and export…").clicked() {
                             let (m, q) = (*max_dim, *quality);

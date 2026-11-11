@@ -9,6 +9,8 @@ pub const FADE: f32 = 1.0;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SlideSettings {
+    /// Move to the next picture after `interval` (off: only when asked). Movies always do.
+    pub auto_advance: bool,
     /// Seconds each picture is shown (not counting the crossfade).
     pub interval: f32,
     /// Crossfade between pictures.
@@ -26,7 +28,7 @@ pub struct SlideSettings {
 
 impl Default for SlideSettings {
     fn default() -> Self {
-        SlideSettings { interval: 4.0, fade: true, motion: true, music: None, music_on: false, captions: true, strong_motion: false }
+        SlideSettings { auto_advance: true, interval: 4.0, fade: true, motion: true, music: None, music_on: false, captions: true, strong_motion: false }
     }
 }
 

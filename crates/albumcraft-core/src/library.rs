@@ -210,6 +210,9 @@ pub struct Store {
     pub online_maps: Option<bool>,
     /// Exported copies get the picture's location in their EXIF.
     pub export_location: bool,
+    /// Exported copies keep the original's camera information (EXIF: camera, lens, exposure,
+    /// date taken), without its GPS position, which follows `export_location`.
+    pub export_exif: bool,
     /// The folder the last import copied into a new folder of (offered first next time).
     pub import_to: Option<String>,
     /// The editor's info panel is shown.
@@ -254,6 +257,7 @@ impl Default for Store {
             slideshow: Default::default(),
             online_maps: None,
             export_location: true,
+            export_exif: true,
             import_to: None,
             info_open: true,
             info_sections: HashMap::new(),

@@ -61,13 +61,13 @@ pub fn compose(files: &[PathBuf], subject: &str) -> Result<Opened, String> {
 /// attached. `step(done, total)` says how far it is and answers false when the user stopped it.
 /// The report says what happened and, unless the files were attached for sure, where the copies
 /// are (to attach by hand).
-pub fn email(jobs: &[crate::commands::ExportJob], subject: &str, with_location: bool, step: &dyn Fn(usize, usize) -> bool) -> crate::library::Report {
+pub fn email(jobs: &[crate::commands::ExportJob], subject: &str, with_location: bool, camera_info: bool, step: &dyn Fn(usize, usize) -> bool) -> crate::library::Report {
     use crate::library::Report;
     let dir = match new_folder() {
         Ok(d) => d,
         Err(e) => return Report::failed(format!("Could not make the copies for the email: {e}")),
     };
-    let Some((files, failed)) = copies(jobs, &dir, with_location, step) else {
+    let Some((files, failed)) = copies(jobs, &dir, with_location, camera_info, step) else {
         let _ = std::fs::remove_dir_all(&dir);
         return Report::done("The email was not prepared: stopped.");
     };
@@ -94,7 +94,7 @@ pub fn email(jobs: &[crate::commands::ExportJob], subject: &str, with_location: 
 }
 
 /// The small copies in `dir`, and how many pictures could not be read; None when stopped.
-fn copies(jobs: &[crate::commands::ExportJob], dir: &Path, with_location: bool, step: &dyn Fn(usize, usize) -> bool) -> Option<(Vec<PathBuf>, usize)> {
+fn copies(jobs: &[crate::commands::ExportJob], dir: &Path, with_location: bool, camera_info: bool, step: &dyn Fn(usize, usize) -> bool) -> Option<(Vec<PathBuf>, usize)> {
     let mut files = vec![];
     let mut failed = 0;
     for (i, (key, name, edits, place)) in jobs.iter().enumerate() {
@@ -103,7 +103,7 @@ fn copies(jobs: &[crate::commands::ExportJob], dir: &Path, with_location: bool, 
         }
         let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
         let gps = if with_location { crate::geo::effective(place.as_ref(), crate::geo::file_gps(key)) } else { None };
-        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::export::export_one(key, edits, dir, stem, MAX_DIM, QUALITY, gps)));
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::export::export_one(key, edits, dir, stem, MAX_DIM, QUALITY, gps, camera_info)));
         match made {
             Ok(Ok(p)) => files.push(p),
             _ => failed += 1,
@@ -236,12 +236,12 @@ mod tests {
             (big.to_string_lossy().to_string(), "big.jpg".into(), vec![crate::imaging::EditOp::Rotate(1)], None),
             ("/no/such/picture.jpg".into(), "picture.jpg".into(), vec![], None),
         ];
-        let (files, failed) = copies(&jobs, &out, false, &|_, _| true).unwrap();
+        let (files, failed) = copies(&jobs, &out, false, false, &|_, _| true).unwrap();
         assert_eq!((files.len(), failed), (1, 1));
         let made = image::open(&files[0]).unwrap();
         // turned a quarter, longest side MAX_DIM
         assert_eq!((made.width(), made.height()), ((MAX_DIM as f32 * 2.0 / 3.0).round() as u32, MAX_DIM));
-        assert!(copies(&jobs, &out, false, &|_, _| false).is_none());
+        assert!(copies(&jobs, &out, false, false, &|_, _| false).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
