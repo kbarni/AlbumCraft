@@ -121,6 +121,61 @@ pub enum Sort {
     Rating,
 }
 
+/// The bar at the bottom of the library.
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum BarStyle {
+    /// One line, shown while something is selected; the buttons lose their names when the
+    /// window is narrow.
+    #[default]
+    Compact,
+    /// Always shown: thumbnails of the selection and large buttons.
+    Tray,
+}
+
+/// A cache on disk that the settings can empty.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cache {
+    Thumbs,
+    Tiles,
+}
+
+/// The bytes of the files in `dir` and its subfolders (0 when it does not exist).
+pub fn dir_bytes(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let Ok(m) = e.metadata() else { continue };
+            if m.is_dir() {
+                stack.push(e.path());
+            } else {
+                total += m.len();
+            }
+        }
+    }
+    total
+}
+
+/// The bytes used by the thumbnail cache and the map tile cache.
+pub fn cache_sizes() -> (u64, u64) {
+    let of = |d: Option<PathBuf>| d.map(|d| dir_bytes(&d)).unwrap_or(0);
+    (of(crate::thumbcache::cache_dir()), of(crate::online::tile_cache_dir()))
+}
+
+/// Remove every file of a cache (they are made or downloaded again when needed).
+pub fn clear_cache(which: Cache) -> Result<(), String> {
+    let dir = match which {
+        Cache::Thumbs => crate::thumbcache::cache_dir(),
+        Cache::Tiles => crate::online::tile_cache_dir(),
+    };
+    match dir {
+        Some(d) if d.exists() => std::fs::remove_dir_all(&d).map_err(|e| format!("{}: {e}", d.display())),
+        _ => Ok(()),
+    }
+}
+
 /// A value from `library.json`, or the default when it holds one this version does not know
 /// (a newer version's setting must not make the whole library unreadable).
 fn or_default<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
@@ -156,6 +211,9 @@ pub struct Store {
     pub online_maps: Option<bool>,
     /// Exported copies get the picture's location in their EXIF.
     pub export_location: bool,
+    /// Exported copies keep the original's camera information (EXIF: camera, lens, exposure,
+    /// date taken), without its GPS position, which follows `export_location`.
+    pub export_exif: bool,
     /// The folder the last import copied into a new folder of (offered first next time).
     pub import_to: Option<String>,
     /// The editor's info panel is shown.
@@ -170,6 +228,14 @@ pub struct Store {
     /// The order of the pictures in the library.
     #[serde(deserialize_with = "or_default")]
     pub sort: Sort,
+    /// The bar at the bottom of the library: compact or the tray.
+    #[serde(deserialize_with = "or_default")]
+    pub bar_style: BarStyle,
+    /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
+    pub edit_advanced: bool,
+    /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
+    pub export_size: u32,
+    pub export_quality: u8,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -192,12 +258,17 @@ impl Default for Store {
             slideshow: Default::default(),
             online_maps: None,
             export_location: true,
+            export_exif: true,
             import_to: None,
             info_open: true,
             info_sections: HashMap::new(),
             collage: Default::default(),
             contact_sheet: Default::default(),
             sort: Sort::Name,
+            bar_style: BarStyle::Compact,
+            edit_advanced: false,
+            export_size: 0,
+            export_quality: 90,
         }
     }
 }
@@ -1202,6 +1273,8 @@ pub enum Done {
     ImportProgress { done: usize, total: usize },
     /// The import into `dest` finished: what to tell the user, and whether anything was copied.
     ImportDone { dest: std::path::PathBuf, summary: String, copied: usize, problems: bool },
+    /// Bytes used on disk by the thumbnail cache and the map tile cache.
+    CacheSizes { thumbs: u64, tiles: u64 },
 }
 
 /// (photo id, key, what its header says).

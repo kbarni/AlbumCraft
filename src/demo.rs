@@ -27,6 +27,9 @@ impl App {
             self.store.meta.entry(p.key.clone()).or_default().flag = Flag::Reject;
         }
         let shot_view = std::env::var("ALBUMCRAFT_SHOT_VIEW").unwrap_or_default();
+        if std::env::var("ALBUMCRAFT_SHOT_BAR").is_ok_and(|b| b == "tray") {
+            self.store.bar_style = crate::library::BarStyle::Tray;
+        }
         if self.photos.len() > 5 {
             let k = self.photos[5].key.clone();
             self.store.meta.entry(k).or_default().people.push("Grandma".into());
@@ -116,6 +119,17 @@ impl App {
         if shot_view == "slideshow" {
             let list: Vec<usize> = (0..self.photos.len()).collect();
             self.start_slideshow(list, 0);
+        }
+        if shot_view == "viewer" && self.photos.len() > 2 {
+            self.open_editor(2);
+            let list = self.edit.list.clone();
+            self.start_viewer(list, 2);
+        }
+        if shot_view == "settings" {
+            use crate::settings_view::SettingsSection;
+            let wanted = std::env::var("ALBUMCRAFT_SHOT_SECTION").unwrap_or_default().to_lowercase();
+            let section = SettingsSection::ALL.into_iter().find(|s| format!("{s:?}").to_lowercase() == wanted).unwrap_or_default();
+            self.open_settings(section);
         }
         if shot_view == "movie" {
             self.selection = [0usize, 1, 2, 3].into_iter().collect();

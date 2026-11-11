@@ -16,6 +16,11 @@ pub const MAX_BYTES: u64 = 2 << 30;
 const JPEG_QUALITY: u8 = 88;
 const VERSION: u32 = 2;
 
+/// Where the thumbnails are kept.
+pub fn cache_dir() -> Option<PathBuf> {
+    dir()
+}
+
 fn dir() -> Option<PathBuf> {
     Some(dirs::cache_dir()?.join("AlbumCraft").join("thumbs"))
 }

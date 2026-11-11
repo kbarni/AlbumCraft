@@ -218,6 +218,8 @@ pub enum Dialog {
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
+    /// The Settings dialog, showing this section (`settings_view`).
+    Settings { section: crate::settings_view::SettingsSection },
 }
 
 /// Where the editor goes next.
@@ -326,6 +328,11 @@ pub struct Slideshow {
     pub from: View,
     pub last_move: f64,
     pub music: Option<crate::slides::Music>,
+    /// The settings this showing uses: `Store.slideshow`, or for the full-screen viewer the same
+    /// without fade and motion, with music on.
+    pub settings: crate::slides::SlideSettings,
+    /// Started as the full-screen viewer (F11): its fade, motion and music switches are not saved.
+    pub viewer: bool,
 }
 
 pub struct BigEntry {
@@ -467,6 +474,8 @@ pub struct App {
 
     pub edit: EditState,
     pub slide: Option<Slideshow>,
+    /// Bytes on disk of the thumbnail and map tile caches, for Settings (None until measured).
+    pub cache_sizes: Option<(u64, u64)>,
     pub print: Option<crate::print_view::PrintState>,
     pub collage: Option<Box<crate::collage_view::CollageState>>,
     pub dialog: Option<Dialog>,
@@ -648,6 +657,7 @@ impl App {
                 person_buf: String::new(),
             },
             slide: None,
+            cache_sizes: None,
             print: None,
             collage: None,
             dialog: None,
@@ -1644,6 +1654,9 @@ impl App {
             list = vec![id];
         }
         self.edit.list = list;
+        if self.view != View::Edit {
+            self.edit.advanced = self.store.edit_advanced;
+        }
         self.set_edit_photo(id);
         self.edit.focus_second = false;
         self.edit.other = None;
@@ -1680,14 +1693,30 @@ impl App {
     }
 
     pub fn start_slideshow(&mut self, list: Vec<usize>, start: usize) {
+        let settings = self.store.slideshow.clone();
+        self.start_show(list, start, settings, false);
+    }
+
+    /// The full-screen viewer: the slideshow from `start`, cutting from one picture to the next
+    /// without pan and zoom, advancing by itself, with the music when a music file is chosen.
+    pub fn start_viewer(&mut self, list: Vec<usize>, start: usize) {
+        let mut settings = self.store.slideshow.clone();
+        settings.auto_advance = true;
+        settings.fade = false;
+        settings.motion = false;
+        settings.music_on = settings.music.is_some();
+        self.start_show(list, start, settings, true);
+    }
+
+    fn start_show(&mut self, list: Vec<usize>, start: usize, settings: crate::slides::SlideSettings, viewer: bool) {
         if list.is_empty() {
             self.toast("There are no pictures to show.");
             return;
         }
         let now = self.ctx.input(|i| i.time);
         let pos = list.iter().position(|&x| x == start).unwrap_or(0);
-        let music = self.start_music();
-        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music });
+        let music = self.start_music(&settings);
+        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music, settings, viewer });
         self.view = View::Slideshow;
         if self.shot.is_none() {
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
@@ -1744,8 +1773,7 @@ impl App {
     }
 
     /// The slideshow's music, when it is switched on (problems are reported, not fatal).
-    pub fn start_music(&mut self) -> Option<crate::slides::Music> {
-        let s = &self.store.slideshow;
+    pub fn start_music(&mut self, s: &crate::slides::SlideSettings) -> Option<crate::slides::Music> {
         if !s.music_on || self.shot.is_some() {
             return None;
         }
@@ -1879,7 +1907,7 @@ impl App {
         let Some(dir) = rfd::FileDialog::new().set_title("Export pictures to…").pick_folder() else { return };
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
         let task = self.start_task(format!("Exporting {} picture(s)", jobs.len()));
-        self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location);
+        self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location, self.store.export_exif);
     }
 
     /// Ask whether to move the library's rejected pictures to the trash.
@@ -1913,7 +1941,7 @@ impl App {
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
         let task = self.start_task(format!("Preparing {} picture(s) for an email", jobs.len()));
         let subject = self.tray_title();
-        self.lib.email(task, jobs, subject, self.store.export_location);
+        self.lib.email(task, jobs, subject, self.store.export_location, self.store.export_exif);
     }
 
     /// A name for what is in the tray: the album, the person, or the folder of its first picture.
@@ -2108,6 +2136,7 @@ impl App {
                     }
                 }
                 Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
+                Done::CacheSizes { thumbs, tiles } => self.cache_sizes = Some((thumbs, tiles)),
                 Done::Progress { task, done, total } => {
                     if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
                         (t.done, t.total) = (done, total);
@@ -2323,6 +2352,12 @@ impl eframe::App for App {
             && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P))
         {
             self.open_print();
+        }
+        if matches!(self.view, View::Library | View::Edit)
+            && self.dialog.is_none()
+            && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Comma))
+        {
+            self.open_settings(crate::settings_view::SettingsSection::default());
         }
         self.dialogs(&ctx);
         self.toast_ui(&ctx);

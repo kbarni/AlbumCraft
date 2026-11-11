@@ -38,6 +38,8 @@ icons! {
     FLAG = "flag" "\u{f0c6}";
     FOLDER = "folder" "\u{e2c7}";
     FRAME = "filter_frames" "\u{e3de}";
+    FULLSCREEN = "fullscreen" "\u{e5d0}";
+    FULLSCREEN_EXIT = "fullscreen_exit" "\u{e5d1}";
     HOURGLASS = "hourglass_empty" "\u{e88b}";
     LIGHT_MODE = "light_mode" "\u{e518}";
     LOCATION = "location_on" "\u{f1db}";

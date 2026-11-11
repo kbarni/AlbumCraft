@@ -156,7 +156,7 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
         let t = f as f32 / FPS as f32;
         let Some(((i, since, alpha), prev)) = at_time(t, pictures.len(), s) else { break };
         frame.par_chunks_mut(4).for_each(|p| p.copy_from_slice(&[0, 0, 0, 255]));
-        let uv_of = |index: usize, since: f32| if s.motion { slides::ken_burns_uv(index, since / s.step_secs()) } else { [0.0, 0.0, 1.0, 1.0] };
+        let uv_of = |index: usize, since: f32| if s.motion { slides::ken_burns_uv(index, since / s.step_secs(), s.strong_motion) } else { [0.0, 0.0, 1.0, 1.0] };
         if let Some((pi, psince)) = prev
             && let Some(p) = get(pi, &mut cache)
         {
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn timeline() {
-        let s = SlideSettings { interval: 3.0, fade: true, motion: true, music: None, music_on: false };
+        let s = SlideSettings { interval: 3.0, fade: true, motion: true, music: None, music_on: false, ..Default::default() };
         assert_eq!(duration(3, &s), 12.0);
         // the first picture has no fade-in
         assert_eq!(at_time(0.0, 3, &s), Some(((0, 0.0, 1.0), None)));
@@ -238,7 +238,7 @@ mod tests {
             .arg(&song)
             .status()
             .is_ok_and(|s| s.success());
-        let s = SlideSettings { interval: 1.0, fade: true, motion: true, music: Some(song.to_string_lossy().to_string()), music_on: made_song };
+        let s = SlideSettings { interval: 1.0, fade: true, motion: true, music: Some(song.to_string_lossy().to_string()), music_on: made_song, ..Default::default() };
         let r = make(&out, &pics, (160, 90), &s, &|_| true);
         let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
         let streams = Command::new("ffprobe")

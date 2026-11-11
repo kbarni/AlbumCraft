@@ -46,6 +46,10 @@ pub trait Library {
     fn take_saved(&mut self, wait: bool) -> Option<Result<(), String>>;
     /// Tidy the caches (thumbnails), off the window's thread.
     fn tidy(&self);
+    /// How much disk the caches use; the answer arrives as `Done::CacheSizes`.
+    fn cache_sizes(&self);
+    /// Empty a cache, then send `Done::CacheSizes` (a failure arrives as `Done::Toast` first).
+    fn clear_cache(&self, which: library::Cache);
 
     /// Look for pictures in these folders; the result arrives as `Done::Scan`.
     /// `ini_done`: folders whose `.picasa.ini` was brought in already; for the others the scan
@@ -72,12 +76,14 @@ pub trait Library {
 
     /// Export edited copies into `dir`. Like the three below: progress arrives as
     /// `Done::Progress`, the end as `Done::Report`, both with the task's number.
-    fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool);
+    /// `with_location`: the GPS position in the copies; `camera_info`: the original's EXIF.
+    #[allow(clippy::too_many_arguments)]
+    fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool, camera_info: bool);
     /// Move these picture files to the system's trash (`library::move_to_trash`).
     fn trash(&self, task: Task, files: Vec<String>);
     /// Small copies of these pictures, attached to a new message in the mail program
     /// (`mail::email`).
-    fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool);
+    fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, camera_info: bool);
     /// Make a web gallery in a new folder inside `parent`.
     fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options);
     /// Make a movie file.
@@ -175,6 +181,25 @@ impl Library for LocalLibrary {
         std::thread::spawn(crate::thumbcache::prune);
     }
 
+    fn cache_sizes(&self) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            let (thumbs, tiles) = library::cache_sizes();
+            send(Done::CacheSizes { thumbs, tiles });
+        });
+    }
+
+    fn clear_cache(&self, which: library::Cache) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            if let Err(e) = library::clear_cache(which) {
+                send(Done::Toast(format!("The cache could not be emptied ({e})")));
+            }
+            let (thumbs, tiles) = library::cache_sizes();
+            send(Done::CacheSizes { thumbs, tiles });
+        });
+    }
+
     fn scan(&self, roots: Vec<String>, ini_done: Vec<String>) {
         let send = self.sender();
         std::thread::spawn(move || {
@@ -251,7 +276,7 @@ impl Library for LocalLibrary {
         Arc::new(imaging::load_source)
     }
 
-    fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool) {
+    fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, max_dim: u32, quality: u8, with_location: bool, camera_info: bool) {
         self.run_task(task, "Could not export: unexpected error.", move |step| {
             let mut ok = 0;
             let mut failed: Vec<String> = vec![];
@@ -264,7 +289,7 @@ impl Library for LocalLibrary {
                 let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
-                    crate::export::export_one(key, edits, &dir, stem, max_dim, quality, gps)
+                    crate::export::export_one(key, edits, &dir, stem, max_dim, quality, gps, camera_info)
                 }))
                 .unwrap_or_else(|_| Err("unexpected error".into()));
                 match result {
@@ -295,8 +320,8 @@ impl Library for LocalLibrary {
         self.run_task(task, "Could not move the pictures to the trash: unexpected error.", move |step| library::move_to_trash(&files, step));
     }
 
-    fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool) {
-        self.run_task(task, "Could not prepare the email: unexpected error.", move |step| crate::mail::email(&jobs, &subject, with_location, step));
+    fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, camera_info: bool) {
+        self.run_task(task, "Could not prepare the email: unexpected error.", move |step| crate::mail::email(&jobs, &subject, with_location, camera_info, step));
     }
 
     fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options) {

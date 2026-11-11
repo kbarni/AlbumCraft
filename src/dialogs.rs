@@ -8,6 +8,12 @@ use eframe::egui::{self, Color32};
 
 impl App {
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
+        // Settings is a larger window of its own
+        if let Some(Dialog::Settings { section }) = self.dialog {
+            self.dialog = None;
+            self.settings_dialog(ctx, section);
+            return;
+        }
         let Some(mut dialog) = self.dialog.take() else { return };
         let mut close = false;
         // Enter presses the main button of the dialogs that only ask for a name or an OK
@@ -26,6 +32,7 @@ impl App {
             Dialog::OnlineMaps => "Maps".into(),
             Dialog::PrintReview { .. } => "Review".into(),
             Dialog::TrashRejects { .. } => "Move to the trash".into(),
+            Dialog::Settings { .. } => "Settings".into(),
         };
         let targets = self.targets();
         #[allow(deprecated)]
@@ -132,6 +139,13 @@ impl App {
                     {
                         self.dirty = true;
                     }
+                    if ui
+                        .checkbox(&mut self.store.export_exif, "Include the camera information (EXIF)")
+                        .on_hover_text("Camera, lens, exposure and the date taken, copied from the original file.")
+                        .changed()
+                    {
+                        self.dirty = true;
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Choose folder and export…").clicked() {
                             let (m, q) = (*max_dim, *quality);
@@ -233,7 +247,7 @@ impl App {
                         if st.fade { ", crossfades" } else { "" },
                         if st.motion { ", pan and zoom" } else { "" }
                     ));
-                    ui.label(egui::RichText::new(format!("About {:.0} s long. Change the timing and effects in the slideshow's control bar.", crate::movie::duration(list.len(), &st))).weak());
+                    ui.label(egui::RichText::new(format!("About {:.0} s long. Change the timing and effects in the slideshow's control bar or in Settings.", crate::movie::duration(list.len(), &st))).weak());
                     ui.add_space(4.0);
                     ui.radio_value(hd, false, "720p (1280 × 720)");
                     ui.radio_value(hd, true, "1080p (1920 × 1080)");
@@ -349,7 +363,7 @@ impl App {
                     ui.add_space(4.0);
                     ui.label("Without online maps, AlbumCraft uses its built-in world map and list of cities, and makes no internet connections.");
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("You can change this later on the map, or in the main menu: Online maps.").size(12.0).weak());
+                    ui.label(egui::RichText::new("You can change this later on the map, or in Settings (main menu): Maps.").size(12.0).weak());
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.add(egui::Button::new(egui::RichText::new("Use online maps").color(Color32::WHITE).strong()).fill(t().accent)).clicked() {
@@ -364,6 +378,8 @@ impl App {
                         }
                     });
                 }
+                // drawn by `settings_dialog`, before this one
+                Dialog::Settings { .. } => close = true,
             }
         });
         // Esc, or a click beside the dialog: the same as Cancel
