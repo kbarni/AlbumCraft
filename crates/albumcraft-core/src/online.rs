@@ -80,13 +80,13 @@ pub fn load_tile(agent: &ureq::Agent, dir: Option<&std::path::Path>, id: TileId)
             Err(e) => old.map(|(b, _)| b).ok_or(e)?,
         },
     };
-    let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).map_err(|e| format!("a map tile could not be read: {e}"))?;
+    let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).map_err(|e| crate::msg!("online-tile-bad", "a map tile could not be read: {error}", error = e))?;
     Ok(img.to_rgba8())
 }
 
 fn download(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
-    let mut resp = agent.get(url).call().map_err(|e| format!("Online map not reachable ({e})"))?;
-    resp.body_mut().with_config().limit(4 << 20).read_to_vec().map_err(|e| format!("Online map not reachable ({e})"))
+    let mut resp = agent.get(url).call().map_err(|e| crate::msg!("online-map-down", "Online map not reachable ({error})", error = e))?;
+    resp.body_mut().with_config().limit(4 << 20).read_to_vec().map_err(|e| crate::msg!("online-map-down", "Online map not reachable ({error})", error = e).to_string())
 }
 
 /// Remove the least recently written tiles when the cache is bigger than `max_bytes`.
@@ -149,9 +149,9 @@ fn encode(s: &str) -> String {
 
 fn get_json(url: &str) -> Result<serde_json::Value, String> {
     wait_turn();
-    let mut resp = agent().get(url).call().map_err(|e| format!("The online search is not reachable ({e})."))?;
+    let mut resp = agent().get(url).call().map_err(|e| crate::msg!("online-search-down", "The online search is not reachable ({error}).", error = e))?;
     let text = resp.body_mut().with_config().limit(2 << 20).read_to_string().map_err(|e| e.to_string())?;
-    serde_json::from_str(&text).map_err(|e| format!("Unexpected answer from the online search: {e}"))
+    serde_json::from_str(&text).map_err(|e| crate::msg!("online-search-odd", "Unexpected answer from the online search: {error}", error = e).to_string())
 }
 
 /// "Place de la Bourse, Bordeaux, France" from an answer's address parts.

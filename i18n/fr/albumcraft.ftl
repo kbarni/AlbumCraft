@@ -1208,3 +1208,82 @@ locale-group = { " " }
 locale-unit-kb = Ko
 locale-unit-mb = Mo
 locale-unit-gb = Go
+
+## Messages made by the core crate (src/msg.rs in the core; each has its English at the place that makes it)
+
+import-name-empty = Saisissez un nom pour le nouveau dossier.
+import-name-chars = Un nom de dossier ne peut pas contenir / \ : * ? " < > |
+import-name-long = Ce nom de dossier est trop long.
+import-drive = Disque { $letter } :
+import-mkdir-fail = Le dossier { $path } n'a pas pu être créé : { $error }
+import-too-many = trop de fichiers portent ce nom
+import-appeared = un fichier de ce nom est apparu pendant la copie
+export-logo-bad = le logo { $path } est illisible ({ $error })
+export-unreadable = la photo n'a pas pu être lue
+gallery-too-many = trop de galeries portent ce nom ici
+gallery-none-read = aucune des photos n'a pu être lue
+movie-no-pictures = aucune photo
+movie-ffmpeg-start = FFmpeg n'a pas pu être lancé : { $error }
+movie-ffmpeg-input = FFmpeg n'a pas d'entrée
+movie-ffmpeg-stopped = FFmpeg s'est arrêté ({ $error })
+movie-ffmpeg-failed =
+    FFmpeg a échoué :
+    { $tail }
+root-already = Ce dossier est déjà dans la bibliothèque.
+root-inside = Ce dossier est déjà dans la bibliothèque, dans { $outer }.
+online-tile-bad = une tuile de carte n'a pas pu être lue : { $error }
+online-map-down = Carte en ligne inaccessible ({ $error })
+online-search-down = La recherche en ligne est inaccessible ({ $error }).
+online-search-odd = Réponse inattendue de la recherche en ligne : { $error }
+collage-nothing = il n'y a rien à enregistrer
+collage-extension = enregistrez en .pdf, .png ou .jpg
+collage-page-fail = une page n'a pas pu être dessinée
+geo-near = Près de { $name }
+mail-no-pictures = aucune photo à joindre
+mail-copies-fail = Impossible de faire les copies pour l'e-mail : { $error }
+mail-stopped = L'e-mail n'a pas été préparé : arrêt demandé.
+mail-none-read = Impossible de faire les copies pour l'e-mail : aucune des photos n'a pu être lue.
+mail-left-out =
+    { $n ->
+        [one] { $n } photo n'a pas pu être lue et a été laissée de côté.
+       *[other] { $n } photos n'ont pas pu être lues et ont été laissées de côté.
+    }
+mail-opened =
+    Un nouveau message avec { $n ->
+        [one] { $n } photo
+       *[other] { $n } photos
+    } est ouvert dans votre logiciel de messagerie.{ $left_out }
+mail-asked =
+    Votre logiciel de messagerie a reçu la demande d'un nouveau message avec { $n ->
+        [one] { $n } photo
+       *[other] { $n } photos
+    }. Si elles ne sont pas jointes, joignez-les depuis :
+    { $path }{ $left_out }
+mail-open-fail =
+    Impossible d'ouvrir votre logiciel de messagerie ({ $error }).
+    Les petites copies de { $n ->
+        [one] { $n } photo
+       *[other] { $n } photos
+    } se trouvent dans :
+    { $path }
+    Joignez-les à votre message.{ $left_out }
+mail-too-many = trop de photos
+mail-no-mapi = aucun logiciel de messagerie (mapi32.dll : { $error })
+mail-no-attach = le logiciel de messagerie n'accepte pas les pièces jointes (pas de MAPISendMailW)
+mail-refused = le logiciel de messagerie a refusé le message (erreur MAPI { $code })
+mail-open-mail = impossible d'ouvrir Mail : { $error }
+mail-open-mail-short = impossible d'ouvrir Mail
+mail-no-xdg = xdg-email (de xdg-utils) n'est pas installé
+mail-xdg-fail = impossible de lancer xdg-email : { $error }
+gallery-html-lang = fr
+gallery-count = { $n ->
+    [one] { $n } photo
+   *[other] { $n } photos
+}
+gallery-close = Fermer
+gallery-prev = Précédente
+gallery-next = Suivante
+sheet-count = { $n ->
+    [one] { $n } photo
+   *[other] { $n } photos
+}

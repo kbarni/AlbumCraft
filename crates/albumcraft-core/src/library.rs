@@ -595,9 +595,9 @@ impl Store {
         let p = Path::new(path);
         if let Some(outer) = self.roots.iter().find(|r| p.starts_with(r)) {
             return Err(if Path::new(outer) == p {
-                "That folder is already in the library.".into()
+                crate::msg!("root-already", "That folder is already in the library.").into()
             } else {
-                format!("That folder is already in the library, as part of {outer}.")
+                crate::msg!("root-inside", "That folder is already in the library, as part of {outer}.", outer = outer).into()
             });
         }
         self.roots.retain(|r| !Path::new(r).starts_with(p));

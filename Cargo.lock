@@ -156,6 +156,7 @@ dependencies = [
  "earcut",
  "eframe",
  "epaint_default_fonts",
+ "fluent-bundle",
  "i18n-embed",
  "i18n-embed-fl",
  "image",

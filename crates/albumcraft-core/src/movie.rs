@@ -95,7 +95,7 @@ pub fn draw(out: &mut [u8], w: u32, h: u32, pic: &RgbaImage, uv: [f32; 4], alpha
 /// `library::STOPPED`.
 pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), s: &SlideSettings, progress: &dyn Fn(f32) -> bool) -> Result<(), String> {
     if pictures.is_empty() {
-        return Err("no pictures".into());
+        return Err(crate::msg!("movie-no-pictures", "no pictures").into());
     }
     let (w, h) = (w & !1, h & !1); // the video format wants even sizes
     let mut args: Vec<String> = ["-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba"].map(String::from).to_vec();
@@ -119,7 +119,7 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("FFmpeg could not be started: {e}"))?;
+        .map_err(|e| crate::msg!("movie-ffmpeg-start", "FFmpeg could not be started: {error}", error = e))?;
     let mut stderr = child.stderr.take();
     let errors = std::thread::spawn(move || {
         let mut text = String::new();
@@ -128,7 +128,7 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
         }
         text
     });
-    let mut stdin = child.stdin.take().ok_or("FFmpeg has no input")?;
+    let mut stdin = child.stdin.take().ok_or_else(|| crate::msg!("movie-ffmpeg-input", "FFmpeg has no input"))?;
 
     // pictures are loaded one ahead, a bit larger than the movie so zooming in stays sharp
     let long = (w.max(h) as f32 * 1.2) as u32;
@@ -166,7 +166,7 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
             draw(&mut frame, w, h, &p, uv_of(i, since), alpha);
         }
         if let Err(e) = stdin.write_all(&frame) {
-            result = Err(format!("FFmpeg stopped ({e})"));
+            result = Err(crate::msg!("movie-ffmpeg-stopped", "FFmpeg stopped ({error})", error = e).to_string());
             break;
         }
         if f % (FPS as usize / 2).max(1) == 0 && !progress(f as f32 / total as f32) {
@@ -185,7 +185,7 @@ pub fn make(out: &Path, pictures: &[(String, Vec<EditOp>)], (w, h): (u32, u32), 
         let tail: String = log.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
         return Err(match result {
             Err(e) => format!("{e}\n{tail}"),
-            Ok(()) => format!("FFmpeg failed:\n{tail}"),
+            Ok(()) => crate::msg!("movie-ffmpeg-failed", "FFmpeg failed:\n{tail}", tail = tail).to_string(),
         });
     }
     let _ = progress(1.0);

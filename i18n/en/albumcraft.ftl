@@ -1212,3 +1212,82 @@ locale-group = ,
 locale-unit-kb = KB
 locale-unit-mb = MB
 locale-unit-gb = GB
+
+## Messages made by the core crate (src/msg.rs in the core; each has its English at the place that makes it)
+
+import-name-empty = Type a name for the new folder.
+import-name-chars = A folder name can't contain / \ : * ? " < > |
+import-name-long = That folder name is too long.
+import-drive = Drive { $letter }:
+import-mkdir-fail = The folder { $path } could not be made: { $error }
+import-too-many = too many files with this name
+import-appeared = a file with this name appeared during the copy
+export-logo-bad = the logo { $path } can't be read ({ $error })
+export-unreadable = the picture could not be read
+gallery-too-many = too many galleries with this name here
+gallery-none-read = none of the pictures could be read
+movie-no-pictures = no pictures
+movie-ffmpeg-start = FFmpeg could not be started: { $error }
+movie-ffmpeg-input = FFmpeg has no input
+movie-ffmpeg-stopped = FFmpeg stopped ({ $error })
+movie-ffmpeg-failed =
+    FFmpeg failed:
+    { $tail }
+root-already = That folder is already in the library.
+root-inside = That folder is already in the library, as part of { $outer }.
+online-tile-bad = a map tile could not be read: { $error }
+online-map-down = Online map not reachable ({ $error })
+online-search-down = The online search is not reachable ({ $error }).
+online-search-odd = Unexpected answer from the online search: { $error }
+collage-nothing = there is nothing to save
+collage-extension = save as .pdf, .png or .jpg
+collage-page-fail = a page could not be drawn
+geo-near = Near { $name }
+mail-no-pictures = no pictures to attach
+mail-copies-fail = Could not make the copies for the email: { $error }
+mail-stopped = The email was not prepared: stopped.
+mail-none-read = Could not make the copies for the email: none of the pictures could be read.
+mail-left-out =
+    { $n ->
+        [one] { $n } picture could not be read and was left out.
+       *[other] { $n } pictures could not be read and were left out.
+    }
+mail-opened =
+    A new message with { $n ->
+        [one] { $n } picture
+       *[other] { $n } pictures
+    } is open in your mail program.{ $left_out }
+mail-asked =
+    Your mail program was asked for a new message with { $n ->
+        [one] { $n } picture
+       *[other] { $n } pictures
+    }. If they are not attached, attach them from:
+    { $path }{ $left_out }
+mail-open-fail =
+    Could not open your mail program ({ $error }).
+    The small copies of { $n ->
+        [one] { $n } picture
+       *[other] { $n } pictures
+    } are in:
+    { $path }
+    Attach them to your message.{ $left_out }
+mail-too-many = too many pictures
+mail-no-mapi = no mail program (mapi32.dll: { $error })
+mail-no-attach = the mail program does not take attachments (no MAPISendMailW)
+mail-refused = the mail program refused the message (MAPI error { $code })
+mail-open-mail = could not open Mail: { $error }
+mail-open-mail-short = could not open Mail
+mail-no-xdg = xdg-email (from xdg-utils) is not installed
+mail-xdg-fail = could not start xdg-email: { $error }
+gallery-html-lang = en
+gallery-count = { $n ->
+    [one] { $n } picture
+   *[other] { $n } pictures
+}
+gallery-close = Close
+gallery-prev = Previous
+gallery-next = Next
+sheet-count = { $n ->
+    [one] { $n } picture
+   *[other] { $n } pictures
+}

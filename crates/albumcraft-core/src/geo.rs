@@ -232,7 +232,7 @@ pub fn describe(place: Option<&Place>, at: LatLon) -> String {
     }
     match nearest(at) {
         Some((c, km)) if km <= c.radius_km() => gazetteer().short_name(c),
-        Some((c, km)) if km <= 60.0 => format!("Near {}", gazetteer().short_name(c)),
+        Some((c, km)) if km <= 60.0 => crate::msg!("geo-near", "Near {name}", name = gazetteer().short_name(c)).to_string(),
         _ => at.text(),
     }
 }

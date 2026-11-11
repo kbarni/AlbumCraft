@@ -30,7 +30,7 @@ mod theme;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{catalogue, collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, raw, steps, thumbcache};
+pub use albumcraft_core::{catalogue, collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, steps, thumbcache};
 
 use std::path::PathBuf;
 
@@ -115,6 +115,7 @@ fn main() -> eframe::Result<()> {
         };
         std::process::exit(code);
     }
+    i18n::init();
     let trace = std::env::var_os("ALBUMCRAFT_TRACE").is_some();
     if trace {
         eprintln!("start");

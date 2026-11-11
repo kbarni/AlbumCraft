@@ -9,6 +9,8 @@
 //! (`set_language`): egui draws every frame again, so the new text appears at once.
 
 use i18n_embed::fluent::{FluentLanguageLoader, fluent_language_loader};
+use fluent_bundle::FluentValue;
+use std::collections::HashMap;
 use i18n_embed::unic_langid::LanguageIdentifier;
 use i18n_embed::{DesktopLanguageRequester, LanguageLoader};
 use rust_embed::RustEmbed;
@@ -45,6 +47,25 @@ fn load(loader: &FluentLanguageLoader, requested: &[LanguageIdentifier]) {
     // Fluent puts invisible direction marks around arguments, which egui's fonts would draw as
     // boxes; loading a language starts over with them on, so this comes after it
     loader.set_use_isolating(false);
+}
+
+/// Make the core crate's messages (`msg!`) come out in the interface's language. Called once,
+/// before the window starts; `--mcp` does not, and stays English.
+pub fn init() {
+    crate::msg::set_translator(translate);
+}
+
+/// The message `key` of the core crate, with its arguments; None when there is no such message.
+/// Arguments that are whole numbers are numbers for Fluent (plurals).
+fn translate(key: &str, args: &[(&'static str, String)]) -> Option<String> {
+    if !LOADER.has(key) {
+        return None;
+    }
+    let args: HashMap<&str, FluentValue> = args
+        .iter()
+        .map(|(name, value)| (*name, value.parse::<i64>().map(FluentValue::from).unwrap_or_else(|_| value.clone().into())))
+        .collect();
+    Some(LOADER.get_args(key, args))
 }
 
 /// Switch the interface to `language` (a code such as "fr", as saved in `Store::language`), or
@@ -139,6 +160,71 @@ mod tests {
         }
     }
 
+    /// The `msg!("key", "English", …)` calls of the core crate's sources: (key, English).
+    fn core_messages() -> Vec<(String, String)> {
+        // reads a string literal at the start of `s` (after spaces): its text and what follows it
+        fn literal(s: &str) -> Option<(String, &str)> {
+            let s = s.trim_start().strip_prefix('"')?;
+            let (mut out, mut chars) = (String::new(), s.char_indices());
+            while let Some((i, c)) = chars.next() {
+                match c {
+                    '"' => return Some((out, &s[i + 1..])),
+                    '\\' => match chars.next()?.1 {
+                        'n' => out.push('\n'),
+                        other => out.push(other),
+                    },
+                    c => out.push(c),
+                }
+            }
+            None
+        }
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/albumcraft-core/src");
+        let mut found = vec![];
+        for entry in std::fs::read_dir(dir).expect("core sources").flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "rs") || path.file_name().is_some_and(|n| n == "msg.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("utf-8");
+            for part in text.split("msg!(").skip(1) {
+                if let Some((key, rest)) = literal(part)
+                    && let Some((english, _)) = rest.trim_start().strip_prefix(',').and_then(literal)
+                {
+                    found.push((key, english));
+                }
+            }
+        }
+        found
+    }
+
+    /// The English written where the core crate makes a message is the English of the message in
+    /// `en.ftl` (one is the fallback when there is no window, the other what the window shows).
+    #[test]
+    fn core_messages_match_the_english_file() {
+        let messages = core_messages();
+        assert!(messages.len() > 30, "found only {} messages in the core sources", messages.len());
+        for (key, english) in messages {
+            let (key, english): (&'static str, &'static str) = (Box::leak(key.into_boxed_str()), Box::leak(english.into_boxed_str()));
+            // every {name} or {name:one|other} of the English text, as an argument
+            let names: Vec<&'static str> = english
+                .split('{')
+                .skip(1)
+                .filter_map(|p| p.split('}').next())
+                .map(|inner| inner.split(':').next().unwrap_or(inner))
+                .map(|n| &*Box::leak(n.to_string().into_boxed_str()))
+                .collect();
+            let mut msg = crate::msg::Msg::new(key, english);
+            let mut args = vec![];
+            for name in names {
+                let value = if name == "n" { "3".to_string() } else { format!("<{name}>") };
+                msg = msg.arg(name, &value);
+                args.push((name, value));
+            }
+            let shown = translate(key, &args).unwrap_or_else(|| panic!("{key}: no such message in en.ftl"));
+            assert_eq!(shown, msg.english(), "{key}: en.ftl and the English in the core crate differ");
+        }
+    }
+
     /// Text with arguments has no invisible direction marks (egui would draw them as boxes).
     #[test]
     fn arguments_are_not_isolated() {
@@ -148,6 +234,45 @@ mod tests {
         let fr: FluentLanguageLoader = fluent_language_loader!();
         load(&fr, &["fr".parse().expect("language code")]);
         assert_eq!(i18n_embed_fl::fl!(fr, "op-look", look = "Éclatant", amount = "50"), "Éclatant 50 %");
+    }
+
+    /// The `$arguments` each message uses, from the raw text of a language's file.
+    fn arguments(code: &str) -> std::collections::BTreeMap<String, BTreeSet<String>> {
+        let file = Localizations::get(&format!("{code}/{}", LOADER.language_file_name())).expect("file");
+        let text = std::str::from_utf8(&file.data).expect("utf-8").to_owned();
+        let mut out = std::collections::BTreeMap::new();
+        let mut current = None;
+        for line in text.lines() {
+            let starts = line.chars().next().is_some_and(|c| c.is_ascii_lowercase()) && line.contains(" =");
+            if starts {
+                let id = line.split(" =").next().unwrap_or("").to_string();
+                out.insert(id.clone(), BTreeSet::new());
+                current = Some(id);
+            } else if !line.starts_with(' ') && !line.trim().is_empty() {
+                current = None;
+            }
+            if let Some(vars) = current.as_ref().and_then(|id| out.get_mut(id)) {
+                for part in line.split('$').skip(1) {
+                    let name: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+                    vars.insert(name);
+                }
+            }
+        }
+        out
+    }
+
+    /// A translation uses the arguments of the English message, no more and no fewer.
+    #[test]
+    fn languages_use_the_english_arguments() {
+        let en = arguments("en");
+        assert!(en.len() > 500);
+        for (code, _) in available() {
+            for (id, vars) in arguments(&code) {
+                if let Some(english) = en.get(&id) {
+                    assert_eq!(&vars, english, "{code}: the arguments of {id} are not those of the English message");
+                }
+            }
+        }
     }
 
     #[test]

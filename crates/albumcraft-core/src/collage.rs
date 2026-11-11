@@ -982,7 +982,7 @@ pub fn contact_sheet(s: &SheetSettings, pics: &[Pic], title: &str, subtitle: &st
 /// "37 pictures, April 2006" / "12 pictures, March – May 2006" from the pictures' dates.
 pub fn sheet_subtitle(times: &[i64]) -> String {
     let n = times.len();
-    let count = if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
+    let count = crate::msg!("sheet-count", "{n} {n:picture|pictures}", n = n).to_string();
     let (Some(&lo), Some(&hi)) = (times.iter().min(), times.iter().max()) else { return count };
     let ym = |t: i64| {
         use chrono::{Datelike, TimeZone};
@@ -1295,7 +1295,7 @@ pub fn render_job_page(job: &Job, page: usize, k: f32, read: Reader) -> Option<R
 /// Save the pages: a PDF (one page per page) or, for `.png` / `.jpg`, a picture per page
 /// ("name-2.png" for the second). Returns the files written.
 pub fn save(job: &Job, path: &Path, px_long: u32, read: Reader) -> Result<Vec<std::path::PathBuf>, String> {
-    let Some(first) = job.pages.first() else { return Err("there is nothing to save".into()) };
+    let Some(first) = job.pages.first() else { return Err(crate::msg!("collage-nothing", "there is nothing to save").into()) };
     let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     let write = |target: &Path, bytes: &[u8]| -> Result<(), String> {
         let tmp = target.with_extension(format!("{ext}.part"));
@@ -1311,7 +1311,7 @@ pub fn save(job: &Job, path: &Path, px_long: u32, read: Reader) -> Result<Vec<st
             let k = 200.0 / 25.4;
             let mut jpegs = vec![];
             for i in 0..job.pages.len() {
-                let img = render_job_page(job, i, k, read).ok_or("a page could not be drawn")?;
+                let img = render_job_page(job, i, k, read).ok_or_else(|| crate::msg!("collage-page-fail", "a page could not be drawn"))?;
                 jpegs.push(jpeg_bytes(&img, 90)?);
             }
             let [w, h] = first.size;
@@ -1321,11 +1321,11 @@ pub fn save(job: &Job, path: &Path, px_long: u32, read: Reader) -> Result<Vec<st
         }
         "png" | "jpg" | "jpeg" => {
             let mut out = vec![];
-            let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Collage".into());
+            let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| crate::msg!("collage-file-collage", "Collage").to_string());
             for (i, p) in job.pages.iter().enumerate() {
                 let target = if i == 0 { path.to_path_buf() } else { path.with_file_name(format!("{stem}-{}.{ext}", i + 1)) };
                 let k = px_long.clamp(256, MAX_PAGE_PX) as f32 / p.size[0].max(p.size[1]).max(1.0);
-                let img = render_job_page(job, i, k, read).ok_or("a page could not be drawn")?;
+                let img = render_job_page(job, i, k, read).ok_or_else(|| crate::msg!("collage-page-fail", "a page could not be drawn"))?;
                 let bytes = if ext == "png" {
                     let mut buf = std::io::Cursor::new(vec![]);
                     image::DynamicImage::ImageRgba8(img).to_rgb8().write_to(&mut buf, image::ImageFormat::Png).map_err(|e| e.to_string())?;
@@ -1338,7 +1338,7 @@ pub fn save(job: &Job, path: &Path, px_long: u32, read: Reader) -> Result<Vec<st
             }
             Ok(out)
         }
-        _ => Err("save as .pdf, .png or .jpg".into()),
+        _ => Err(crate::msg!("collage-extension", "save as .pdf, .png or .jpg").into()),
     }
 }
 

@@ -55,7 +55,7 @@ pub struct Options {
 
 /// Read a logo file for `sign` (any picture format; its transparency is kept).
 pub fn load_logo(path: &str) -> Result<RgbaImage, String> {
-    image::open(path).map(|i| i.to_rgba8()).map_err(|e| format!("the logo {path} can't be read ({e})"))
+    image::open(path).map(|i| i.to_rgba8()).map_err(|e| crate::msg!("export-logo-bad", "the logo {path} can't be read ({error})", path = path, error = e).to_string())
 }
 
 /// Draw the signature on a picture: the text (with `decor`'s text drawing) or `logo`.
@@ -82,7 +82,7 @@ pub fn sign(img: RgbaImage, sig: &Signature, logo: Option<&RgbaImage>) -> RgbaIm
 /// made as `opts` says, with `gps` in its EXIF and `logo` for a logo signature (`load_logo`).
 /// Never overwrites a file, and removes its own half-written file when something fails.
 pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Options, gps: Option<crate::geo::LatLon>, logo: Option<&RgbaImage>) -> Result<PathBuf, String> {
-    let src = imaging::load_source(key, opts.max_dim).ok_or("the picture could not be read")?;
+    let src = imaging::load_source(key, opts.max_dim).ok_or_else(|| crate::msg!("export-unreadable", "the picture could not be read"))?;
     let mut img = imaging::apply_all(&src, edits);
     if let Some(sig) = &opts.signature {
         img = sign(img, sig, logo);
