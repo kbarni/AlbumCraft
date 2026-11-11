@@ -136,3 +136,86 @@ notice-undo = Undo
 notice-show = Show in folder
 notice-close = Close this message
 notice-no-file-manager = Could not open the file manager: { $error }
+
+## Settings dialog sections (src/settings_view.rs)
+
+count-pictures = { $n ->
+    [one] { $n } picture
+   *[other] { $n } pictures
+}
+
+settings-bar = Bar at the bottom of the library
+settings-bar-compact = Compact: one line, shown while pictures are selected
+settings-bar-tray = Tray: thumbnails of the selected pictures and large buttons
+settings-bar-note = In the compact bar, the buttons lose their names when the window is narrow. When the buttons don't fit, the bar scrolls sideways.
+settings-thumb-size = Picture size in the library
+
+settings-folders-intro = The library shows the pictures in these folders and their subfolders, where they are: nothing is copied or moved. To copy pictures from a memory card or a camera, use Import.
+settings-folders-none = No folders yet: sample pictures are shown instead.
+settings-folders-remove-hint = Stop showing this folder (its pictures and your notes on them are kept)
+settings-folders-rescan-hint = Look for new, changed and removed pictures now
+
+settings-edit-opens = The Edit tab opens on
+settings-edit-basic = Basic: one-click fixes and tools
+settings-edit-advanced = Advanced: the sliders
+settings-info-panel = Info panel
+settings-info-show = Show the info panel in the editor (I)
+
+settings-timing = Timing
+settings-next-after = Next picture after
+settings-note-paused = Space pauses a slideshow, ← and → step through it.
+settings-note-manual = Each picture stays until you move on with → or the buttons. The full-screen viewer (F11) still moves on by itself.
+settings-effects = Effects
+settings-fade = Crossfade between pictures
+settings-motion = Slow pan and zoom
+settings-motion-subtle = Subtle
+settings-motion-medium = Medium
+settings-captions = Show captions
+settings-viewer-note = The full-screen viewer (F11 in the editor) always starts without crossfade and pan and zoom.
+settings-music = Music
+settings-music-play = Play music during slideshows
+settings-music-another = Choose another…
+settings-music-choose = Choose music…
+settings-movies-note = Movies made from pictures use these settings too.
+
+settings-export-note = What the Export view starts with.
+settings-export-size = Picture size
+settings-export-quality = JPEG quality
+settings-export-info = Information in the copies
+settings-export-gps = Include where the pictures were taken (GPS)
+settings-export-gps-hint = Turn off before sharing pictures if you don't want others to see the location.
+settings-export-exif = Include the camera information (EXIF)
+settings-export-exif-hint = Camera, lens, exposure and the date taken, copied from the original file. The location follows the setting above.
+settings-creator = Creator
+settings-creator-hint = Your name
+settings-copyright = Copyright
+settings-copyright-hint = © Your Name
+settings-credit-note = Written into each copy (EXIF), in place of the original's. Emailed copies follow these settings too. The signature or logo is chosen in the Export view.
+
+settings-maps-online = Online maps
+settings-maps-use = Use online maps (OpenStreetMap)
+settings-maps-note = Detailed street maps and address search. Your pictures and their locations are never sent; the map servers see your internet address, the areas you look at and the places you search for. Off: only the built-in world map and city list, and no internet connections.
+settings-maps-tiles = Downloaded map tiles
+settings-maps-tiles-after = Map tiles are downloaded again when needed.
+
+settings-notes = Your notes
+settings-notes-note = Ratings, captions, tags, edits and albums are kept in one file; your picture files are never changed.
+settings-thumbs = Thumbnails
+settings-thumbs-after = Thumbnails are made again from the pictures when needed (slower for a while).
+cache-on-disk = { $size } on disk
+cache-measuring = Measuring…
+cache-empty = Empty
+
+settings-ai-soon = Not available yet. Planned:
+settings-ai-faces = Faces
+settings-ai-faces-text = find faces and group them by person; you name the groups. A download of about 10 to 40 MB.
+settings-ai-search = Smart search
+settings-ai-search-text = find pictures by describing them ("snow", "birthday cake"). Light (English, about 100 MB) or Multilingual (about 400 MB).
+settings-ai-tags = Tag suggestions
+settings-ai-tags-text = tags proposed from what is in the picture.
+settings-ai-local = Everything will be computed on this computer; nothing is sent anywhere.
+
+export-size-original = Original size
+export-size-very-large = Very large (2560 pixels)
+export-size-large = Large (1600 pixels)
+export-size-small = Small, for email (800 pixels)

@@ -4,6 +4,7 @@
 //! background (`Library::export`); the signature, creator and copyright are kept for next time.
 
 use crate::app::*;
+use crate::i18n::tr;
 use crate::export::Signature;
 use crate::icons;
 use crate::library::Job;
@@ -12,7 +13,17 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// The sizes offered (longest side in pixels; 0 = the picture's own size).
-pub(crate) const SIZES: [(u32, &str); 4] = [(0, "Original size"), (2560, "Very large (2560 pixels)"), (1600, "Large (1600 pixels)"), (800, "Small, for email (800 pixels)")];
+pub(crate) const SIZES: [u32; 4] = [0, 2560, 1600, 800];
+
+/// The name of one of the `SIZES`.
+pub(crate) fn size_label(dim: u32) -> String {
+    match dim {
+        0 => tr!("export-size-original"),
+        2560 => tr!("export-size-very-large"),
+        1600 => tr!("export-size-large"),
+        _ => tr!("export-size-small"),
+    }
+}
 
 pub struct ExportState {
     pub ids: Vec<usize>,
@@ -51,7 +62,7 @@ impl App {
             .or_else(|| dirs::picture_dir().map(|d| d.to_string_lossy().to_string()))
             .unwrap_or_default();
         let max_dim = self.store.export_size;
-        let custom = if SIZES.iter().any(|s| s.0 == max_dim) { 1200 } else { max_dim };
+        let custom = if SIZES.contains(&max_dim) { 1200 } else { max_dim };
         let back = if self.view == View::Edit { View::Edit } else { View::Library };
         self.export = Some(Box::new(ExportState { ids, skip: HashSet::new(), max_dim, custom, quality: self.store.export_quality, back, dest, logo_asked: None, logo_tex: None }));
         self.view = View::Export;
@@ -211,11 +222,11 @@ impl App {
         let mut changed = false;
         if let Some(st) = self.export.as_mut() {
             heading(ui, "Size");
-            for (dim, label) in SIZES {
-                ui.radio_value(&mut st.max_dim, dim, label);
+            for dim in SIZES {
+                ui.radio_value(&mut st.max_dim, dim, size_label(dim));
             }
             ui.horizontal(|ui| {
-                let other = !SIZES.iter().any(|s| s.0 == st.max_dim);
+                let other = !SIZES.contains(&st.max_dim);
                 if ui.radio(other, "Other:").clicked() {
                     st.max_dim = st.custom;
                 }
