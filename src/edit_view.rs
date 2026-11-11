@@ -382,6 +382,14 @@ impl App {
                             let list = self.edit.list.clone();
                             self.start_slideshow(list, id);
                         }
+                        if ui
+                            .button(RichText::new(icons::FULLSCREEN).size(15.0))
+                            .on_hover_text("Full screen (F11): from this picture on, one after the other, with music")
+                            .clicked()
+                        {
+                            let list = self.edit.list.clone();
+                            self.start_viewer(list, id);
+                        }
                         let pos = self.edit.list.iter().position(|&x| x == id).unwrap_or(0);
                         if ui.add_enabled(pos + 1 < self.edit.list.len(), egui::Button::new(icons::CHEVRON_RIGHT)).on_hover_text("Next picture").clicked() {
                             self.step_photo(1);
@@ -449,6 +457,11 @@ impl App {
         if ctx.input(|i| i.key_pressed(egui::Key::I) && !i.modifiers.command) {
             self.store.info_open = !self.store.info_open;
             self.dirty = true;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::F11)) && self.edit.tool == Tool::None {
+            let list = self.edit.list.clone();
+            self.start_viewer(list, self.edit.id);
+            return;
         }
         let id = self.edit.id;
         if id < self.photos.len() {

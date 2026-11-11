@@ -326,6 +326,11 @@ pub struct Slideshow {
     pub from: View,
     pub last_move: f64,
     pub music: Option<crate::slides::Music>,
+    /// The settings this showing uses: `Store.slideshow`, or for the full-screen viewer the same
+    /// without fade and motion, with music on.
+    pub settings: crate::slides::SlideSettings,
+    /// Started as the full-screen viewer (F11): its fade, motion and music switches are not saved.
+    pub viewer: bool,
 }
 
 pub struct BigEntry {
@@ -1680,14 +1685,29 @@ impl App {
     }
 
     pub fn start_slideshow(&mut self, list: Vec<usize>, start: usize) {
+        let settings = self.store.slideshow.clone();
+        self.start_show(list, start, settings, false);
+    }
+
+    /// The full-screen viewer: the slideshow from `start`, cutting from one picture to the next
+    /// without pan and zoom, advancing by itself, with the music when a music file is chosen.
+    pub fn start_viewer(&mut self, list: Vec<usize>, start: usize) {
+        let mut settings = self.store.slideshow.clone();
+        settings.fade = false;
+        settings.motion = false;
+        settings.music_on = settings.music.is_some();
+        self.start_show(list, start, settings, true);
+    }
+
+    fn start_show(&mut self, list: Vec<usize>, start: usize, settings: crate::slides::SlideSettings, viewer: bool) {
         if list.is_empty() {
             self.toast("There are no pictures to show.");
             return;
         }
         let now = self.ctx.input(|i| i.time);
         let pos = list.iter().position(|&x| x == start).unwrap_or(0);
-        let music = self.start_music();
-        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music });
+        let music = self.start_music(&settings);
+        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music, settings, viewer });
         self.view = View::Slideshow;
         if self.shot.is_none() {
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
@@ -1744,8 +1764,7 @@ impl App {
     }
 
     /// The slideshow's music, when it is switched on (problems are reported, not fatal).
-    pub fn start_music(&mut self) -> Option<crate::slides::Music> {
-        let s = &self.store.slideshow;
+    pub fn start_music(&mut self, s: &crate::slides::SlideSettings) -> Option<crate::slides::Music> {
         if !s.music_on || self.shot.is_some() {
             return None;
         }

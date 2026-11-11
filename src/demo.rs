@@ -117,6 +117,11 @@ impl App {
             let list: Vec<usize> = (0..self.photos.len()).collect();
             self.start_slideshow(list, 0);
         }
+        if shot_view == "viewer" && self.photos.len() > 2 {
+            self.open_editor(2);
+            let list = self.edit.list.clone();
+            self.start_viewer(list, 2);
+        }
         if shot_view == "movie" {
             self.selection = [0usize, 1, 2, 3].into_iter().collect();
             self.dialog = Some(Dialog::Movie { hd: true });

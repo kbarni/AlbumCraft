@@ -31,12 +31,12 @@ impl App {
     pub fn slideshow_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let now = ctx.input(|i| i.time);
-        let settings = self.store.slideshow.clone();
-        let step = settings.step_secs() as f64;
         let Some(s) = self.slide.as_mut() else {
             self.view = View::Library;
             return;
         };
+        let settings = s.settings.clone();
+        let step = settings.step_secs() as f64;
         let len = s.list.len();
         if len == 0 {
             self.stop_slideshow();
@@ -49,7 +49,7 @@ impl App {
         let (mut stop, mut toggle, mut go) = (false, false, 0i32);
         if !ctx.memory(|m| m.focused().is_some()) {
             ctx.input(|i| {
-                stop = i.key_pressed(egui::Key::Escape);
+                stop = i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::F11);
                 toggle = i.key_pressed(egui::Key::Space);
                 if i.key_pressed(egui::Key::ArrowRight) {
                     go = 1;
@@ -66,7 +66,7 @@ impl App {
         let clock = s.paused_at.unwrap_or(now);
         let (id, pos, started, prev) = (s.list[s.pos % len], s.pos, s.started, s.prev);
         let next = s.list[(s.pos + 1) % len];
-        let (playing, last_move) = (s.playing, s.last_move);
+        let (playing, last_move, viewer) = (s.playing, s.last_move, s.viewer);
         self.request_big(next, false);
         ctx.request_repaint();
         let mut clicked: Option<SlideCmd> = None;
@@ -85,7 +85,7 @@ impl App {
                 ui.painter().text(full.center_bottom() - egui::vec2(0.0, 80.0), egui::Align2::CENTER_CENTER, c, egui::FontId::proportional(20.0), shade);
             }
             if now - last_move < 3.0 || !playing {
-                clicked = self.slideshow_controls(ui, full, pos, len, playing);
+                clicked = self.slideshow_controls(ui, full, pos, len, playing, viewer);
             }
         });
         match clicked {
@@ -144,7 +144,7 @@ impl App {
         ui.painter().image(tex.id(), r, uv, Color32::from_white_alpha((alpha.clamp(0.0, 1.0) * 255.0) as u8));
     }
 
-    fn slideshow_controls(&mut self, ui: &mut egui::Ui, full: Rect, pos: usize, len: usize, playing: bool) -> Option<SlideCmd> {
+    fn slideshow_controls(&mut self, ui: &mut egui::Ui, full: Rect, pos: usize, len: usize, playing: bool, viewer: bool) -> Option<SlideCmd> {
         let mut cmd = None;
         let bar = Rect::from_center_size(full.center_bottom() - egui::vec2(0.0, 40.0), egui::vec2(700.0, 50.0));
         ui.painter().rect_filled(bar, 10, Color32::from_rgba_unmultiplied(30, 30, 30, 210));
@@ -164,7 +164,8 @@ impl App {
         }
         child.label(format!("{} / {}", pos + 1, len));
         child.separator();
-        let st = &mut self.store.slideshow;
+        let Some(show) = self.slide.as_mut() else { return cmd };
+        let st = &mut show.settings;
         let mut changed = false;
         child.spacing_mut().slider_width = 90.0;
         changed |= child.add(egui::Slider::new(&mut st.interval, 2.0..=15.0).suffix(" s").max_decimals(0)).on_hover_text("Seconds per picture").changed();
@@ -180,14 +181,28 @@ impl App {
         } else if child.button(music_label).clicked() {
             music_changed |= pick_music(st);
         }
-        if child.add(big(icons::CLOSE)).on_hover_text("Exit (Esc)").clicked() {
+        let (exit_icon, exit_tip) = if viewer { (icons::FULLSCREEN_EXIT, "Exit full screen (F11 or Esc)") } else { (icons::CLOSE, "Exit (Esc)") };
+        if child.add(big(exit_icon)).on_hover_text(exit_tip).clicked() {
             cmd = Some(SlideCmd::Stop);
         }
         if changed || music_changed {
+            // the viewer keeps its own fade, motion and music switches; the rest is remembered
+            let now = st.clone();
+            let saved = &mut self.store.slideshow;
+            if viewer {
+                saved.interval = now.interval;
+                if saved.music != now.music {
+                    saved.music = now.music.clone();
+                    saved.music_on = true;
+                }
+            } else {
+                *saved = now;
+            }
             self.dirty = true;
         }
         if music_changed {
-            let music = self.start_music();
+            let settings = st.clone();
+            let music = self.start_music(&settings);
             if let Some(s) = self.slide.as_mut() {
                 s.music = music;
                 if let Some(m) = &s.music {
