@@ -275,10 +275,10 @@ impl App {
     }
 
     fn settings_export(&mut self, ui: &mut egui::Ui) {
-        note(ui, "What the Export dialog starts with.");
+        note(ui, "What the Export view starts with.");
         group(ui, "Picture size");
         let mut changed = false;
-        for (dim, label) in [(0, "Original size"), (1600, "Large (1600 pixels)"), (800, "Small, for email (800 pixels)")] {
+        for (dim, label) in crate::export_view::SIZES {
             changed |= ui.radio_value(&mut self.store.export_size, dim, label).changed();
         }
         group(ui, "JPEG quality");
@@ -292,7 +292,16 @@ impl App {
             .checkbox(&mut self.store.export_exif, "Include the camera information (EXIF)")
             .on_hover_text("Camera, lens, exposure and the date taken, copied from the original file. The location follows the setting above.")
             .changed();
-        note(ui, "Emailed copies follow these two settings too.");
+        ui.add_space(6.0);
+        egui::Grid::new("settings_credit").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+            ui.label("Creator");
+            changed |= ui.add(egui::TextEdit::singleline(&mut self.store.export_creator).hint_text("Your name").desired_width(280.0)).changed();
+            ui.end_row();
+            ui.label("Copyright");
+            changed |= ui.add(egui::TextEdit::singleline(&mut self.store.export_copyright).hint_text("© Your Name").desired_width(280.0)).changed();
+            ui.end_row();
+        });
+        note(ui, "Written into each copy (EXIF), in place of the original's. Emailed copies follow these settings too. The signature or logo is chosen in the Export view.");
         if changed {
             self.dirty = true;
         }

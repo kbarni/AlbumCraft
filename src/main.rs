@@ -7,6 +7,7 @@ mod demo;
 mod dialogs;
 mod display;
 mod edit_view;
+mod export_view;
 mod icons;
 mod import_view;
 mod collage_view;

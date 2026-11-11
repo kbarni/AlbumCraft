@@ -141,6 +141,8 @@ pub enum View {
     Map,
     /// Copying pictures from a card, camera or folder into the library.
     Import,
+    /// Making copies of pictures: options, signature, the pictures and their folder.
+    Export,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -204,7 +206,6 @@ pub enum Dialog {
     NewAlbum { name: String },
     RenameAlbum { idx: usize, name: String },
     Tag { tags: String, people: String },
-    Export { max_dim: u32, quality: u8 },
     /// Make a web gallery of the tray.
     Gallery { title: String, style: crate::gallery::Style, size: u32, captions: bool },
     FolderNote { path: String, text: String },
@@ -487,6 +488,7 @@ pub struct App {
     next_task: u64,
     /// The import view's state (only while it is open).
     pub import: Option<Box<crate::import_view::ImportState>>,
+    pub export: Option<Box<crate::export_view::ExportState>>,
     /// A copy running in the background (shown in the status bar).
     pub importing: Option<crate::import_view::Importing>,
     /// The folder to show once the scan after an import is done.
@@ -658,6 +660,7 @@ impl App {
             },
             slide: None,
             cache_sizes: None,
+            export: None,
             print: None,
             collage: None,
             dialog: None,
@@ -889,6 +892,14 @@ impl App {
         if self.collage.as_mut().is_some_and(|c| !c.keep_across_scan(to)) {
             self.collage = None;
         }
+        if let Some(e) = self.export.as_mut() {
+            let skipped: Vec<usize> = e.skip.iter().filter_map(|&id| to(id)).collect();
+            list_of(&mut e.ids, to);
+            e.skip = skipped.into_iter().collect();
+            if e.ids.is_empty() {
+                self.export = None;
+            }
+        }
         if let Some(s) = self.slide.as_mut() {
             let current = s.list.get(s.pos).copied().and_then(to);
             list_of(&mut s.list, to);
@@ -903,6 +914,7 @@ impl App {
             View::Print => self.print.is_none(),
             View::Collage => self.collage.is_none(),
             View::Slideshow => self.slide.is_none(),
+            View::Export => self.export.is_none(),
             _ => false,
         };
         if gone {
@@ -1899,17 +1911,6 @@ impl App {
         }
     }
 
-    pub fn export(&mut self, ids: Vec<usize>, max_dim: u32, quality: u8) {
-        if ids.is_empty() {
-            self.toast("Select some pictures first.");
-            return;
-        }
-        let Some(dir) = rfd::FileDialog::new().set_title("Export pictures to…").pick_folder() else { return };
-        let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
-        let task = self.start_task(format!("Exporting {} picture(s)", jobs.len()));
-        self.lib.export(task, jobs, dir, max_dim, quality, self.store.export_location, self.store.export_exif);
-    }
-
     /// Ask whether to move the library's rejected pictures to the trash.
     pub fn ask_trash_rejects(&mut self) {
         let rejects: Vec<&Photo> = self.photos.iter().enumerate().filter(|(id, p)| !p.is_sample() && self.flag(*id) == Flag::Reject).map(|(_, p)| p).collect();
@@ -1941,7 +1942,7 @@ impl App {
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
         let task = self.start_task(format!("Preparing {} picture(s) for an email", jobs.len()));
         let subject = self.tray_title();
-        self.lib.email(task, jobs, subject, self.store.export_location, self.store.export_exif);
+        self.lib.email(task, jobs, subject, self.store.export_location, self.store.export_options(0, 0));
     }
 
     /// A name for what is in the tray: the album, the person, or the folder of its first picture.
@@ -2108,6 +2109,7 @@ impl App {
                 Done::File { key, dim, img } => {
                     if dim == library::BIG_DIM && self.collage.as_ref().is_some_and(|c| c.bg_key.as_deref() == Some(key.as_str())) {
                         self.on_collage_background(key, img);
+                    } else if self.on_export_file(&key, img.as_ref()) {
                     } else {
                         self.on_import_file(key, dim, img);
                     }
@@ -2343,6 +2345,7 @@ impl eframe::App for App {
             View::Collage => self.collage_ui(ui),
             View::Map => self.map_ui(ui),
             View::Import => self.import_ui(ui),
+            View::Export => self.export_ui(ui),
         }
         library::trace_since(&format!("frame: {:?} view", self.view), t0, 30);
         // Ctrl+P opens printing from the library or the editor

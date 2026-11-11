@@ -1086,7 +1086,7 @@ impl App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(format!("{} Export", icons::EXPORT)).clicked() {
-                            self.dialog = Some(Dialog::Export { max_dim: self.store.export_size, quality: self.store.export_quality });
+                            self.open_export(vec![id]);
                         }
                         if crate::print::available() && ui.button(format!("{} Print", icons::PRINT)).on_hover_text("Print this picture (Ctrl+P)").clicked() {
                             self.open_print();
