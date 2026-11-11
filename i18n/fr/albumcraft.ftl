@@ -704,3 +704,159 @@ edit-full-loading = Chargement de la photo complète…
 edit-draw-box = Faites glisser sur la photo pour tracer un cadre
 edit-click-neutral = Cliquez sur un élément qui devrait être gris ou blanc
 edit-wb-title = Balance des blancs
+
+## Info panel, search, slideshow bar
+
+info-hide-hint = Masquer ce panneau (I)
+info-properties = Propriétés
+info-camera = Appareil
+info-lens = Objectif
+info-taken = Prise le
+info-file-date = { $date } (date du fichier)
+info-size = Taille
+info-megapixels = { $w } × { $h } ({ $mp } Mpx)
+info-file = Fichier
+info-focal = Focale
+info-focal-35 = { $f } mm (35 mm : { $e } mm)
+info-aperture = Ouverture
+info-exposure = Exposition
+info-folder = Dossier
+info-sample = Photo d'exemple intégrée
+info-edits = Retouches
+info-no-exif = Aucune information d'appareil (EXIF) dans cette photo.
+info-exif = EXIF détaillées
+info-flash = Flash
+info-bias = Correction d'exposition
+info-program = Programme
+info-metering = Mesure
+info-distance = Distance
+info-colour-space = Espace colorimétrique
+info-gps = Position GPS
+info-digitized = Numérisée
+info-modified = Modifiée
+info-software = Logiciel
+info-preview = Aperçu de l'appareil
+info-preview-hint = { $w } × { $h } pixels, stocké dans le fichier
+info-all-exif = Toutes les données EXIF ({ $n } entrées)
+info-location = Lieu
+info-set-in-app = Défini dans AlbumCraft
+info-from-gps = Depuis le GPS de l'appareil
+info-modify = Modifier…
+info-modify-hint = Déplacer l'épingle, renommer le lieu ou le supprimer
+info-show-map-hint = Ouvrir Lieux sur cette photo
+info-no-location = Aucun lieu pour l'instant.
+info-set-location-hint = Trouver le lieu ou cliquer dessus sur une carte
+info-tags = Mots-clés
+info-no-tags = Aucun mot-clé pour l'instant.
+info-remove-tag = Retirer ce mot-clé
+info-add-tag = Ajouter un mot-clé…
+info-coords = { $lat }° { $ns }, { $lon }° { $ew }
+coord-n = N
+coord-s = S
+coord-e = E
+coord-w = O
+info-orient-2 = En miroir
+info-orient-3 = À l'envers
+info-orient-4 = En miroir, à l'envers
+info-orient-5 = En miroir, tournée à gauche
+info-orient-6 = Tournée à droite (appareil tenu droit)
+info-orient-7 = En miroir, tournée à droite
+info-orient-8 = Tournée à gauche (appareil tenu droit)
+search-remove-hint = Retirer de la recherche
+search-hint = Rechercher mots-clés, lieux, légendes…
+search-and = et…
+search-clear-hint = Effacer la recherche
+search-for = Rechercher « { $text } »
+search-kind-tags = Mots-clés
+music-dialog-title = Musique pour le diaporama
+filter-music = Musique
+ss-previous = Précédente (←)
+ss-play-pause = Lecture / pause (Espace)
+ss-next = Suivante (→)
+ss-seconds = Secondes par photo
+ss-interval-off = Désactivé : les photos ne changent qu'avec → ou les boutons (Paramètres, Diaporama)
+ss-fade = Fondu
+ss-motion = Mouvement
+ss-other-music-hint = Choisir un autre fichier de musique
+ss-exit-full = Quitter le plein écran (F11 ou Échap)
+ss-exit = Quitter (Échap)
+
+## Messages of the window (src/app.rs)
+
+save-failed-prefix = Votre bibliothèque n'a pas pu être enregistrée :
+save-failed =
+    { $prefix } { $error }
+    Vos dernières modifications ne sont pour l'instant que dans cette fenêtre ; AlbumCraft continue d'essayer.
+save-ok-again = Votre bibliothèque est de nouveau enregistrée.
+lib-unreadable-kept =
+    Le fichier de votre bibliothèque n'a pas pu être lu ({ $error }).
+
+    Il a été conservé sous :
+    { $backup }
+
+    AlbumCraft a démarré avec une bibliothèque vide. Vos photos elles-mêmes ne sont pas touchées.
+lib-unreadable-nosave =
+    Le fichier de votre bibliothèque n'a pas pu être lu ({ $error }).
+
+    AlbumCraft a démarré avec une bibliothèque vide et n'enregistrera aucune modification cette fois, pour que le fichier ne soit pas écrasé.
+dialog-library = Bibliothèque
+crash-title = AlbumCraft s'est fermé de manière inattendue
+crash-text =
+    AlbumCraft s'est arrêté à cause d'une erreur lors de sa dernière exécution. Les modifications faites dans les toutes dernières secondes peuvent manquer.
+
+    Les détails ont été écrits dans :
+    { $log }
+
+    Merci de joindre ce fichier si vous signalez le problème.
+picasa-imported =
+    { $n ->
+        [one] Notes, légendes et retouches importées depuis le fichier .picasa.ini de { $n } dossier.
+       *[other] Notes, légendes et retouches importées depuis les fichiers .picasa.ini de { $n } dossiers.
+    }
+copy-no-edits = Cette photo n'a aucune retouche à copier.
+copied-edits =
+    { $n ->
+        [one] { $n } retouche copiée. Sélectionnez des photos et collez-la (Ctrl+Maj+V).
+       *[other] { $n } retouches copiées. Sélectionnez des photos et collez-les (Ctrl+Maj+V).
+    }
+paste-first = Copiez d'abord les retouches d'une photo (Ctrl+Maj+C).
+pasted-edits =
+    { $n ->
+        [one] Retouches collées sur { $n } photo.
+       *[other] Retouches collées sur { $n } photos.
+    }
+no-pictures-to-show = Il n'y a aucune photo à afficher.
+music-error = Pas de musique : { $error }
+choose-folder-dialog = Choisissez un dossier de photos
+added-to-album =
+    { $n ->
+        [one] { $n } photo ajoutée à « { $name } ».
+       *[other] { $n } photos ajoutées à « { $name } ».
+    }
+trash-samples = Les photos d'exemple ne peuvent pas être mises à la corbeille.
+trash-no-rejects = Aucune photo n'est rejetée. Appuyez sur X pour en rejeter une.
+task-trash =
+    { $n ->
+        [one] Mise de { $n } photo à la corbeille
+       *[other] Mise de { $n } photos à la corbeille
+    }
+task-email =
+    { $n ->
+        [one] Préparation de { $n } photo pour un e-mail
+       *[other] Préparation de { $n } photos pour un e-mail
+    }
+default-title = Mes photos
+gallery-folder-dialog = Créer la galerie web dans…
+task-gallery =
+    { $n ->
+        [one] Création de la galerie web de { $n } photo
+       *[other] Création de la galerie web de { $n } photos
+    }
+movie-save-dialog = Enregistrer le film sous…
+filter-mp4 = Vidéo MP4
+task-movie = Création du film
+scan-truncated = Seules les { $n } premières photos sont affichées : retirez des dossiers de la bibliothèque pour voir les autres.
+selection-none = Aucune sélection
+selection-one = { $name }     { $date }     { $w }x{ $h } pixels     { $size }
+selection-several = { $pictures }     { $a }      { $size } sur le disque
+selection-range = { $pictures }     du { $a } au { $b }     { $size } sur le disque

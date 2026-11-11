@@ -22,7 +22,12 @@ pub static LOADER: LazyLock<FluentLanguageLoader> = LazyLock::new(|| {
     let loader: FluentLanguageLoader = fluent_language_loader!();
     // Fluent puts invisible direction marks around arguments; egui's fonts would draw them as boxes
     loader.set_use_isolating(false);
-    load(&loader, &DesktopLanguageRequester::requested_languages());
+    // tests read English text whatever language the machine is set to
+    #[cfg(test)]
+    let requested = vec!["en".parse().expect("language code")];
+    #[cfg(not(test))]
+    let requested = DesktopLanguageRequester::requested_languages();
+    load(&loader, &requested);
     loader
 });
 

@@ -1,5 +1,6 @@
 //! The full-screen slideshow (`View::Slideshow`).
 
+use crate::i18n::tr;
 use crate::app::*;
 use crate::edit_view::fit_rect;
 use crate::icons;
@@ -16,8 +17,8 @@ enum SlideCmd {
 /// Ask for a music file; true when one was chosen (music is then switched on).
 pub(crate) fn pick_music(s: &mut crate::slides::SlideSettings) -> bool {
     let Some(path) = rfd::FileDialog::new()
-        .set_title("Music for the slideshow")
-        .add_filter("Music", &["mp3", "ogg", "oga", "flac", "wav", "m4a", "aac", "mp4"])
+        .set_title(tr!("music-dialog-title"))
+        .add_filter(tr!("filter-music"), &["mp3", "ogg", "oga", "flac", "wav", "m4a", "aac", "mp4"])
         .pick_file()
     else {
         return false;
@@ -153,13 +154,13 @@ impl App {
         child.visuals_mut().widgets.inactive.weak_bg_fill = Color32::from_rgb(60, 60, 64);
         child.visuals_mut().widgets.hovered.weak_bg_fill = Color32::from_rgb(80, 80, 90);
         let big = |t: &str| egui::Button::new(RichText::new(t).size(18.0).color(Color32::WHITE));
-        if child.add(big(icons::SKIP_PREVIOUS)).on_hover_text("Previous (←)").clicked() {
+        if child.add(big(icons::SKIP_PREVIOUS)).on_hover_text(tr!("ss-previous")).clicked() {
             cmd = Some(SlideCmd::Prev);
         }
-        if child.add(big(if playing { icons::PAUSE } else { icons::PLAY })).on_hover_text("Play / pause (Space)").clicked() {
+        if child.add(big(if playing { icons::PAUSE } else { icons::PLAY })).on_hover_text(tr!("ss-play-pause")).clicked() {
             cmd = Some(SlideCmd::PlayPause);
         }
-        if child.add(big(icons::SKIP_NEXT)).on_hover_text("Next (→)").clicked() {
+        if child.add(big(icons::SKIP_NEXT)).on_hover_text(tr!("ss-next")).clicked() {
             cmd = Some(SlideCmd::Next);
         }
         child.label(format!("{} / {}", pos + 1, len));
@@ -168,21 +169,21 @@ impl App {
         let st = &mut show.settings;
         let mut changed = false;
         child.spacing_mut().slider_width = 90.0;
-        let tip = if st.auto_advance { "Seconds per picture" } else { "Off: pictures change only with → or the buttons (Settings, Slideshow)" };
-        changed |= child.add_enabled(st.auto_advance, egui::Slider::new(&mut st.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).on_disabled_hover_text(tip).on_hover_text(tip).changed();
-        changed |= child.toggle_value(&mut st.fade, "Fade").on_hover_text("Crossfade between pictures").changed();
-        changed |= child.toggle_value(&mut st.motion, "Motion").on_hover_text("Slow pan and zoom").changed();
-        let music_label = if st.music.is_some() { format!("{} Music", icons::MUSIC) } else { format!("{} Choose music…", icons::MUSIC) };
+        let tip = if st.auto_advance { tr!("ss-seconds") } else { tr!("ss-interval-off") };
+        changed |= child.add_enabled(st.auto_advance, egui::Slider::new(&mut st.interval, 1.0..=60.0).logarithmic(true).suffix(" s").max_decimals(0)).on_disabled_hover_text(&tip).on_hover_text(tip).changed();
+        changed |= child.toggle_value(&mut st.fade, tr!("ss-fade")).on_hover_text(tr!("settings-fade")).changed();
+        changed |= child.toggle_value(&mut st.motion, tr!("ss-motion")).on_hover_text(tr!("settings-motion")).changed();
+        let music_label = if st.music.is_some() { format!("{} {}", icons::MUSIC, tr!("movie-music")) } else { format!("{} {}", icons::MUSIC, tr!("settings-music-choose")) };
         let mut music_changed = false;
         if st.music.is_some() {
             music_changed |= child.toggle_value(&mut st.music_on, music_label).on_hover_text(st.music.clone().unwrap_or_default()).changed();
-            if child.small_button("…").on_hover_text("Choose another music file").clicked() {
+            if child.small_button("…").on_hover_text(tr!("ss-other-music-hint")).clicked() {
                 music_changed |= pick_music(st);
             }
         } else if child.button(music_label).clicked() {
             music_changed |= pick_music(st);
         }
-        let (exit_icon, exit_tip) = if viewer { (icons::FULLSCREEN_EXIT, "Exit full screen (F11 or Esc)") } else { (icons::CLOSE, "Exit (Esc)") };
+        let (exit_icon, exit_tip) = if viewer { (icons::FULLSCREEN_EXIT, tr!("ss-exit-full")) } else { (icons::CLOSE, tr!("ss-exit")) };
         if child.add(big(exit_icon)).on_hover_text(exit_tip).clicked() {
             cmd = Some(SlideCmd::Stop);
         }

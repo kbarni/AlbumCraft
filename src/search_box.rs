@@ -7,6 +7,7 @@
 //! field removes the last chip.
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
+use crate::i18n::tr;
 use crate::app::{App, SearchTerm, Source, TraySet};
 use crate::geo::fold;
 use crate::icons;
@@ -163,11 +164,11 @@ impl App {
                             SearchTerm::Person(n) => (icons::PERSON, n),
                         };
                         let chip = egui::Button::new(RichText::new(format!("{icon} {name} {}", icons::CLOSE)).size(12.0)).fill(t().select_bg).corner_radius(10);
-                        if ui.add(chip).on_hover_text("Remove from the search").clicked() {
+                        if ui.add(chip).on_hover_text(tr!("search-remove-hint")).clicked() {
                             remove = Some(i);
                         }
                     }
-                    let hint = if self.search_terms.is_empty() { "Search tags, places, captions…" } else { "and…" };
+                    let hint = if self.search_terms.is_empty() { tr!("search-hint") } else { tr!("search-and") };
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut self.search)
                             .id(field_id)
@@ -184,7 +185,7 @@ impl App {
                         self.search_popup = !self.search.trim().is_empty();
                     }
                     if self.searching()
-                        && ui.add(egui::Label::new(RichText::new(icons::CLOSE).size(14.0).color(t().text_weak)).sense(Sense::click())).on_hover_text("Clear the search").clicked()
+                        && ui.add(egui::Label::new(RichText::new(icons::CLOSE).size(14.0).color(t().text_weak)).sense(Sense::click())).on_hover_text(tr!("search-clear-hint")).clicked()
                     {
                         clear = true;
                     }
@@ -245,19 +246,19 @@ impl App {
         let area = egui::Area::new(egui::Id::new("search_suggestions")).order(egui::Order::Foreground).fixed_pos(pos).show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_width(popup_w);
-                let mut last_kind = "";
+                let mut last_kind = String::new();
                 for (i, s) in suggestions.iter().enumerate() {
                     let (kind, icon, label, count) = match s {
-                        Suggestion::Text => ("", icons::SEARCH, format!("Search for “{}”", self.search.trim()), None),
-                        Suggestion::Term(SearchTerm::Tag(n), c) => ("Tags", icons::TAG, n.clone(), Some(*c)),
-                        Suggestion::Term(SearchTerm::Place(n), c) => ("Places", icons::LOCATION, n.clone(), Some(*c)),
-                        Suggestion::Term(SearchTerm::Person(n), c) => ("People", icons::PERSON, n.clone(), Some(*c)),
-                        Suggestion::Album(a, c) => ("Albums", icons::ALBUM, self.store.albums.get(*a).map(|a| a.name.clone()).unwrap_or_default(), Some(*c)),
-                        Suggestion::Folder(f, c) => ("Folders", icons::FOLDER, self.folders.get(*f).map(|f| f.name.clone()).unwrap_or_default(), Some(*c)),
+                        Suggestion::Text => (String::new(), icons::SEARCH, tr!("search-for", text = self.search.trim()), None),
+                        Suggestion::Term(SearchTerm::Tag(n), c) => (tr!("search-kind-tags"), icons::TAG, n.clone(), Some(*c)),
+                        Suggestion::Term(SearchTerm::Place(n), c) => (tr!("nav-places"), icons::LOCATION, n.clone(), Some(*c)),
+                        Suggestion::Term(SearchTerm::Person(n), c) => (tr!("nav-people"), icons::PERSON, n.clone(), Some(*c)),
+                        Suggestion::Album(a, c) => (tr!("nav-albums"), icons::ALBUM, self.store.albums.get(*a).map(|a| a.name.clone()).unwrap_or_default(), Some(*c)),
+                        Suggestion::Folder(f, c) => (tr!("nav-folders"), icons::FOLDER, self.folders.get(*f).map(|f| f.name.clone()).unwrap_or_default(), Some(*c)),
                     };
                     if kind != last_kind {
                         ui.add_space(4.0);
-                        ui.label(RichText::new(kind).size(11.5).color(t().text_weak));
+                        ui.label(RichText::new(kind.as_str()).size(11.5).color(t().text_weak));
                         last_kind = kind;
                     }
                     let (rect, resp) = ui.allocate_exact_size(egui::vec2(popup_w, 26.0), Sense::click());

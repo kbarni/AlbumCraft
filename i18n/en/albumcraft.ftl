@@ -707,3 +707,159 @@ edit-full-loading = Loading full picture…
 edit-draw-box = Drag on the picture to draw a box
 edit-click-neutral = Click something that should be gray or white
 edit-wb-title = White balance
+
+## Info panel, search, slideshow bar
+
+info-hide-hint = Hide this panel (I)
+info-properties = Properties
+info-camera = Camera
+info-lens = Lens
+info-taken = Taken on
+info-file-date = { $date } (file date)
+info-size = Size
+info-megapixels = { $w } × { $h } ({ $mp } MP)
+info-file = File
+info-focal = Focal length
+info-focal-35 = { $f } mm (35 mm: { $e } mm)
+info-aperture = Aperture
+info-exposure = Exposure
+info-folder = Folder
+info-sample = Built-in sample picture
+info-edits = Edits
+info-no-exif = No camera information (EXIF) in this picture.
+info-exif = Extended EXIF
+info-flash = Flash
+info-bias = Exposure bias
+info-program = Program
+info-metering = Metering
+info-distance = Distance
+info-colour-space = Colour space
+info-gps = GPS position
+info-digitized = Digitized
+info-modified = Modified
+info-software = Software
+info-preview = Camera preview
+info-preview-hint = { $w } × { $h } pixels, stored in the file
+info-all-exif = All EXIF data ({ $n } entries)
+info-location = Location
+info-set-in-app = Set in AlbumCraft
+info-from-gps = From the camera's GPS
+info-modify = Modify…
+info-modify-hint = Move the pin, rename the place or remove it
+info-show-map-hint = Open Places on this picture
+info-no-location = No location yet.
+info-set-location-hint = Find the place or click it on a map
+info-tags = Tags
+info-no-tags = No tags yet.
+info-remove-tag = Remove this tag
+info-add-tag = Add a tag…
+info-coords = { $lat }° { $ns }, { $lon }° { $ew }
+coord-n = N
+coord-s = S
+coord-e = E
+coord-w = W
+info-orient-2 = Mirrored
+info-orient-3 = Upside down
+info-orient-4 = Mirrored, upside down
+info-orient-5 = Mirrored, turned left
+info-orient-6 = Turned right (camera held upright)
+info-orient-7 = Mirrored, turned right
+info-orient-8 = Turned left (camera held upright)
+search-remove-hint = Remove from the search
+search-hint = Search tags, places, captions…
+search-and = and…
+search-clear-hint = Clear the search
+search-for = Search for “{ $text }”
+search-kind-tags = Tags
+music-dialog-title = Music for the slideshow
+filter-music = Music
+ss-previous = Previous (←)
+ss-play-pause = Play / pause (Space)
+ss-next = Next (→)
+ss-seconds = Seconds per picture
+ss-interval-off = Off: pictures change only with → or the buttons (Settings, Slideshow)
+ss-fade = Fade
+ss-motion = Motion
+ss-other-music-hint = Choose another music file
+ss-exit-full = Exit full screen (F11 or Esc)
+ss-exit = Exit (Esc)
+
+## Messages of the window (src/app.rs)
+
+save-failed-prefix = Your library could not be saved:
+save-failed =
+    { $prefix } { $error }
+    Your latest changes are only in this window for now; AlbumCraft keeps trying.
+save-ok-again = Your library is saved again.
+lib-unreadable-kept =
+    Your library file could not be read ({ $error }).
+
+    It was kept as:
+    { $backup }
+
+    AlbumCraft started with an empty library. Your pictures themselves are not affected.
+lib-unreadable-nosave =
+    Your library file could not be read ({ $error }).
+
+    AlbumCraft started with an empty library and won't save any changes this time, so that the file is not overwritten.
+dialog-library = Library
+crash-title = AlbumCraft closed unexpectedly
+crash-text =
+    AlbumCraft stopped because of an error the last time it ran. Changes made in the last few seconds before that may be missing.
+
+    Details were written to:
+    { $log }
+
+    Please include that file when reporting the problem.
+picasa-imported =
+    { $n ->
+        [one] Brought in stars, captions and edits from the .picasa.ini file of { $n } folder.
+       *[other] Brought in stars, captions and edits from the .picasa.ini files of { $n } folders.
+    }
+copy-no-edits = This picture has no edits to copy.
+copied-edits =
+    { $n ->
+        [one] Copied { $n } edit. Select pictures and paste them (Ctrl+Shift+V).
+       *[other] Copied { $n } edits. Select pictures and paste them (Ctrl+Shift+V).
+    }
+paste-first = Copy the edits of a picture first (Ctrl+Shift+C).
+pasted-edits =
+    { $n ->
+        [one] Pasted the edits onto { $n } picture.
+       *[other] Pasted the edits onto { $n } pictures.
+    }
+no-pictures-to-show = There are no pictures to show.
+music-error = No music: { $error }
+choose-folder-dialog = Choose a folder of pictures
+added-to-album =
+    { $n ->
+        [one] Added { $n } picture to "{ $name }".
+       *[other] Added { $n } pictures to "{ $name }".
+    }
+trash-samples = Sample pictures can't be moved to the trash.
+trash-no-rejects = No picture is rejected. Press X to reject one.
+task-trash =
+    { $n ->
+        [one] Moving { $n } picture to the trash
+       *[other] Moving { $n } pictures to the trash
+    }
+task-email =
+    { $n ->
+        [one] Preparing { $n } picture for an email
+       *[other] Preparing { $n } pictures for an email
+    }
+default-title = My pictures
+gallery-folder-dialog = Make the web gallery in…
+task-gallery =
+    { $n ->
+        [one] Making the web gallery of { $n } picture
+       *[other] Making the web gallery of { $n } pictures
+    }
+movie-save-dialog = Save the movie as…
+filter-mp4 = MP4 video
+task-movie = Making the movie
+scan-truncated = Only the first { $n } pictures are shown: remove some folders from the library to see the rest.
+selection-none = No Selection
+selection-one = { $name }     { $date }     { $w }x{ $h } pixels     { $size }
+selection-several = { $pictures }     { $a }      { $size } on disk
+selection-range = { $pictures }     { $a } to { $b }     { $size } on disk
