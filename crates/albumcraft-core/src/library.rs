@@ -688,6 +688,26 @@ mod store_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The Flatpak's way into the user's trash: the file moves into `files/`, an info file says
+    /// where it was and when; a second file of the same name gets its own name.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn a_file_goes_into_the_home_trash_with_its_info() {
+        let dir = temp_dir("home-trash");
+        let trash = dir.join("Trash");
+        for round in 0..2 {
+            let f = dir.join("my picture.jpg");
+            std::fs::write(&f, [round as u8]).unwrap();
+            into_home_trash(&f, &trash).expect("same disk").unwrap();
+            assert!(!f.exists());
+        }
+        assert_eq!(std::fs::read(trash.join("files/my picture.jpg")).unwrap(), [0]);
+        assert_eq!(std::fs::read(trash.join("files/my picture (2).jpg")).unwrap(), [1]);
+        let info = std::fs::read_to_string(trash.join("info/my picture.jpg.trashinfo")).unwrap();
+        assert!(info.starts_with("[Trash Info]\nPath=/") && info.contains("/my%20picture.jpg\nDeletionDate=20"), "{info}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn missing_file_is_a_first_start() {
         let dir = temp_dir("store-missing");
@@ -1049,12 +1069,79 @@ pub fn trash_files(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Tra
             t.failed.push(format!("{name}: not found"));
             continue;
         }
-        match trash::delete(f) {
+        match trash_one(Path::new(f)) {
             Ok(()) => t.moved += 1,
             Err(e) => t.failed.push(format!("{name}: {e}")),
         }
     }
     t
+}
+
+fn trash_one(file: &Path) -> Result<(), String> {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if std::env::var_os("FLATPAK_ID").is_some()
+        && let Some(trash) = dirs::home_dir().map(|h| h.join(".local/share/Trash"))
+        && let Some(done) = into_home_trash(file, &trash)
+    {
+        return done;
+    }
+    trash::delete(file).map_err(|e| e.to_string())
+}
+
+/// In a Flatpak, `XDG_DATA_HOME` is the app's own folder, so the `trash` crate would move files
+/// from the home disk into a trash nobody sees. Those go to the user's own trash instead
+/// (`~/.local/share/Trash`, reachable through `--filesystem=home`), as the freedesktop.org
+/// trash specification describes: an info file made first (its name taken atomically), then the
+/// file renamed into `files/`. None when the file is not on the same disk as that trash (the
+/// crate then uses that disk's own `.Trash-<uid>` folder, which does not depend on
+/// `XDG_DATA_HOME`).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn into_home_trash(file: &Path, trash: &Path) -> Option<Result<(), String>> {
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    let (files, info) = (trash.join("files"), trash.join("info"));
+    std::fs::create_dir_all(&files).ok()?;
+    std::fs::create_dir_all(&info).ok()?;
+    if std::fs::metadata(file).ok()?.dev() != std::fs::metadata(&files).ok()?.dev() {
+        return None;
+    }
+    let absolute = std::path::absolute(file).ok()?;
+    let name = file.file_name()?.to_string_lossy().to_string();
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (name.clone(), String::new()),
+    };
+    // the path, URL-escaped byte by byte
+    let mut path = String::new();
+    for &b in absolute.as_os_str().as_bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~/".contains(&b) {
+            path.push(b as char);
+        } else {
+            path.push_str(&format!("%{b:02X}"));
+        }
+    }
+    let date = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S");
+    for n in 1..1000 {
+        let candidate = if n == 1 { name.clone() } else { format!("{stem} ({n}){ext}") };
+        let info_path = info.join(format!("{candidate}.trashinfo"));
+        if files.join(&candidate).exists() {
+            continue;
+        }
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&info_path) {
+            Ok(mut f) => {
+                let written = write!(f, "[Trash Info]\nPath={path}\nDeletionDate={date}\n").and_then(|_| f.sync_all());
+                let moved = written.and_then(|_| std::fs::rename(file, files.join(&candidate)));
+                return Some(moved.map_err(|e| {
+                    let _ = std::fs::remove_file(&info_path);
+                    e.to_string()
+                }));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Some(Err(e.to_string())),
+        }
+    }
+    Some(Err("no free name in the trash".into()))
 }
 
 impl Trashed {
