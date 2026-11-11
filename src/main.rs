@@ -130,13 +130,18 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    // ALBUMCRAFT_SHOT_SIZE=900x560: the window's size (to check layouts, with --screenshot)
+    let size = std::env::var("ALBUMCRAFT_SHOT_SIZE")
+        .ok()
+        .and_then(|v| v.split_once('x').and_then(|(w, h)| Some([w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?])))
+        .unwrap_or([1280.0, 800.0]);
     let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("AlbumCraft")
             // Wayland and X11 match the window to io.github.kbarni.albumcraft.desktop (its icon)
             .with_app_id(APP_ID)
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([900.0, 560.0])
+            .with_inner_size(size)
+            .with_min_inner_size([size[0].min(900.0), size[1].min(560.0)])
             .with_icon(window_icon()),
         ..Default::default()
     };

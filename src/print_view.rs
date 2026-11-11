@@ -174,7 +174,7 @@ impl App {
                         }
                     }
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.add(egui::Button::new(tr!("print-shrink")).selected(!self.store.print.crop)).on_hover_text(tr!("print-shrink-hint")).clicked() {
                             self.store.print.crop = false;
                             self.dirty = true;

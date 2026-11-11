@@ -331,8 +331,14 @@ impl App {
                     }
                     ui.separator();
                     let p = &self.photos[id];
-                    ui.label(RichText::new(&self.folders[p.folder].name).size(14.0).strong());
-                    ui.label(RichText::new(format!("›  {}", p.name)).size(13.0).color(t().text_weak));
+                    // folder › file name, cut short when the buttons on the right need the room
+                    let mut crumb = egui::text::LayoutJob::default();
+                    crumb.append(&self.folders[p.folder].name, 0.0, egui::TextFormat::simple(egui::FontId::proportional(14.0), ui.visuals().strong_text_color()));
+                    crumb.append(&format!("  ›  {}", p.name), 0.0, egui::TextFormat::simple(egui::FontId::proportional(13.0), t().text_weak));
+                    let crumb_w = (ui.available_width() - 580.0).clamp(60.0, 700.0);
+                    ui.allocate_ui_with_layout(egui::vec2(crumb_w, 22.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(crumb).truncate());
+                    });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .selectable_label(self.store.info_open, format!("{} {}", icons::INFO, tr!("edit-info")))
@@ -1065,6 +1071,9 @@ impl App {
                 ui.horizontal(|ui| {
                     use crate::library::Flag;
                     use crate::library_view::{pick_button, rating_input, reject_button};
+                    // a narrow window (or a language with longer words) leaves out the rotate buttons
+                    // (the Tools panel has them) and the zoom slider
+                    let narrow = ui.available_width() < 820.0;
                     if pick_button(ui, self.flag(id) == Flag::Pick, egui::vec2(34.0, 28.0)).on_hover_text(tr!("tile-pick-hint")).clicked() {
                         self.toggle_flag(&[id], Flag::Pick);
                     }
@@ -1075,15 +1084,15 @@ impl App {
                         self.set_rating(&[id], n);
                     }
                     ui.add_space(6.0);
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
+                    if !narrow && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
+                    if !narrow && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.separator();
                     let mut caption = self.meta(id).map(|m| m.caption.clone()).unwrap_or_default();
-                    let r = ui.add(egui::TextEdit::singleline(&mut caption).hint_text(tr!("edit-caption-hint")).desired_width((ui.available_width() - 560.0).max(120.0)));
+                    let r = ui.add(egui::TextEdit::singleline(&mut caption).hint_text(tr!("edit-caption-hint")).desired_width((ui.available_width() - if narrow { 410.0 } else { 560.0 }).max(60.0)));
                     if r.changed() {
                         self.meta_mut(id).caption = caption;
                     }
@@ -1101,16 +1110,18 @@ impl App {
                         let fit = self.edit.fit_zoom;
                         let z_now = self.edit.zoom.unwrap_or(fit);
                         let mut p = if self.edit.zoom.is_some() { zoom_to_pos(z_now, fit) } else { 0.0 };
-                        ui.label(RichText::new(format!("{:.0} %", z_now * 100.0)).size(12.0)).on_hover_text(tr!("edit-zoom-hint"));
-                        ui.spacing_mut().slider_width = 120.0;
-                        let s = ui.add(egui::Slider::new(&mut p, 0.0..=1.0).show_value(false));
-                        if s.on_hover_text(tr!("edit-zoom-slider-hint")).changed() {
-                            self.edit.zoom_anim = None;
-                            if p <= 0.001 {
-                                self.edit.zoom = None;
-                                self.edit.pan = Vec2::ZERO;
-                            } else {
-                                self.edit.zoom = Some(pos_to_zoom(p, fit));
+                        if !narrow {
+                            ui.label(RichText::new(format!("{:.0} %", z_now * 100.0)).size(12.0)).on_hover_text(tr!("edit-zoom-hint"));
+                            ui.spacing_mut().slider_width = 120.0;
+                            let s = ui.add(egui::Slider::new(&mut p, 0.0..=1.0).show_value(false));
+                            if s.on_hover_text(tr!("edit-zoom-slider-hint")).changed() {
+                                self.edit.zoom_anim = None;
+                                if p <= 0.001 {
+                                    self.edit.zoom = None;
+                                    self.edit.pan = Vec2::ZERO;
+                                } else {
+                                    self.edit.zoom = Some(pos_to_zoom(p, fit));
+                                }
                             }
                         }
                         let now = ui.input(|i| i.time);

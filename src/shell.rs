@@ -274,18 +274,21 @@ impl App {
             .show(ui, |ui| {
                 let bottom = ui.max_rect().bottom() + 8.0;
                 ui.painter().hline(ui.max_rect().x_range().expand(PAD as f32), bottom, Stroke::new(1.0, t().border));
+                // the title gets a share of the bar and is cut short when it is longer (a longer
+                // language must not push it under the buttons)
                 let wide = ui.available_width();
+                let title_w = (wide * 0.2).clamp(110.0, 240.0);
                 ui.horizontal_centered(|ui| {
                     let shown = self.visible_count();
-                    ui.vertical(|ui| {
+                    ui.allocate_ui_with_layout(egui::vec2(title_w, 44.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong));
+                        ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate());
                         let sub = if self.scanning {
                             tr!("scanning")
                         } else {
                             tr!("count-pictures", n = shown)
                         };
-                        ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
+                        ui.add(egui::Label::new(RichText::new(sub).size(12.0).color(t().text_weak)).truncate());
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
@@ -295,10 +298,9 @@ impl App {
                         {
                             self.open_import();
                         }
-                        if pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false)
-                            .on_hover_text(tr!("bar-folders-hint"))
-                            .clicked()
-                        {
+                        // icon only when the window is narrow (a longer language needs the room)
+                        let folders = if wide >= 760.0 { pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false) } else { icon_btn(ui, icons::FOLDER, &tr!("bar-folders")) };
+                        if folders.on_hover_text(tr!("bar-folders-hint")).clicked() {
                             self.dialog = Some(Dialog::FolderManager);
                         }
                         use crate::theme::Mode;
@@ -357,7 +359,8 @@ impl App {
                             self.filter.picks = !on;
                         }
                         ui.add_space(4.0);
-                        let sw = ((wide - 640.0) * 0.5).clamp(70.0, 190.0) + 40.0 * self.search_terms.len().min(3) as f32;
+                        // the search box takes what the buttons left (its frame adds about 80)
+                        let sw = (ui.available_width() - 80.0).clamp(40.0, 190.0 + 40.0 * self.search_terms.len().min(3) as f32);
                         self.library_search(ui, sw);
                     });
                 });

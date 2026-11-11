@@ -78,6 +78,41 @@ pub fn set_language(language: &str) {
     apply_locale(&LOADER);
 }
 
+/// The language the interface is in now: its code without the region ("en", "fr", "ja").
+pub fn current_language() -> String {
+    LOADER.current_languages().first().map(|l| l.language.as_str().to_string()).unwrap_or_else(|| "en".into())
+}
+
+/// System fonts (path, index in a font collection) that have the characters of `language`'s
+/// script, for those the fonts built into the program lack: Chinese, Japanese and Korean. They
+/// are not bundled (each is several MB); the first one found on the machine is used. Empty for
+/// the languages the built-in fonts cover. Right-to-left languages (Arabic, Hebrew) are not
+/// supported at all: egui does not lay such text out.
+pub fn script_font_candidates(language: &str) -> Vec<(&'static str, u32)> {
+    // the Noto CJK collection holds Japanese, Korean, Simplified and Traditional Chinese in turn
+    let noto = |index| {
+        [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/OTF/NotoSansCJK-Regular.ttc",
+        ]
+        .map(|p| (p, index))
+    };
+    match language {
+        "ja" => [&noto(0)[..], &[("C:\\Windows\\Fonts\\YuGothM.ttc", 0), ("C:\\Windows\\Fonts\\meiryo.ttc", 0), ("/System/Library/Fonts/Hiragino Sans GB.ttc", 0)]].concat(),
+        "ko" => [&noto(1)[..], &[("C:\\Windows\\Fonts\\malgun.ttf", 0), ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0)]].concat(),
+        "zh" => [&noto(2)[..], &[("C:\\Windows\\Fonts\\msyh.ttc", 0), ("/System/Library/Fonts/PingFang.ttc", 0), ("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", 0)]].concat(),
+        _ => vec![],
+    }
+}
+
+/// The first of these fonts that exists on this machine.
+pub fn first_existing(candidates: &[(&'static str, u32)]) -> Option<(std::path::PathBuf, u32)> {
+    candidates.iter().map(|(p, i)| (std::path::PathBuf::from(p), *i)).find(|(p, _)| p.is_file())
+}
+
 /// Give the core crate the way this language writes dates, numbers and sizes.
 fn apply_locale(loader: &FluentLanguageLoader) {
     let list = |id: &str| loader.get(id).split(',').map(|w| w.trim().to_string()).collect::<Vec<_>>();
@@ -273,6 +308,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn only_some_scripts_need_a_system_font() {
+        assert!(script_font_candidates("en").is_empty());
+        assert!(script_font_candidates("fr").is_empty());
+        for lang in ["ja", "ko", "zh"] {
+            assert!(!script_font_candidates(lang).is_empty(), "{lang}");
+        }
+        // the Noto collection holds the languages one after the other
+        let index = |lang: &str| script_font_candidates(lang)[0].1;
+        assert_eq!((index("ja"), index("ko"), index("zh")), (0, 1, 2));
+    }
+
+    #[test]
+    fn the_first_font_that_exists_is_used() {
+        let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let here: &'static str = Box::leak(here.to_string_lossy().into_owned().into_boxed_str());
+        assert_eq!(first_existing(&[("/no/such/font.ttc", 0), (here, 3)]).map(|(_, i)| i), Some(3));
+        assert!(first_existing(&[("/no/such/font.ttc", 0)]).is_none());
     }
 
     #[test]

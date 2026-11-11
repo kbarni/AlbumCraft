@@ -258,9 +258,22 @@ pub fn set_fonts(ctx: &egui::Context) {
         ..Default::default()
     });
     fonts.font_data.insert("icons".to_owned(), std::sync::Arc::new(icons));
+    // a language with a script the built-in fonts lack (Chinese, Japanese, Korean) uses a font of
+    // the system, after the others, so that Latin text keeps its look
+    let script_font = crate::i18n::first_existing(&crate::i18n::script_font_candidates(&crate::i18n::current_language()))
+        .and_then(|(path, index)| std::fs::read(path).ok().map(|bytes| (bytes, index)));
+    if let Some((bytes, index)) = script_font {
+        let mut data = egui::FontData::from_owned(bytes);
+        data.index = index;
+        fonts.font_data.insert("script".to_owned(), std::sync::Arc::new(data));
+    }
+    let has_script_font = fonts.font_data.contains_key("script");
     if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
         if !family.iter().any(|f| f == "Hack") {
             family.push("Hack".to_owned());
+        }
+        if has_script_font {
+            family.push("script".to_owned());
         }
         family.push("icons".to_owned());
     }
@@ -326,6 +339,10 @@ mod glyph_tests {
         let i18n = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("i18n");
         for entry in std::fs::read_dir(&i18n).unwrap().flatten() {
             let path = entry.path().join("albumcraft.ftl");
+            // Chinese, Japanese and Korean are drawn with a font of the system, not these
+            if !crate::i18n::script_font_candidates(entry.file_name().to_string_lossy().split('-').next().unwrap_or("")).is_empty() {
+                continue;
+            }
             let Ok(text) = std::fs::read_to_string(&path) else { continue };
             let name = format!("i18n/{}", entry.file_name().to_string_lossy());
             for line in text.lines().filter(|l| !l.trim_start().starts_with('#')) {

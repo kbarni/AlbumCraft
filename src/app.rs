@@ -513,7 +513,6 @@ impl App {
         let t_new = std::time::Instant::now();
         let ctx = cc.egui_ctx.clone();
         crate::theme::apply(&ctx, crate::theme::Mode::System, true);
-        crate::theme::set_fonts(&ctx);
         let (tx, rx) = std::sync::mpsc::channel();
         let wake_ctx = ctx.clone();
         let mut lib: Box<dyn Library> = Box::new(LocalLibrary::new(tx.clone(), Arc::new(move || wake_ctx.request_repaint())));
@@ -548,6 +547,8 @@ impl App {
             store.theme = v;
         }
         crate::i18n::set_language(&store.language);
+        // after the language: a script the built-in fonts lack needs a system font
+        crate::theme::set_fonts(&ctx);
         if first_run
             && let Some(p) = dirs::picture_dir() {
                 store.roots.push(p.to_string_lossy().to_string());

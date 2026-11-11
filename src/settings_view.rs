@@ -153,6 +153,7 @@ impl App {
         });
         if chosen != self.store.language {
             i18n::set_language(&chosen);
+            crate::theme::set_fonts(ui.ctx());
             self.store.language = chosen;
             self.dirty = true;
         }

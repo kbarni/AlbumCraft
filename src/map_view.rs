@@ -887,7 +887,10 @@ impl App {
                     ui.add_space(8.0);
                     let online = self.online_maps();
                     let Some(pl) = &mut self.geo.map.placing else { return };
+                    // the text wraps in what the buttons on the right leave (they are about 500 wide)
+                    let text_w = (ui.available_width() - 500.0).max(140.0);
                     ui.vertical(|ui| {
+                        ui.set_max_width(text_w);
                         ui.add_space(4.0);
                         match pl.pin {
                             None => {
