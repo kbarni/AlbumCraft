@@ -219,3 +219,69 @@ export-size-original = Original size
 export-size-very-large = Very large (2560 pixels)
 export-size-large = Large (1600 pixels)
 export-size-small = Small, for email (800 pixels)
+
+## Export view (src/export_view.rs)
+
+filter-pictures = Pictures
+view-back-editor = Editor
+view-back-library = Library
+view-back-hint = Go back (Esc)
+
+export-title = Export
+export-count-all = { $n ->
+    [one] { $n } picture
+   *[other] { $n } pictures
+}
+export-count-some = { $n } of { $total } pictures
+export-select-first = Select some pictures first.
+export-logo-unreadable = The logo { $path } can't be read.
+export-task = { $n ->
+    [one] Exporting { $n } picture
+   *[other] Exporting { $n } pictures
+}
+export-save-into = Save into
+export-choose-folder = Choose a folder…
+export-choose-folder-hint = Choose the folder for the copies
+export-safe = Nothing is overwritten; the originals are not changed.
+export-go = { $n ->
+    [one] Export { $n } picture
+   *[other] Export { $n } pictures
+}
+export-dialog-title = Export pictures to…
+
+export-size = Size
+export-size-other = Other:
+export-size-pixels = { " " }pixels
+export-size-note = The longest side. Pictures are never made larger than they are.
+export-quality = JPEG quality
+
+export-signature = Signature
+export-signature-on = Add a signature or a logo
+export-sig-text = Text
+export-sig-logo = Picture (logo)
+export-logo-other = Other picture…
+export-logo-choose = Choose a picture…
+export-logo-dialog = Logo or signature picture
+export-logo-note = A PNG with a transparent background works best.
+export-sig-text-hint = Your name, or © Your Name
+export-sig-position = Position
+export-sig-size = Size
+export-sig-size-hint = Compared with the picture's shorter side
+export-sig-opacity = Opacity
+export-sig-colour = Colour
+export-sig-shadow = Shadow
+export-sig-shadow-hint = A soft halo so the text reads on any picture
+
+export-info = Information in the files
+export-gps = Where the pictures were taken (GPS)
+export-gps-hint = Turn off before sharing pictures if you don't want others to see the location.
+export-exif = Camera information (EXIF)
+export-exif-hint = Camera, lens, exposure and the date taken, copied from the original file.
+export-creator = Creator
+export-creator-hint = Your name
+export-copyright = Copyright
+export-copyright-hint = © Your Name
+export-credit-note = Written into each copy. The signature, creator and copyright are kept for next time (also in Settings, Export).
+
+export-left-out = Left out: click to export it too
+export-leave-out = Click to leave this picture out

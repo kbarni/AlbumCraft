@@ -217,3 +217,69 @@ export-size-original = Taille d'origine
 export-size-very-large = Très grande (2560 pixels)
 export-size-large = Grande (1600 pixels)
 export-size-small = Petite, pour l'e-mail (800 pixels)
+
+## Export view (src/export_view.rs)
+
+filter-pictures = Photos
+view-back-editor = Éditeur
+view-back-library = Bibliothèque
+view-back-hint = Retour (Échap)
+
+export-title = Exportation
+export-count-all = { $n ->
+    [one] { $n } photo
+   *[other] { $n } photos
+}
+export-count-some = { $n } sur { $total } photos
+export-select-first = Sélectionnez d'abord des photos.
+export-logo-unreadable = Le logo { $path } est illisible.
+export-task = { $n ->
+    [one] Exportation de { $n } photo
+   *[other] Exportation de { $n } photos
+}
+export-save-into = Enregistrer dans
+export-choose-folder = Choisir un dossier…
+export-choose-folder-hint = Choisir le dossier des copies
+export-safe = Rien n'est écrasé ; les originaux ne sont pas modifiés.
+export-go = { $n ->
+    [one] Exporter { $n } photo
+   *[other] Exporter { $n } photos
+}
+export-dialog-title = Exporter les photos vers…
+
+export-size = Taille
+export-size-other = Autre :
+export-size-pixels = { " " }pixels
+export-size-note = Le plus grand côté. Les photos ne sont jamais agrandies.
+export-quality = Qualité JPEG
+
+export-signature = Signature
+export-signature-on = Ajouter une signature ou un logo
+export-sig-text = Texte
+export-sig-logo = Image (logo)
+export-logo-other = Autre image…
+export-logo-choose = Choisir une image…
+export-logo-dialog = Image du logo ou de la signature
+export-logo-note = Un PNG à fond transparent donne le meilleur résultat.
+export-sig-text-hint = Votre nom, ou © Votre nom
+export-sig-position = Position
+export-sig-size = Taille
+export-sig-size-hint = Par rapport au plus petit côté de la photo
+export-sig-opacity = Opacité
+export-sig-colour = Couleur
+export-sig-shadow = Ombre
+export-sig-shadow-hint = Un léger halo pour que le texte reste lisible sur toute photo
+
+export-info = Informations dans les fichiers
+export-gps = Lieu de prise de vue (GPS)
+export-gps-hint = Désactivez avant de partager des photos si vous ne voulez pas que d'autres voient le lieu.
+export-exif = Informations de l'appareil (EXIF)
+export-exif-hint = Appareil, objectif, exposition et date de prise de vue, copiés depuis le fichier original.
+export-creator = Auteur
+export-creator-hint = Votre nom
+export-copyright = Copyright
+export-copyright-hint = © Votre nom
+export-credit-note = Écrits dans chaque copie. La signature, l'auteur et le copyright sont conservés pour la prochaine fois (aussi dans les Paramètres, Exportation).
+
+export-left-out = Exclue : cliquez pour l'exporter aussi
+export-leave-out = Cliquez pour exclure cette photo
