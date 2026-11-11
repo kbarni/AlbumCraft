@@ -10,6 +10,7 @@ use crate::gallery::Style;
 use crate::i18n::tr;
 use crate::imaging::{Effect, EditOp};
 use crate::looks::Look;
+use crate::print::{Paper, PrintLayout};
 
 pub fn look(l: &Look) -> String {
     match l {
@@ -214,5 +215,28 @@ pub fn gradient(g: &Gradient) -> String {
         Gradient::Vertical => tr!("grad-vertical"),
         Gradient::Diagonal => tr!("grad-diagonal"),
         Gradient::Radial => tr!("grad-radial"),
+    }
+}
+
+pub fn print_layout(l: &PrintLayout) -> String {
+    match l {
+        PrintLayout::FullPage => tr!("print-layout-full"),
+        other => other.label().to_owned(),
+    }
+}
+
+/// `Paper::describe` in the language of the window.
+pub fn paper(p: &Paper) -> String {
+    let orientation = if p.landscape() { tr!("edit-landscape") } else { tr!("edit-portrait") };
+    tr!("print-paper-describe", dpi = p.dpi, w = format!("{:.1}", p.sheet_w / 25.4), h = format!("{:.1}", p.sheet_h / 25.4), orientation = orientation)
+}
+
+/// `print::quality_text` in the language of the window.
+pub fn print_quality(grade: u8, ppi: f32) -> String {
+    let ppi = format!("{}", ppi.round() as i64);
+    match grade {
+        2 => tr!("print-quality-best", ppi = ppi),
+        1 => tr!("print-quality-good", ppi = ppi),
+        _ => tr!("print-quality-bad", ppi = ppi),
     }
 }

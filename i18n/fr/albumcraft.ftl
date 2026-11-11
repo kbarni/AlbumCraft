@@ -1090,3 +1090,55 @@ import-click-preview = Cliquez sur une photo pour la voir ici
 import-this = Importer cette photo
 import-this-hint = Espace
 import-already = déjà dans votre bibliothèque
+
+## Print (src/print_view.rs)
+
+print-select-first = Sélectionnez d'abord les photos que vous voulez imprimer.
+print-page-layout = Mise en page
+print-layout-full = Pleine page
+print-shrink = Réduire pour ajuster
+print-shrink-hint = La photo entière est imprimée, avec du blanc là où les formes diffèrent
+print-crop = Rogner pour ajuster
+print-crop-hint = La photo remplit le format d'impression ; les bords qui dépassent sont coupés
+print-options = Options de bordure et de texte
+print-border = Bordure
+print-no-border = Pas de bordure
+print-thin-line = Fin trait noir
+print-white-border = Bordure blanche
+print-text-under = Texte sous chaque photo
+print-no-text = Pas de texte
+print-printer = Imprimante
+print-no-printer-found = Aucune imprimante trouvée
+print-setup = Réglages de l'imprimante…
+print-setup-hint = Format du papier, orientation et réglages propres à l'imprimante
+print-paper = Papier
+print-default = Par défaut de l'imprimante
+print-no-answer = Aucune imprimante n'a répondu — une page A4 est affichée
+print-paper-describe = { $dpi } ppp, { $w } x { $h } po ({ $orientation })
+print-copies = Copies par photo
+print-copies-n =
+    { $n ->
+        [one] { $n } copie
+       *[other] { $n } copies
+    }
+print-counts =
+    { $pictures }, { $prints ->
+        [one] { $prints } tirage
+       *[other] { $prints } tirages
+    }
+print-cancel = Annuler  { $icon }
+print-go = Imprimer  { $icon }
+print-review = Vérifier
+print-review-hint = Vérifier que chaque photo a assez de pixels pour sa taille d'impression
+print-none-left = Il ne reste aucune photo à imprimer.
+print-job-printed =
+    { $n ->
+        [one] { $n } page envoyée à { $printer }.
+       *[other] { $n } pages envoyées à { $printer }.
+    }
+print-preview = Aperçu
+print-ready = Toutes vos photos sont prêtes à être imprimées.
+print-too-small = Certaines de vos photos sont trop petites pour être bien imprimées.  Vous pouvez retirer ces photos, les imprimer quand même, ou annuler et changer le format d'impression.
+print-quality-best = Qualité optimale ({ $ppi } pixels/pouce)
+print-quality-good = Bonne qualité ({ $ppi } pixels/pouce)
+print-quality-bad = Mauvaise qualité ({ $ppi } pixels/pouce)

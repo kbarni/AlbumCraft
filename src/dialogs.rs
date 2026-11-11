@@ -266,7 +266,7 @@ impl App {
                 }
                 Dialog::PrintReview { grades, before_print } => {
                     let bad: Vec<usize> = grades.iter().filter(|g| g.3 == 0).map(|g| g.0).collect();
-                    ui.label(if bad.is_empty() { crate::print::MSG_READY } else { crate::print::MSG_TOO_SMALL });
+                    ui.label(if bad.is_empty() { tr!("print-ready") } else { tr!("print-too-small") });
                     ui.add_space(6.0);
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         egui::Grid::new("print_review").num_columns(2).striped(true).spacing([12.0, 3.0]).show(ui, |ui| {
@@ -277,7 +277,7 @@ impl App {
                                     1 => t().text_weak,
                                     _ => t().bad,
                                 };
-                                ui.label(egui::RichText::new(crate::print::quality_text(*grade, *ppi)).color(colour));
+                                ui.label(egui::RichText::new(crate::labels::print_quality(*grade, *ppi)).color(colour));
                                 ui.end_row();
                             }
                         });

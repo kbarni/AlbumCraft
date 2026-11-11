@@ -1,6 +1,7 @@
 //! The print screen: "Page Layout" choices and printer settings on the
 //! left, a page "Preview" in the middle, and Review / Print / Cancel at the bottom right.
 
+use crate::i18n::tr;
 use crate::icons;
 use crate::app::*;
 use crate::library::Done;
@@ -45,7 +46,7 @@ impl App {
     pub fn open_print(&mut self) {
         let ids = self.targets();
         if ids.is_empty() {
-            self.toast("Select the pictures you want to print first.");
+            self.toast(tr!("print-select-first"));
             return;
         }
         let printers = print::printers();
@@ -135,7 +136,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().left_bg).inner_margin(egui::Margin::same(12)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.label(RichText::new("Page Layout").size(16.0).color(t().text_weak));
+                    ui.label(RichText::new(tr!("print-page-layout")).size(16.0).color(t().text_weak));
                     ui.add_space(6.0);
                     let paper = self.print.as_ref().map(|p| p.paper).unwrap_or_else(Paper::a4);
                     let mut chosen = None;
@@ -156,7 +157,7 @@ impl App {
                                 let r = Rect::from_min_size(sheet.min + egui::vec2((paper.area_x + c.x) * s, (paper.area_y + c.y) * s), egui::vec2(c.w * s, c.h * s));
                                 p.rect_filled(r.shrink(0.5), 0, t().accent);
                             }
-                            p.text(rect.center_bottom() - egui::vec2(0.0, 9.0), egui::Align2::CENTER_CENTER, layout.label(), egui::FontId::proportional(12.5), t().text);
+                            p.text(rect.center_bottom() - egui::vec2(0.0, 9.0), egui::Align2::CENTER_CENTER, crate::labels::print_layout(layout), egui::FontId::proportional(12.5), t().text);
                             if resp.clicked() {
                                 chosen = Some(*layout);
                             }
@@ -174,34 +175,34 @@ impl App {
                     }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.add(egui::Button::new("Shrink to Fit").selected(!self.store.print.crop)).on_hover_text("The whole picture is printed, with white space where the shapes differ").clicked() {
+                        if ui.add(egui::Button::new(tr!("print-shrink")).selected(!self.store.print.crop)).on_hover_text(tr!("print-shrink-hint")).clicked() {
                             self.store.print.crop = false;
                             self.dirty = true;
                         }
-                        if ui.add(egui::Button::new("Crop to Fit").selected(self.store.print.crop)).on_hover_text("The picture fills the print size; edges that don't fit are cut off").clicked() {
+                        if ui.add(egui::Button::new(tr!("print-crop")).selected(self.store.print.crop)).on_hover_text(tr!("print-crop-hint")).clicked() {
                             self.store.print.crop = true;
                             self.dirty = true;
                         }
                     });
                     ui.separator();
 
-                    if ui.add(egui::Button::new("Border and Text Options").selected(self.print.as_ref().is_some_and(|p| p.show_options))).clicked()
+                    if ui.add(egui::Button::new(tr!("print-options")).selected(self.print.as_ref().is_some_and(|p| p.show_options))).clicked()
                         && let Some(ps) = self.print.as_mut() {
                             ps.show_options = !ps.show_options;
                         }
                     if self.print.as_ref().is_some_and(|p| p.show_options) {
                         egui::Frame::new().fill(t().surface).inner_margin(egui::Margin::same(8)).corner_radius(4).show(ui, |ui| {
-                            ui.label(RichText::new("Border").strong());
+                            ui.label(RichText::new(tr!("print-border")).strong());
                             let s = &mut self.store.print;
                             let before = (s.border, s.caption);
-                            ui.radio_value(&mut s.border, BorderStyle::None, "No border");
-                            ui.radio_value(&mut s.border, BorderStyle::ThinBlack, "Thin black line");
-                            ui.radio_value(&mut s.border, BorderStyle::White, "White border");
+                            ui.radio_value(&mut s.border, BorderStyle::None, tr!("print-no-border"));
+                            ui.radio_value(&mut s.border, BorderStyle::ThinBlack, tr!("print-thin-line"));
+                            ui.radio_value(&mut s.border, BorderStyle::White, tr!("print-white-border"));
                             ui.add_space(4.0);
-                            ui.label(RichText::new("Text under each picture").strong());
-                            ui.radio_value(&mut s.caption, CaptionMode::None, "No text");
-                            ui.radio_value(&mut s.caption, CaptionMode::FileName, "File name");
-                            ui.radio_value(&mut s.caption, CaptionMode::Caption, "Caption");
+                            ui.label(RichText::new(tr!("print-text-under")).strong());
+                            ui.radio_value(&mut s.caption, CaptionMode::None, tr!("print-no-text"));
+                            ui.radio_value(&mut s.caption, CaptionMode::FileName, tr!("sort-name"));
+                            ui.radio_value(&mut s.caption, CaptionMode::Caption, tr!("cap-caption"));
                             if before != (s.border, s.caption) {
                                 self.dirty = true;
                             }
@@ -210,12 +211,12 @@ impl App {
                     ui.add_space(8.0);
 
                     // printer
-                    ui.label(RichText::new("Printer").strong());
+                    ui.label(RichText::new(tr!("print-printer")).strong());
                     let (printers, current) = self.print.as_ref().map(|p| (p.printers.clone(), p.choice.name.clone())).unwrap_or_default();
                     let mut pick = None;
                     egui::ComboBox::from_id_salt("printer_pick")
                         .width(260.0)
-                        .selected_text(if current.is_empty() { "No printer found".to_string() } else { current.clone() })
+                        .selected_text(if current.is_empty() { tr!("print-no-printer-found") } else { current.clone() })
                         .show_ui(ui, |ui| {
                             for name in &printers {
                                 if ui.selectable_label(*name == current, name).clicked() {
@@ -230,7 +231,7 @@ impl App {
                     let choice = self.print.as_ref().map(|p| p.choice.clone()).unwrap_or_default();
                     if cfg!(windows) {
                         ui.horizontal(|ui| {
-                            if ui.button("Printer Setup…").on_hover_text("Paper size, orientation and the printer's own settings").clicked()
+                            if ui.button(tr!("print-setup")).on_hover_text(tr!("print-setup-hint")).clicked()
                                 && let Some(c) = print::setup_dialog(&choice)
                             {
                                 self.set_printer(c);
@@ -242,11 +243,11 @@ impl App {
                         if !sizes.is_empty() {
                             let mut picked = None;
                             ui.horizontal(|ui| {
-                                ui.label("Paper");
+                                ui.label(tr!("print-paper"));
                                 egui::ComboBox::from_id_salt("paper_pick")
-                                    .selected_text(choice.media.clone().unwrap_or_else(|| "Printer default".into()))
+                                    .selected_text(choice.media.clone().unwrap_or_else(|| tr!("print-default")))
                                     .show_ui(ui, |ui| {
-                                        if ui.selectable_label(choice.media.is_none(), "Printer default").clicked() {
+                                        if ui.selectable_label(choice.media.is_none(), tr!("print-default")).clicked() {
                                             picked = Some(None);
                                         }
                                         for s in &sizes {
@@ -262,11 +263,11 @@ impl App {
                         }
                     }
                     let (paper, known) = self.print.as_ref().map(|p| (p.paper, p.paper_known)).unwrap_or((Paper::a4(), false));
-                    ui.label(RichText::new(if known { paper.describe() } else { "No printer answered — showing an A4 page".into() }).size(12.0).color(t().text));
+                    ui.label(RichText::new(if known { crate::labels::paper(&paper) } else { tr!("print-no-answer") }).size(12.0).color(t().text));
                     ui.add_space(10.0);
 
                     // copies
-                    ui.label(RichText::new("Copies per picture").strong());
+                    ui.label(RichText::new(tr!("print-copies")).strong());
                     ui.horizontal(|ui| {
                         let c = self.store.print.copies.max(1);
                         if ui.add_enabled(c > 1, egui::Button::new(icons::REMOVE)).clicked() {
@@ -278,7 +279,7 @@ impl App {
                             self.dirty = true;
                         }
                         let c = self.store.print.copies.max(1);
-                        ui.label(format!("{c} {}", if c == 1 { "copy" } else { "copies" }));
+                        ui.label(tr!("print-copies-n", n = c));
                     });
                 });
             });
@@ -293,26 +294,27 @@ impl App {
                     if let Some((done, total)) = &job {
                         ui.spinner();
                         let d = done.load(Ordering::SeqCst).min(*total);
-                        ui.label(format!("Sending page {} of {} to the printer…", (d + 1).min(*total), total));
+                        let (page, total) = ((d + 1).min(*total), *total);
+                        ui.label(tr!("collage-sending", page = page, total = total));
                     } else {
                         let n = self.print_items().len();
-                        ui.label(RichText::new(format!("{} picture(s), {} print(s)", self.print.as_ref().map(|p| p.ids.len()).unwrap_or(0), n)).size(12.5));
+                        ui.label(RichText::new(tr!("print-counts", pictures = tr!("count-pictures", n = self.print.as_ref().map(|p| p.ids.len()).unwrap_or(0)), prints = n)).size(12.5));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let busy = job.is_some();
-                        if ui.add_enabled(!busy, egui::Button::new(RichText::new(format!("Cancel  {}", icons::CLOSE)).size(14.0)).min_size(egui::vec2(110.0, 30.0))).clicked() {
+                        if ui.add_enabled(!busy, egui::Button::new(RichText::new(tr!("print-cancel", icon = icons::CLOSE)).size(14.0)).min_size(egui::vec2(110.0, 30.0))).clicked() {
                             self.close_print();
                             return;
                         }
                         let can_print = self.print.as_ref().is_some_and(|p| !p.choice.name.is_empty() && p.paper_known);
                         if ui
-                            .add_enabled(!busy && can_print, egui::Button::new(RichText::new(format!("Print  {}", icons::CHECK)).size(14.0).strong()).min_size(egui::vec2(110.0, 30.0)))
-                            .on_disabled_hover_text("No printer is available")
+                            .add_enabled(!busy && can_print, egui::Button::new(RichText::new(tr!("print-go", icon = icons::CHECK)).size(14.0).strong()).min_size(egui::vec2(110.0, 30.0)))
+                            .on_disabled_hover_text(tr!("collage-no-printer"))
                             .clicked()
                         {
                             self.print_pressed();
                         }
-                        if ui.add_enabled(!busy, egui::Button::new(RichText::new("Review").size(14.0)).min_size(egui::vec2(110.0, 30.0))).on_hover_text("Check that each picture has enough pixels for its print size").clicked() {
+                        if ui.add_enabled(!busy, egui::Button::new(RichText::new(tr!("print-review")).size(14.0)).min_size(egui::vec2(110.0, 30.0))).on_hover_text(tr!("print-review-hint")).clicked() {
                             self.print_review();
                         }
                     });
@@ -379,7 +381,7 @@ impl App {
             ps.ids.retain(|id| !bad.contains(id));
             ps.page = 0;
             if ps.ids.is_empty() {
-                self.dialog = Some(Dialog::Info { title: "Print".into(), text: print::MSG_NONE_LEFT.into() });
+                self.dialog = Some(Dialog::Info { title: tr!("output-print"), text: tr!("print-none-left") });
                 return;
             }
         }
@@ -435,8 +437,8 @@ impl App {
             let result = print::print_pages(&choice, "AlbumCraft pictures", &mut pages, None);
             progress.store(usize::MAX, Ordering::SeqCst);
             let report = match result {
-                Ok(n) => crate::library::Report::done(format!("Sent {n} page(s) to {}.", choice.name)),
-                Err(e) => crate::library::Report::failed(format!("Printing didn't finish: {e}")),
+                Ok(n) => crate::library::Report::done(tr!("print-job-printed", n = n, printer = choice.name.as_str())),
+                Err(e) => crate::library::Report::failed(tr!("collage-print-failed", error = e.to_string())),
             };
             let _ = tx.send(Done::Report(report));
             ctx.request_repaint();
@@ -445,7 +447,7 @@ impl App {
 
     fn print_preview(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().status_bg).inner_margin(egui::Margin::same(14))).show(ui, |ui| {
-            ui.label(RichText::new("Preview").size(16.0).color(t().text_weak));
+            ui.label(RichText::new(tr!("print-preview")).size(16.0).color(t().text_weak));
             let Some(ps) = self.print.as_ref() else { return };
             let paper = ps.paper;
             let settings = self.store.print.clone();
@@ -506,7 +508,8 @@ impl App {
             if child.add_enabled(page > 0, egui::Button::new(icons::CHEVRON_LEFT)).clicked() {
                 new_page = page - 1;
             }
-            child.label(format!("  {} of {}  ", page + 1, pages));
+            let shown = page + 1;
+            child.label(format!("  {}  ", tr!("collage-page-of", page = shown, total = pages)));
             if child.add_enabled(page + 1 < pages, egui::Button::new(icons::CHEVRON_RIGHT)).clicked() {
                 new_page = page + 1;
             }

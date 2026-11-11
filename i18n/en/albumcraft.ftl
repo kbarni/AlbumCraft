@@ -1093,3 +1093,55 @@ import-click-preview = Click a picture to see it here
 import-this = Import this picture
 import-this-hint = Space
 import-already = already in your library
+
+## Print (src/print_view.rs)
+
+print-select-first = Select the pictures you want to print first.
+print-page-layout = Page Layout
+print-layout-full = Full Page
+print-shrink = Shrink to Fit
+print-shrink-hint = The whole picture is printed, with white space where the shapes differ
+print-crop = Crop to Fit
+print-crop-hint = The picture fills the print size; edges that don't fit are cut off
+print-options = Border and Text Options
+print-border = Border
+print-no-border = No border
+print-thin-line = Thin black line
+print-white-border = White border
+print-text-under = Text under each picture
+print-no-text = No text
+print-printer = Printer
+print-no-printer-found = No printer found
+print-setup = Printer Setup…
+print-setup-hint = Paper size, orientation and the printer's own settings
+print-paper = Paper
+print-default = Printer default
+print-no-answer = No printer answered — showing an A4 page
+print-paper-describe = { $dpi } dpi, { $w } x { $h } in ({ $orientation })
+print-copies = Copies per picture
+print-copies-n =
+    { $n ->
+        [one] { $n } copy
+       *[other] { $n } copies
+    }
+print-counts =
+    { $pictures }, { $prints ->
+        [one] { $prints } print
+       *[other] { $prints } prints
+    }
+print-cancel = Cancel  { $icon }
+print-go = Print  { $icon }
+print-review = Review
+print-review-hint = Check that each picture has enough pixels for its print size
+print-none-left = There are no pictures left to print.
+print-job-printed =
+    { $n ->
+        [one] Sent { $n } page to { $printer }.
+       *[other] Sent { $n } pages to { $printer }.
+    }
+print-preview = Preview
+print-ready = All of your pictures are ready to print.
+print-too-small = Some of your pictures are too small to print well.  You can remove these pictures, print them anyway, or cancel and change the print size.
+print-quality-best = Best quality ({ $ppi } pixels/inch)
+print-quality-good = Good quality ({ $ppi } pixels/inch)
+print-quality-bad = Bad quality ({ $ppi } pixels/inch)
