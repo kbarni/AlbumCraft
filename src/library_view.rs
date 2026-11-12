@@ -3,6 +3,7 @@
 
 use crate::icons;
 use crate::app::*;
+use crate::i18n::tr;
 use crate::library::{fmt_bytes, Flag, MAX_RATING};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
@@ -119,10 +120,18 @@ pub fn rating_input(ui: &mut egui::Ui, base: egui::Id, current: u8, r: f32) -> O
 /// "No rating", "1 star", "3 stars".
 pub fn rating_label(n: u8) -> String {
     match n {
-        0 => "No rating".into(),
-        1 => "1 star".into(),
-        n => format!("{n} stars"),
+        0 => tr!("rating-none"),
+        n => tr!("rating-stars", n = n),
     }
+}
+
+/// One of the buttons that make something from the selected pictures.
+struct Output {
+    /// What `run_output` does (not translated).
+    id: &'static str,
+    icon: &'static str,
+    label: String,
+    tip: String,
 }
 
 impl App {
@@ -130,15 +139,15 @@ impl App {
     pub fn flag_rating_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
         let all = |f: Flag| !ids.is_empty() && ids.iter().all(|&id| self.flag(id) == f);
         let (picked, rejected) = (all(Flag::Pick), all(Flag::Reject));
-        if ui.add(egui::Button::new(if picked { "Unpick" } else { "Pick" }).shortcut_text("P")).clicked() {
+        if ui.add(egui::Button::new(if picked { tr!("flag-unpick") } else { tr!("flag-pick") }).shortcut_text("P")).clicked() {
             self.toggle_flag(ids, Flag::Pick);
             ui.close();
         }
-        if ui.add(egui::Button::new(if rejected { "Unreject" } else { "Reject" }).shortcut_text("X")).clicked() {
+        if ui.add(egui::Button::new(if rejected { tr!("flag-unreject") } else { tr!("flag-reject") }).shortcut_text("X")).clicked() {
             self.toggle_flag(ids, Flag::Reject);
             ui.close();
         }
-        ui.menu_button("Rating", |ui| {
+        ui.menu_button(tr!("flag-rating"), |ui| {
             for n in (0..=MAX_RATING).rev() {
                 if ui.add(egui::Button::new(rating_label(n)).shortcut_text(n.to_string())).clicked() {
                     self.set_rating(ids, n);
@@ -160,7 +169,7 @@ impl App {
                     ui.close();
                 }
             }
-            if ui.button(format!("{} New album…", icons::ADD)).clicked() {
+            if ui.button(format!("{} {}", icons::ADD, tr!("album-new"))).clicked() {
                 new_album = true;
                 ui.close();
             }
@@ -177,14 +186,14 @@ impl App {
     pub fn edit_clipboard_menu(&mut self, ui: &mut egui::Ui, ids: &[usize]) {
         let one = if let [one] = ids { Some(*one) } else { None };
         let has = one.is_some_and(|id| !crate::imaging::copyable_edits(&self.edits(id)).is_empty());
-        if ui.add_enabled(has, egui::Button::new("Copy edits").shortcut_text("Ctrl+Shift+C")).clicked() {
+        if ui.add_enabled(has, egui::Button::new(tr!("menu-copy-edits")).shortcut_text("Ctrl+Shift+C")).clicked() {
             if let Some(id) = one {
                 self.copy_edits(id);
             }
             ui.close();
         }
         let n = self.copied_edits.as_ref().map_or(0, |e| e.len());
-        let label = if n > 0 { format!("Paste {n} edit{}", if n == 1 { "" } else { "s" }) } else { "Paste edits".to_string() };
+        let label = if n > 0 { tr!("menu-paste-n", n = n) } else { tr!("menu-paste-edits") };
         if ui.add_enabled(n > 0 && !ids.is_empty(), egui::Button::new(label).shortcut_text("Ctrl+Shift+V")).clicked() {
             self.paste_edits(ids);
             ui.close();
@@ -295,7 +304,7 @@ impl App {
                 if let [one] = t[..] {
                     self.copy_edits(one);
                 } else {
-                    self.toast("Select one picture to copy its edits.");
+                    self.toast(tr!("copy-edits-select-one"));
                 }
             }
             if paste {
@@ -307,54 +316,54 @@ impl App {
     /// The app menu: one flat list holding only what has no visible button elsewhere, or teaches a shortcut.
     pub fn app_menu_items(&mut self, ui: &mut egui::Ui) {
         let tray = self.targets();
-        if ui.button("Import pictures…").clicked() {
+        if ui.button(tr!("menu-import")).clicked() {
             self.open_import();
             ui.close();
         }
-        if ui.button("Add folder to library…").clicked() {
+        if ui.button(tr!("menu-add-folder")).clicked() {
             self.add_library_folder();
             ui.close();
         }
-        if ui.button("Library folders…").clicked() {
-            self.dialog = Some(Dialog::FolderManager);
+        if ui.button(tr!("menu-folders")).clicked() {
+            self.open_settings(crate::settings_view::SettingsSection::Folders);
             ui.close();
         }
-        if ui.button("Scan folders again").clicked() {
+        if ui.button(tr!("menu-scan")).clicked() {
             self.rescan();
             ui.close();
         }
         ui.separator();
-        if ui.add(egui::Button::new("Select all").shortcut_text("Ctrl+A")).clicked() {
+        if ui.add(egui::Button::new(tr!("menu-select-all")).shortcut_text("Ctrl+A")).clicked() {
             self.selection = self.visible_flat().into_iter().collect();
             ui.close();
         }
-        if ui.add(egui::Button::new("Select none").shortcut_text("Esc")).clicked() {
+        if ui.add(egui::Button::new(tr!("menu-select-none")).shortcut_text("Esc")).clicked() {
             self.selection.clear();
             ui.close();
         }
         ui.separator();
         ui.add_enabled_ui(!tray.is_empty(), |ui| {
-            if ui.add(egui::Button::new("Rotate left").shortcut_text("Ctrl+[")).clicked() {
+            if ui.add(egui::Button::new(tr!("menu-rotate-left")).shortcut_text("Ctrl+[")).clicked() {
                 self.rotate(&tray, -1);
                 ui.close();
             }
-            if ui.add(egui::Button::new("Rotate right").shortcut_text("Ctrl+]")).clicked() {
+            if ui.add(egui::Button::new(tr!("menu-rotate-right")).shortcut_text("Ctrl+]")).clicked() {
                 self.rotate(&tray, 1);
                 ui.close();
             }
             self.flag_rating_menu(ui, &tray);
         });
-        if ui.button("Move rejected pictures to the trash…").on_hover_text("Remove the files of the rejected pictures from their folders, after a confirmation").clicked() {
+        if ui.button(tr!("menu-trash-rejects")).on_hover_text(tr!("menu-trash-rejects-hint")).clicked() {
             self.ask_trash_rejects();
             ui.close();
         }
-        if ui.add_enabled(!tray.is_empty(), egui::Button::new("Contact sheet…")).on_hover_text("Pages of small pictures with a title and their file names, to print or save as PDF").clicked() {
+        if ui.add_enabled(!tray.is_empty(), egui::Button::new(tr!("menu-contact-sheet"))).on_hover_text(tr!("menu-contact-sheet-hint")).clicked() {
             self.open_collage(true);
             ui.close();
         }
         ui.separator();
         self.edit_clipboard_menu(ui, &tray);
-        if ui.add_enabled(!tray.is_empty(), egui::Button::new("Undo all edits")).clicked() {
+        if ui.add_enabled(!tray.is_empty(), egui::Button::new(tr!("menu-undo-edits"))).clicked() {
             let mut before = vec![];
             for &id in &tray {
                 let edits = std::mem::take(&mut self.meta_mut(id).edits);
@@ -365,20 +374,20 @@ impl App {
             }
             if !before.is_empty() {
                 let n = before.len();
-                self.undoable(format!("Removed the edits of {n} picture{}.", if n == 1 { "" } else { "s" }), Undo::Edits(before));
+                self.undoable(tr!("edits-removed", n = n), Undo::Edits(before));
             }
             ui.close();
         }
         ui.separator();
-        if ui.add(egui::Button::new("Settings…").shortcut_text("Ctrl+,")).clicked() {
+        if ui.add(egui::Button::new(tr!("menu-settings")).shortcut_text("Ctrl+,")).clicked() {
             self.open_settings(crate::settings_view::SettingsSection::default());
             ui.close();
         }
-        if ui.button("About AlbumCraft…").clicked() {
+        if ui.button(tr!("menu-about")).clicked() {
             self.dialog = Some(Dialog::About);
             ui.close();
         }
-        if ui.button("Exit").clicked() {
+        if ui.button(tr!("menu-exit")).clicked() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -394,25 +403,20 @@ impl App {
                     ui.separator();
                     let total_bytes: u64 = self.photos.iter().map(|p| p.bytes).sum();
                     ui.label(
-                        RichText::new(format!(
-                            "Library: {} folders, {} pictures, {} on disk",
-                            self.folders.len(),
-                            self.photos.len(),
-                            fmt_bytes(total_bytes)
-                        ))
+                        RichText::new(tr!("status-library", folders = self.folders.len(), pictures = self.photos.len(), size = fmt_bytes(total_bytes)))
                         .size(12.0)
                         .weak(),
                     );
                     if self.scanning {
                         ui.spinner();
-                        ui.label(RichText::new("Looking for pictures…").size(12.0));
+                        ui.label(RichText::new(tr!("scanning")).size(12.0));
                     }
                     if let Some(i) = &self.importing {
                         ui.separator();
                         ui.spinner();
                         ui.add(egui::ProgressBar::new(i.done as f32 / i.total.max(1) as f32).desired_width(120.0));
-                        ui.label(RichText::new(format!("Importing {} of {}…", i.done, i.total)).size(12.0));
-                        if ui.small_button("Stop").on_hover_text("Stop after the current picture (the ones copied stay)").clicked() {
+                        ui.label(RichText::new(tr!("status-importing", done = i.done, total = i.total)).size(12.0));
+                        if ui.small_button(tr!("status-stop")).on_hover_text(tr!("status-stop-hint")).clicked() {
                             self.stop_import();
                         }
                     }
@@ -424,8 +428,8 @@ impl App {
                             ui.add(egui::ProgressBar::new(t.done as f32 / t.total as f32).desired_width(120.0));
                         }
                         let stopping = t.stop.load(std::sync::atomic::Ordering::Relaxed);
-                        ui.label(RichText::new(if stopping { format!("{}: stopping…", t.label) } else { format!("{}…", t.label) }).size(12.0));
-                        if !stopping && ui.small_button("Cancel").on_hover_text("Stop after the current picture").clicked() {
+                        ui.label(RichText::new(if stopping { tr!("task-stopping", label = t.label.as_str()) } else { tr!("task-running", label = t.label.as_str()) }).size(12.0));
+                        if !stopping && ui.small_button(tr!("button-cancel")).on_hover_text(tr!("task-cancel-hint")).clicked() {
                             cancel = Some(t.id);
                         }
                     }
@@ -437,14 +441,14 @@ impl App {
                     if self.analysis.active() {
                         ui.separator();
                         let a = self.analysis;
-                        let count = format!("{} / {}", fmt_count(a.done), fmt_count(a.total));
+                        let (done, total) = (fmt_count(a.done), fmt_count(a.total));
                         if a.paused {
-                            ui.label(RichText::new(format!("Analysis of the pictures paused ({count})")).size(12.0).weak());
+                            ui.label(RichText::new(tr!("status-analysis-paused", done = done, total = total)).size(12.0).weak());
                         } else {
                             ui.add(egui::ProgressBar::new(a.done as f32 / a.total.max(1) as f32).desired_width(120.0));
-                            ui.label(RichText::new(format!("Analysing pictures {count}")).size(12.0));
+                            ui.label(RichText::new(tr!("status-analysis", done = done, total = total)).size(12.0));
                         }
-                        let (label, hint) = if a.paused { ("Resume", "Carry on analysing the pictures in the background") } else { ("Pause", "Stop analysing for now. What is done is kept; it also stops when AlbumCraft closes and carries on at the next start.") };
+                        let (label, hint) = if a.paused { (tr!("status-analysis-resume"), tr!("status-analysis-resume-hint")) } else { (tr!("status-analysis-pause"), tr!("status-analysis-pause-hint")) };
                         if ui.small_button(label).on_hover_text(hint).clicked() {
                             self.store.analysis_paused = !a.paused;
                             self.dirty = true;
@@ -453,7 +457,7 @@ impl App {
                     if self.using_samples {
                         ui.separator();
                         ui.label(
-                            RichText::new("Showing sample pictures. Use Import or Folders to bring in your own.").size(12.0).color(t().accent),
+                            RichText::new(tr!("status-samples")).size(12.0).color(t().accent),
                         );
                     }
                 });
@@ -472,13 +476,13 @@ impl App {
     /// What is selected, as the bars say it: "3 pictures selected", or the folder / album / person
     /// selected as a whole.
     fn selected_text(&self, n: usize) -> String {
-        let pictures = if n == 1 { "1 picture".to_string() } else { format!("{} pictures", crate::app::fmt_count(n)) };
+        let pictures = tr!("selected-count", n = n, count = crate::app::fmt_count(n));
         match self.tray_set.as_ref().filter(|_| self.selection.is_empty()) {
-            Some(TraySet::Folder(fi)) => format!("{} · {pictures}", self.folders.get(*fi).map(|f| f.name.as_str()).unwrap_or("Folder")),
-            Some(TraySet::Album(i)) => format!("{} · {pictures}", self.store.albums.get(*i).map(|a| a.name.as_str()).unwrap_or("Album")),
-            Some(TraySet::Person(name)) => format!("{name} · {pictures}"),
-            Some(TraySet::Picks) => format!("Picks · {pictures}"),
-            None => format!("{pictures} selected"),
+            Some(TraySet::Folder(fi)) => tr!("selected-set", name = self.folders.get(*fi).map(|f| f.name.clone()).unwrap_or_else(|| tr!("fallback-folder")), pictures = pictures),
+            Some(TraySet::Album(i)) => tr!("selected-set", name = self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_else(|| tr!("fallback-album")), pictures = pictures),
+            Some(TraySet::Person(name)) => tr!("selected-set", name = name.as_str(), pictures = pictures),
+            Some(TraySet::Picks) => tr!("selected-set", name = tr!("nav-picks"), pictures = pictures),
+            None => tr!("selected-all", n = n, pictures = pictures),
         }
     }
 
@@ -489,27 +493,27 @@ impl App {
     }
 
     /// The buttons that make something from the selected pictures: (icon, name, tip).
-    fn output_buttons() -> Vec<(&'static str, &'static str, &'static str)> {
+    fn output_buttons() -> Vec<Output> {
         [
-            Some((icons::WEB, "Web page", "Make a web gallery of these pictures")),
-            Some((icons::MAIL, "Email", "Small copies, attached to a new message in your mail program")),
-            crate::print::available().then_some((icons::PRINT, "Print", "Print these pictures (Ctrl+P)")),
-            Some((icons::EXPORT, "Export", "Save edited copies to a folder")),
-            Some((icons::COLLAGE, "Collage", "Make a collage or a contact sheet")),
-            Some((icons::MOVIE, "Movie", "Make a movie")),
+            Some(Output { id: "web", icon: icons::WEB, label: tr!("output-web"), tip: tr!("output-web-tip") }),
+            Some(Output { id: "mail", icon: icons::MAIL, label: tr!("output-mail"), tip: tr!("output-mail-tip") }),
+            crate::print::available().then(|| Output { id: "print", icon: icons::PRINT, label: tr!("output-print"), tip: tr!("output-print-tip") }),
+            Some(Output { id: "export", icon: icons::EXPORT, label: tr!("output-export"), tip: tr!("output-export-tip") }),
+            Some(Output { id: "collage", icon: icons::COLLAGE, label: tr!("output-collage"), tip: tr!("output-collage-tip") }),
+            Some(Output { id: "movie", icon: icons::MOVIE, label: tr!("output-movie"), tip: tr!("output-movie-tip") }),
         ]
         .into_iter()
         .flatten()
         .collect()
     }
 
-    fn run_output(&mut self, name: &str, tray: &[usize]) {
-        match name {
-            "Web page" => self.open_gallery_dialog(),
-            "Email" => self.email(tray),
-            "Print" => self.open_print(),
-            "Export" => self.open_export(tray.to_vec()),
-            "Collage" => self.open_collage(false),
+    fn run_output(&mut self, id: &str, tray: &[usize]) {
+        match id {
+            "web" => self.open_gallery_dialog(),
+            "mail" => self.email(tray),
+            "print" => self.open_print(),
+            "export" => self.open_export(tray.to_vec()),
+            "collage" => self.open_collage(false),
             _ => self.dialog = Some(Dialog::Movie { hd: false }),
         }
     }
@@ -535,17 +539,17 @@ impl App {
                         // what is selected
                         let what = self.selected_text(tray.len());
                         ui.label(RichText::new(what).size(13.5).strong().color(t().text_strong));
-                        if ui.add(egui::Button::new(RichText::new(icons::CLOSE).size(16.0)).frame(false)).on_hover_text("Clear the selection (Esc)").clicked() {
+                        if ui.add(egui::Button::new(RichText::new(icons::CLOSE).size(16.0)).frame(false)).on_hover_text(tr!("bar-clear-hint")).clicked() {
                             self.clear_selection();
                         }
                         ui.separator();
                         // culling
                         let picked = tray.iter().all(|&id| self.is_picked(id));
-                        if pick_button(ui, picked, BAR_SQUARE).on_hover_text("Pick / unpick (P)").clicked() {
+                        if pick_button(ui, picked, BAR_SQUARE).on_hover_text(tr!("bar-pick-hint")).clicked() {
                             self.toggle_flag(&tray, Flag::Pick);
                         }
                         let rejected = tray.iter().all(|&id| self.flag(id) == Flag::Reject);
-                        if reject_button(ui, rejected, BAR_SQUARE).on_hover_text("Reject / unreject (X)").clicked() {
+                        if reject_button(ui, rejected, BAR_SQUARE).on_hover_text(tr!("bar-reject-hint")).clicked() {
                             self.toggle_flag(&tray, Flag::Reject);
                         }
                         // the stars show the rating when all the selected pictures share it
@@ -556,19 +560,19 @@ impl App {
                         }
                         ui.separator();
                         // changes
-                        if bar_icon(ui, icons::ROTATE_LEFT, "Rotate left (Ctrl+[)").clicked() {
+                        if bar_icon(ui, icons::ROTATE_LEFT, &tr!("bar-rotate-left")).clicked() {
                             self.rotate(&tray, -1);
                         }
-                        if bar_icon(ui, icons::ROTATE_RIGHT, "Rotate right (Ctrl+])").clicked() {
+                        if bar_icon(ui, icons::ROTATE_RIGHT, &tr!("bar-rotate-right")).clicked() {
                             self.rotate(&tray, 1);
                         }
-                        if bar_icon(ui, icons::TAG, "Tags and people").clicked() {
+                        if bar_icon(ui, icons::TAG, &tr!("bar-tags")).clicked() {
                             self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                         }
-                        if bar_icon(ui, icons::LOCATION, "Set location: where these pictures were taken, on a map").clicked() {
+                        if bar_icon(ui, icons::LOCATION, &tr!("bar-location")).clicked() {
                             self.start_placing(tray.clone());
                         }
-                        self.album_menu(ui, if labels { format!("{}  To album", icons::ALBUM) } else { icons::ALBUM.to_string() }, &tray);
+                        self.album_menu(ui, if labels { format!("{}  {}", icons::ALBUM, tr!("bar-to-album")) } else { icons::ALBUM.to_string() }, &tray);
                         ui.separator();
                         // making something from them: on the right when there is room
                         let outputs = Self::output_buttons();
@@ -577,12 +581,12 @@ impl App {
                         if room > 0.0 {
                             ui.add_space(room);
                         }
-                        for (icon, label, tip) in outputs {
+                        for Output { id, icon, label, tip } in outputs {
                             let text = if labels { format!("{icon}  {label}") } else { icon.to_string() };
                             let size = if labels { egui::vec2(each - 6.0, BAR_SQUARE.y) } else { BAR_SQUARE };
-                            let tip = if labels { tip.to_string() } else { format!("{label}: {tip}") };
+                            let tip = if labels { tip } else { format!("{label}: {tip}") };
                             if ui.add_sized(size, egui::Button::new(RichText::new(text).size(15.0))).on_hover_text(tip).clicked() {
-                                self.run_output(label, &tray);
+                                self.run_output(id, &tray);
                             }
                         }
                     });
@@ -608,8 +612,8 @@ impl App {
                         ui.add_enabled_ui(!tray.is_empty(), |ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(112.0);
-                                self.album_menu(ui, format!("{}  To album", icons::ALBUM), &tray);
-                                if ui.button(format!("{}  Clear", icons::CLOSE)).on_hover_text("Clear the selection (Esc)").clicked() {
+                                self.album_menu(ui, format!("{}  {}", icons::ALBUM, tr!("bar-to-album")), &tray);
+                                if ui.button(format!("{}  {}", icons::CLOSE, tr!("bar-clear"))).on_hover_text(tr!("bar-clear-hint")).clicked() {
                                     self.clear_selection();
                                 }
                             });
@@ -617,11 +621,11 @@ impl App {
                             ui.vertical(|ui| {
                                 ui.horizontal(|ui| {
                                     let picked = !tray.is_empty() && tray.iter().all(|&id| self.is_picked(id));
-                                    if pick_button(ui, picked, BAR_SQUARE).on_hover_text("Pick / unpick (P)").clicked() {
+                                    if pick_button(ui, picked, BAR_SQUARE).on_hover_text(tr!("bar-pick-hint")).clicked() {
                                         self.toggle_flag(&tray, Flag::Pick);
                                     }
                                     let rejected = !tray.is_empty() && tray.iter().all(|&id| self.flag(id) == Flag::Reject);
-                                    if reject_button(ui, rejected, BAR_SQUARE).on_hover_text("Reject / unreject (X)").clicked() {
+                                    if reject_button(ui, rejected, BAR_SQUARE).on_hover_text(tr!("bar-reject-hint")).clicked() {
                                         self.toggle_flag(&tray, Flag::Reject);
                                     }
                                 });
@@ -634,18 +638,18 @@ impl App {
                             // changes
                             ui.vertical(|ui| {
                                 ui.horizontal(|ui| {
-                                    if bar_icon(ui, icons::ROTATE_LEFT, "Rotate left (Ctrl+[)").clicked() {
+                                    if bar_icon(ui, icons::ROTATE_LEFT, &tr!("bar-rotate-left")).clicked() {
                                         self.rotate(&tray, -1);
                                     }
-                                    if bar_icon(ui, icons::ROTATE_RIGHT, "Rotate right (Ctrl+])").clicked() {
+                                    if bar_icon(ui, icons::ROTATE_RIGHT, &tr!("bar-rotate-right")).clicked() {
                                         self.rotate(&tray, 1);
                                     }
                                 });
                                 ui.horizontal(|ui| {
-                                    if bar_icon(ui, icons::TAG, "Tags and people").clicked() {
+                                    if bar_icon(ui, icons::TAG, &tr!("bar-tags")).clicked() {
                                         self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                                     }
-                                    if bar_icon(ui, icons::LOCATION, "Set location: where these pictures were taken, on a map").clicked() {
+                                    if bar_icon(ui, icons::LOCATION, &tr!("bar-location")).clicked() {
                                         self.start_placing(tray.clone());
                                     }
                                 });
@@ -658,9 +662,9 @@ impl App {
                                 ui.add_space(room);
                             }
                             ui.spacing_mut().item_spacing.x = 2.0;
-                            for (icon, label, tip) in outputs {
-                                if big_button(ui, icon, label, tip).clicked() {
-                                    self.run_output(label, &tray);
+                            for Output { id, icon, label, tip } in outputs {
+                                if big_button(ui, icon, &label, &tip).clicked() {
+                                    self.run_output(id, &tray);
                                 }
                             }
                         });
@@ -676,10 +680,10 @@ impl App {
         let p = ui.painter().clone();
         p.rect_filled(well, 6, t().lightbox_bg);
         p.rect_stroke(well, 6, Stroke::new(1.0, t().border), egui::StrokeKind::Inside);
-        let label = if tray.is_empty() { "Nothing selected".to_string() } else { self.selected_text(tray.len()) };
+        let label = if tray.is_empty() { tr!("tray-nothing") } else { self.selected_text(tray.len()) };
         p.text(well.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(12.5), t().text_strong);
         if tray.is_empty() {
-            p.text(well.center() + egui::vec2(0.0, 8.0), egui::Align2::CENTER_CENTER, "Click pictures to select them", egui::FontId::proportional(12.0), t().text_weak);
+            p.text(well.center() + egui::vec2(0.0, 8.0), egui::Align2::CENTER_CENTER, tr!("tray-click"), egui::FontId::proportional(12.0), t().text_weak);
             return;
         }
         let whole = self.tray_set.is_some() && self.selection.is_empty();
@@ -721,11 +725,11 @@ impl App {
                 self.selection.insert(id);
             }
             let tray = self.tray();
-            if ui.button("Open in editor").clicked() {
+            if ui.button(tr!("ctx-open")).clicked() {
                 self.open_editor(id);
                 ui.close();
             }
-            if ui.button("View slideshow from here").clicked() {
+            if ui.button(tr!("ctx-slideshow")).clicked() {
                 let list = self.visible_flat();
                 self.start_slideshow(list, id);
                 ui.close();
@@ -735,17 +739,17 @@ impl App {
             ui.separator();
             self.edit_clipboard_menu(ui, &tray);
             ui.separator();
-            if ui.button(format!("{} Rotate left", icons::ROTATE_LEFT)).clicked() {
+            if ui.button(format!("{} {}", icons::ROTATE_LEFT, tr!("menu-rotate-left"))).clicked() {
                 self.rotate(&tray, -1);
                 ui.close();
             }
-            if ui.button(format!("{} Rotate right", icons::ROTATE_RIGHT)).clicked() {
+            if ui.button(format!("{} {}", icons::ROTATE_RIGHT, tr!("menu-rotate-right"))).clicked() {
                 self.rotate(&tray, 1);
                 ui.close();
             }
-            self.album_menu(ui, format!("{} Add to album", icons::ALBUM), &tray);
+            self.album_menu(ui, format!("{} {}", icons::ALBUM, tr!("ctx-add-to-album")), &tray);
             if let Source::Album(ai) = self.source
-                && ui.button("Remove from album").clicked() {
+                && ui.button(tr!("ctx-remove-from-album")).clicked() {
                     let keys: Vec<String> = tray.iter().map(|&t| self.photos[t].key.clone()).collect();
                     if let Some(a) = self.store.albums.get_mut(ai) {
                         a.keys.retain(|k| !keys.contains(k));
@@ -754,22 +758,22 @@ impl App {
                     self.selection.clear();
                     ui.close();
                 }
-            if ui.button(format!("{} Tags and people…", icons::TAG)).clicked() {
+            if ui.button(format!("{} {}", icons::TAG, tr!("ctx-tags"))).clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                 ui.close();
             }
-            if ui.button(format!("{} Set location…", icons::LOCATION)).clicked() {
+            if ui.button(format!("{} {}", icons::LOCATION, tr!("ctx-location"))).clicked() {
                 self.start_placing(tray.clone());
                 ui.close();
             }
-            if ui.button(format!("{} Export…", icons::EXPORT)).clicked() {
+            if ui.button(format!("{} {}", icons::EXPORT, tr!("ctx-export"))).clicked() {
                 self.open_export(tray.clone());
                 ui.close();
             }
-            if !self.photos[id].is_sample() && ui.button("Show in file manager").clicked() {
+            if !self.photos[id].is_sample() && ui.button(tr!("ctx-show-file")).clicked() {
                 let path = self.photos[id].key.clone();
                 if let Err(e) = reveal_in_file_manager(std::path::Path::new(&path)) {
-                    self.toast(format!("Could not open the file manager: {e}"));
+                    self.toast(tr!("notice-no-file-manager", error = e.to_string()));
                 }
                 ui.close();
             }

@@ -23,9 +23,11 @@ pub mod import;
 #[cfg(test)]
 mod perf_tests;
 pub mod library;
+pub mod locale;
 pub mod mail;
 pub mod mcp;
 pub mod movie;
+pub mod msg;
 pub mod online;
 pub mod collage;
 pub mod print;

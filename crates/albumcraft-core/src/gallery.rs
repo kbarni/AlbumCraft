@@ -50,7 +50,7 @@ pub fn write(parent: &Path, items: &[Item], opts: &Options, step: &dyn Fn(usize,
         dir = parent.join(format!("{name} ({n})"));
         n += 1;
         if n > 999 {
-            return Err("too many galleries with this name here".into());
+            return Err(crate::msg!("gallery-too-many", "too many galleries with this name here").into());
         }
     }
     let err = |e: std::io::Error| format!("{}: {e}", dir.display());
@@ -80,7 +80,7 @@ pub fn write(parent: &Path, items: &[Item], opts: &Options, step: &dyn Fn(usize,
         }
     }
     if shown.is_empty() {
-        return Err("none of the pictures could be read".into());
+        return Err(crate::msg!("gallery-none-read", "none of the pictures could be read").into());
     }
     std::fs::write(dir.join("index.html"), page(opts, &shown)).map_err(err)?;
     Ok((dir, failed))
@@ -140,7 +140,7 @@ fn page(opts: &Options, items: &[(String, String, u32, u32)]) -> String {
     let data = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()).replace('<', "\\u003c");
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -167,10 +167,10 @@ figcaption{{padding:8px 10px;font-size:14px;color:{weak}}}
 </style>
 </head>
 <body>
-<header><h1>{title}</h1><div class="count">{count} pictures</div></header>
+<header><h1>{title}</h1><div class="count">{count}</div></header>
 <main class="grid">
 {tiles}</main>
-<div id="box" role="dialog" aria-modal="true"><button id="close" aria-label="Close">&times;</button><button class="nav" id="prev" aria-label="Previous">&#8249;</button><img id="big" alt=""><div id="cap"></div><button class="nav" id="next" aria-label="Next">&#8250;</button></div>
+<div id="box" role="dialog" aria-modal="true"><button id="close" aria-label="{close}">&times;</button><button class="nav" id="prev" aria-label="{prev}">&#8249;</button><img id="big" alt=""><div id="cap"></div><button class="nav" id="next" aria-label="{next}">&#8250;</button></div>
 <script>
 const items={data};let cur=0;const box=document.getElementById('box'),big=document.getElementById('big'),cap=document.getElementById('cap');
 function show(i){{cur=(i+items.length)%items.length;big.src=items[cur][0];cap.textContent=items[cur][1];box.classList.add('on');}}
@@ -185,7 +185,11 @@ let x0=null;box.addEventListener('touchstart',e=>{{x0=e.touches[0].clientX;}});b
 </body>
 </html>
 "#,
-        count = items.len()
+        lang = escape_html(&crate::msg!("gallery-html-lang", "en").to_string()),
+        count = escape_html(&crate::msg!("gallery-count", "{n} {n:picture|pictures}", n = items.len()).to_string()),
+        close = escape_html(&crate::msg!("gallery-close", "Close").to_string()),
+        prev = escape_html(&crate::msg!("gallery-prev", "Previous").to_string()),
+        next = escape_html(&crate::msg!("gallery-next", "Next").to_string()),
     )
 }
 

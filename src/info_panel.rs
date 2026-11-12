@@ -3,6 +3,7 @@
 //! rest, closed at first), Location (a small map, Modify… / Show on map) and Tags (add with
 //! suggestions from the library's tags, remove).
 
+use crate::i18n::tr;
 use crate::app::App;
 use crate::geo::{LatLon, Place};
 use crate::icons;
@@ -49,23 +50,23 @@ fn name_cell(ui: &mut egui::Ui, name: &str) {
 }
 
 fn coords(at: LatLon) -> String {
-    let ns = if at.lat >= 0.0 { "N" } else { "S" };
-    let ew = if at.lon >= 0.0 { "E" } else { "W" };
-    format!("{:.5}° {ns}, {:.5}° {ew}", at.lat.abs(), at.lon.abs())
+    let ns = if at.lat >= 0.0 { tr!("coord-n") } else { tr!("coord-s") };
+    let ew = if at.lon >= 0.0 { tr!("coord-e") } else { tr!("coord-w") };
+    tr!("info-coords", lat = crate::locale::decimal(&format!("{:.5}", at.lat.abs())), ns = ns, lon = crate::locale::decimal(&format!("{:.5}", at.lon.abs())), ew = ew)
 }
 
 fn orientation_text(o: u32) -> Option<String> {
     let s = match o {
-        2 => "Mirrored",
-        3 => "Upside down",
-        4 => "Mirrored, upside down",
-        5 => "Mirrored, turned left",
-        6 => "Turned right (camera held upright)",
-        7 => "Mirrored, turned right",
-        8 => "Turned left (camera held upright)",
+        2 => tr!("info-orient-2"),
+        3 => tr!("info-orient-3"),
+        4 => tr!("info-orient-4"),
+        5 => tr!("info-orient-5"),
+        6 => tr!("info-orient-6"),
+        7 => tr!("info-orient-7"),
+        8 => tr!("info-orient-8"),
         _ => return None,
     };
-    Some(s.into())
+    Some(s)
 }
 
 impl App {
@@ -129,7 +130,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.add(egui::Label::new(RichText::new(&p.name).size(14.0).strong().color(t().text_strong)).truncate());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button(icons::CLOSE).on_hover_text("Hide this panel (I)").clicked() {
+                        if ui.small_button(icons::CLOSE).on_hover_text(tr!("info-hide-hint")).clicked() {
                             close = true;
                         }
                     });
@@ -150,7 +151,7 @@ impl App {
     }
 
     fn info_properties(&mut self, ui: &mut egui::Ui, id: usize) {
-        if !self.info_section(ui, "properties", "Properties", true) {
+        if !self.info_section(ui, "properties", &tr!("info-properties"), true) {
             return;
         }
         let Some(p) = self.photos.get(id).cloned() else { return };
@@ -164,75 +165,75 @@ impl App {
             "tif" | "tiff" => "TIFF".to_string(),
             other => other.to_ascii_uppercase(),
         });
-        row(ui, "Camera", c.and_then(|c| c.camera()));
-        row(ui, "Lens", c.and_then(|c| c.lens.clone()));
+        row(ui, &tr!("info-camera"), c.and_then(|c| c.camera()));
+        row(ui, &tr!("info-lens"), c.and_then(|c| c.lens.clone()));
         row(
             ui,
-            "Taken on",
+            &tr!("info-taken"),
             Some(match taken {
                 Some(ts) => format!("{} {}", fmt_date(ts), fmt_time(ts)),
-                None => format!("{} {} (file date)", fmt_date(p.modified), fmt_time(p.modified)),
+                None => tr!("info-file-date", date = format!("{} {}", fmt_date(p.modified), fmt_time(p.modified))),
             }),
         );
         row(
             ui,
-            "Size",
+            &tr!("info-size"),
             dims.map(|(w, h)| {
                 let mp = w as f64 * h as f64 / 1e6;
-                if mp >= 1.0 { format!("{w} × {h} ({} MP)", num(mp, 1)) } else { format!("{w} × {h}") }
+                if mp >= 1.0 { tr!("info-megapixels", w = w, h = h, mp = num(mp, 1)) } else { format!("{w} × {h}") }
             }),
         );
-        row(ui, "File", Some([format, Some(fmt_bytes(p.bytes))].into_iter().flatten().collect::<Vec<_>>().join(" · ")));
+        row(ui, &tr!("info-file"), Some([format, Some(fmt_bytes(p.bytes))].into_iter().flatten().collect::<Vec<_>>().join(" · ")));
         if let Some(c) = c {
             let focal = c.focal_mm.map(|f| match c.focal_35mm {
-                Some(e) if e as f64 != f.round() => format!("{} mm (35 mm: {e} mm)", num(f, 1)),
+                Some(e) if e as f64 != f.round() => tr!("info-focal-35", f = num(f, 1), e = e),
                 _ => format!("{} mm", num(f, 1)),
             });
-            row(ui, "Focal length", focal);
-            row(ui, "Aperture", c.fnumber.map(|f| format!("f/{}", num(f, 1))));
-            row(ui, "Exposure", c.exposure_short());
+            row(ui, &tr!("info-focal"), focal);
+            row(ui, &tr!("info-aperture"), c.fnumber.map(|f| format!("f/{}", num(f, 1))));
+            row(ui, &tr!("info-exposure"), c.exposure_short());
             row(ui, "ISO", c.iso.map(|i| i.to_string()));
         }
-        let folder = if p.is_sample() { Some("Built-in sample picture".to_string()) } else { self.folders.get(p.folder).map(|f| f.path.clone()) };
-        row(ui, "Folder", folder);
-        let edits = self.meta(id).map(|m| m.edits.iter().map(|e| e.label()).collect::<Vec<_>>().join(", "));
-        row(ui, "Edits", edits);
+        let folder = if p.is_sample() { Some(tr!("info-sample")) } else { self.folders.get(p.folder).map(|f| f.path.clone()) };
+        row(ui, &tr!("info-folder"), folder);
+        let edits = self.meta(id).map(|m| m.edits.iter().map(crate::labels::op).collect::<Vec<_>>().join(", "));
+        row(ui, &tr!("info-edits"), edits);
         if c.is_none() && !p.is_sample() {
-            ui.label(RichText::new("No camera information (EXIF) in this picture.").size(12.0).color(t().text_weak));
+            ui.label(RichText::new(tr!("info-no-exif")).size(12.0).color(t().text_weak));
         }
     }
 
     fn info_exif(&mut self, ui: &mut egui::Ui, id: usize) {
         let Some(cam) = self.camera_info(id) else { return };
-        if !self.info_section(ui, "exif", "Extended EXIF", false) {
+        if !self.info_section(ui, "exif", &tr!("info-exif"), false) {
             return;
         }
         let c = cam.as_ref();
         let num = crate::exifinfo::trim_num;
-        row(ui, "Flash", c.flash.clone());
-        row(ui, "Exposure bias", c.exposure_bias.filter(|b| *b != 0.0).map(|b| format!("{} EV", num(b, 2))));
-        row(ui, "Program", c.program.clone());
-        row(ui, "Metering", c.metering.clone());
-        row(ui, "White balance", c.white_balance.clone());
-        row(ui, "Distance", c.subject_distance.map(|d| format!("{} m", num(d, 2))));
-        row(ui, "Colour space", c.color_space.clone());
-        row(ui, "Orientation", c.orientation.and_then(orientation_text));
+        row(ui, &tr!("info-flash"), c.flash.clone());
+        row(ui, &tr!("info-bias"), c.exposure_bias.filter(|b| *b != 0.0).map(|b| format!("{} EV", num(b, 2))));
+        row(ui, &tr!("info-program"), c.program.clone());
+        row(ui, &tr!("info-metering"), c.metering.clone());
+        row(ui, &tr!("edit-wb-title"), c.white_balance.clone());
+        row(ui, &tr!("info-distance"), c.subject_distance.map(|d| format!("{} m", num(d, 2))));
+        row(ui, &tr!("info-colour-space"), c.color_space.clone());
+        row(ui, &tr!("edit-crop-orientation"), c.orientation.and_then(orientation_text));
         // the file's own position, as the background index found it (never read here, per frame)
         let gps = self.photos.get(id).and_then(|p| self.geo.file_gps.get(&p.key).copied().flatten());
-        row(ui, "GPS position", gps.map(coords));
-        row(ui, "Digitized", c.date_digitized.clone());
-        row(ui, "Modified", c.date_modified.clone());
-        row(ui, "Software", c.software.clone());
+        row(ui, &tr!("info-gps"), gps.map(coords));
+        row(ui, &tr!("info-digitized"), c.date_digitized.clone());
+        row(ui, &tr!("info-modified"), c.date_modified.clone());
+        row(ui, &tr!("info-software"), c.software.clone());
         if let Some(th) = self.exif_thumbs.get(&id).cloned() {
             let [w, h] = th.size();
             ui.horizontal_top(|ui| {
-                name_cell(ui, "Camera preview");
+                name_cell(ui, &tr!("info-preview"));
                 let s = (120.0 / w.max(h) as f32).min(1.0);
-                ui.add(egui::Image::new((th.id(), egui::vec2(w as f32 * s, h as f32 * s)))).on_hover_text(format!("{w} × {h} pixels, stored in the file"));
+                ui.add(egui::Image::new((th.id(), egui::vec2(w as f32 * s, h as f32 * s)))).on_hover_text(tr!("info-preview-hint", w = w, h = h));
             });
         }
         if !c.all.is_empty() {
-            egui::CollapsingHeader::new(RichText::new(format!("All EXIF data ({} entries)", c.all.len())).size(12.5))
+            egui::CollapsingHeader::new(RichText::new(tr!("info-all-exif", n = c.all.len())).size(12.5))
                 .id_salt(("allexif", id))
                 .default_open(false)
                 .show(ui, |ui| {
@@ -248,7 +249,7 @@ impl App {
     }
 
     fn info_location(&mut self, ui: &mut egui::Ui, id: usize) {
-        if !self.info_section(ui, "location", "Location", true) {
+        if !self.info_section(ui, "location", &tr!("info-location"), true) {
             return;
         }
         let at = self.location_now(id);
@@ -263,19 +264,19 @@ impl App {
                 if let Some(name) = self.location_label(id) {
                     ui.label(RichText::new(name).size(13.0).color(t().text));
                 }
-                ui.label(RichText::new(if by_user { "Set in AlbumCraft" } else { "From the camera's GPS" }).size(11.5).color(t().text_weak));
+                ui.label(RichText::new(if by_user { tr!("info-set-in-app") } else { tr!("info-from-gps") }).size(11.5).color(t().text_weak));
                 ui.horizontal(|ui| {
-                    if ui.button(format!("{}  Modify…", icons::EDIT)).on_hover_text("Move the pin, rename the place or remove it").clicked() {
+                    if ui.button(format!("{}  {}", icons::EDIT, tr!("info-modify"))).on_hover_text(tr!("info-modify-hint")).clicked() {
                         modify = true;
                     }
-                    if ui.button(format!("{}  Show on map", icons::MAP)).on_hover_text("Open Places on this picture").clicked() {
+                    if ui.button(format!("{}  {}", icons::MAP, tr!("album-show-map"))).on_hover_text(tr!("info-show-map-hint")).clicked() {
                         show = true;
                     }
                 });
             }
             None => {
-                ui.label(RichText::new("No location yet.").size(12.5).color(t().text_weak));
-                if ui.button(format!("{}  Set location…", icons::LOCATION)).on_hover_text("Find the place or click it on a map").clicked() {
+                ui.label(RichText::new(tr!("info-no-location")).size(12.5).color(t().text_weak));
+                if ui.button(format!("{}  {}", icons::LOCATION, tr!("ctx-location"))).on_hover_text(tr!("info-set-location-hint")).clicked() {
                     modify = true;
                 }
             }
@@ -288,19 +289,19 @@ impl App {
     }
 
     fn info_tags(&mut self, ui: &mut egui::Ui, id: usize) {
-        if !self.info_section(ui, "tags", "Tags", true) {
+        if !self.info_section(ui, "tags", &tr!("info-tags"), true) {
             return;
         }
         let tags = self.meta(id).map(|m| m.tags.clone()).unwrap_or_default();
         let mut remove = None;
         if tags.is_empty() {
-            ui.label(RichText::new("No tags yet.").size(12.5).color(t().text_weak));
+            ui.label(RichText::new(tr!("info-no-tags")).size(12.5).color(t().text_weak));
         } else {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
                 for tag in &tags {
                     let chip = egui::Button::new(RichText::new(format!("{tag}  {}", icons::CLOSE)).size(12.5)).corner_radius(12).fill(t().select_bg);
-                    if ui.add(chip).on_hover_text("Remove this tag").clicked() {
+                    if ui.add(chip).on_hover_text(tr!("info-remove-tag")).clicked() {
                         remove = Some(tag.clone());
                     }
                 }
@@ -312,10 +313,10 @@ impl App {
         ui.add_space(2.0);
         let mut add: Option<String> = None;
         ui.horizontal(|ui| {
-            let field = egui::TextEdit::singleline(&mut self.edit.tag_buf).hint_text("Add a tag…").desired_width(ui.available_width() - 60.0);
+            let field = egui::TextEdit::singleline(&mut self.edit.tag_buf).hint_text(tr!("info-add-tag")).desired_width(ui.available_width() - 60.0);
             let r = ui.add(field);
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (ui.add_enabled(!self.edit.tag_buf.trim().is_empty(), egui::Button::new("Add")).clicked() || enter) && !self.edit.tag_buf.trim().is_empty() {
+            if (ui.add_enabled(!self.edit.tag_buf.trim().is_empty(), egui::Button::new(tr!("tags-add"))).clicked() || enter) && !self.edit.tag_buf.trim().is_empty() {
                 add = Some(self.edit.tag_buf.trim().to_string());
                 if enter {
                     r.request_focus();

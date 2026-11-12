@@ -7,6 +7,7 @@
 
 use crate::app::*;
 use crate::collage::{self, BgKind, Border, Format, Gradient, Nudge, Page, Pic, Shape, ShapeKind, Style, P};
+use crate::i18n::tr;
 use crate::icons;
 use crate::library::{self, Done, Job, BIG_DIM};
 use crate::print::{self, CaptionMode, Paper, PrinterChoice};
@@ -199,7 +200,7 @@ impl App {
     pub fn open_collage(&mut self, sheet: bool) {
         let ids = self.targets();
         if ids.is_empty() || (!sheet && ids.len() < 2) {
-            self.toast(if sheet { "Select the pictures for the contact sheet first." } else { "Select at least two pictures to make a collage." });
+            self.toast(if sheet { tr!("collage-need-sheet") } else { tr!("collage-need-two") });
             return;
         }
         // the title: the album or the folder they all come from
@@ -261,7 +262,7 @@ impl App {
             st.bg_key = None;
             // back to a colour, so the same picture isn't tried again and again
             self.store.collage.background.kind = BgKind::Color;
-            self.toast("That picture could not be read.");
+            self.toast(tr!("collage-unreadable"));
             return;
         };
         let img = crate::imaging::apply_all(&img, &edits);
@@ -361,8 +362,8 @@ impl App {
                     egui::Grid::new("collage_styles").num_columns(3).spacing([8.0, 8.0]).show(ui, |ui| {
                         let all: Vec<Option<Style>> = Style::ALL.iter().map(|s| Some(*s)).chain(std::iter::once(None)).collect();
                         for (i, style) in all.iter().enumerate() {
-                            let label = style.map(|s| s.label()).unwrap_or("Contact sheet");
-                            let tip = style.map(|s| s.describe()).unwrap_or("Pages of small pictures with a title and their file names");
+                            let label = style.map(|s| crate::labels::collage_style(&s)).unwrap_or_else(|| tr!("cstyle-sheet"));
+                            let tip = style.map(|s| crate::labels::collage_style_tip(&s)).unwrap_or_else(|| tr!("cstyle-sheet-tip"));
                             let (rect, resp) = ui.allocate_exact_size(egui::vec2(84.0, 74.0), Sense::click());
                             let p = ui.painter();
                             let selected = if sheet { style.is_none() } else { *style == Some(self.store.collage.style) };
@@ -413,15 +414,15 @@ impl App {
     fn collage_options(&mut self, ui: &mut egui::Ui) {
         let before = self.store.collage.clone();
         let style = before.style;
-        ui.label(RichText::new(style.describe()).size(12.5).color(t().text_weak));
+        ui.label(RichText::new(crate::labels::collage_style_tip(&style)).size(12.5).color(t().text_weak));
         ui.add_space(6.0);
         let mut new_seed = false;
         let mut shuffle = false;
         ui.horizontal(|ui| {
-            if ui.button(format!("{}  New layout", icons::REFRESH)).on_hover_text("Other positions, turns and sizes").clicked() {
+            if ui.button(format!("{}  {}", icons::REFRESH, tr!("collage-new-layout"))).on_hover_text(tr!("collage-new-layout-hint")).clicked() {
                 new_seed = true;
             }
-            if ui.button(format!("{}  Shuffle", icons::SWAP)).on_hover_text("Put the pictures in a random order").clicked() {
+            if ui.button(format!("{}  {}", icons::SWAP, tr!("collage-shuffle"))).on_hover_text(tr!("collage-shuffle-hint")).clicked() {
                 shuffle = true;
             }
         });
@@ -447,54 +448,54 @@ impl App {
         let s = &mut self.store.collage;
         if style == Style::Shape {
             ui.horizontal(|ui| {
-                ui.label("Shape");
+                ui.label(tr!("edit-crop-shape"));
                 for k in ShapeKind::ALL {
-                    ui.selectable_value(&mut s.shape, k, k.label());
+                    ui.selectable_value(&mut s.shape, k, crate::labels::shape_kind(&k));
                 }
             });
         }
         if style.has_gap() {
             ui.horizontal(|ui| {
-                ui.label("Space between pictures");
+                ui.label(tr!("collage-spacing"));
                 ui.add(egui::Slider::new(&mut s.gap, 0.0..=1.0).show_value(false));
             });
         }
         if style.has_border() {
             ui.horizontal(|ui| {
-                ui.label("Border");
-                ui.selectable_value(&mut s.border, Border::None, "None");
-                ui.selectable_value(&mut s.border, Border::White, "White");
-                ui.selectable_value(&mut s.border, Border::Instant, "Instant");
+                ui.label(tr!("decor-border"));
+                ui.selectable_value(&mut s.border, Border::None, tr!("border-none"));
+                ui.selectable_value(&mut s.border, Border::White, tr!("border-white"));
+                ui.selectable_value(&mut s.border, Border::Instant, tr!("border-instant"));
             });
             if s.border == Border::Instant {
                 ui.horizontal(|ui| {
-                    ui.label("Text on the frames");
+                    ui.label(tr!("collage-frame-text"));
                     egui::ComboBox::from_id_salt("collage_caps")
                         .selected_text(match s.captions {
-                            CaptionMode::None => "None",
-                            CaptionMode::FileName => "File name",
-                            CaptionMode::Caption => "Caption",
+                            CaptionMode::None => tr!("cap-none"),
+                            CaptionMode::FileName => tr!("sort-name"),
+                            CaptionMode::Caption => tr!("cap-caption"),
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut s.captions, CaptionMode::None, "None");
-                            ui.selectable_value(&mut s.captions, CaptionMode::FileName, "File name");
-                            ui.selectable_value(&mut s.captions, CaptionMode::Caption, "Caption");
+                            ui.selectable_value(&mut s.captions, CaptionMode::None, tr!("cap-none"));
+                            ui.selectable_value(&mut s.captions, CaptionMode::FileName, tr!("sort-name"));
+                            ui.selectable_value(&mut s.captions, CaptionMode::Caption, tr!("cap-caption"));
                         });
                 });
             }
         }
         if style.has_shadow() {
-            ui.checkbox(&mut s.shadow, "Shadows");
+            ui.checkbox(&mut s.shadow, tr!("collage-shadows"));
         }
         ui.add_space(8.0);
 
         // background
-        ui.label(RichText::new("Background").strong());
+        ui.label(RichText::new(tr!("edit-p-background")).strong());
         let s = &mut self.store.collage;
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut s.background.kind, BgKind::Color, "Colour");
-            ui.selectable_value(&mut s.background.kind, BgKind::Gradient, "Gradient");
-            ui.selectable_value(&mut s.background.kind, BgKind::Picture, "Picture");
+            ui.selectable_value(&mut s.background.kind, BgKind::Color, tr!("edit-p-colour"));
+            ui.selectable_value(&mut s.background.kind, BgKind::Gradient, tr!("bg-gradient"));
+            ui.selectable_value(&mut s.background.kind, BgKind::Picture, tr!("bg-picture"));
         });
         let mut pick_bg: Option<String> = None;
         let mut pick_file = false;
@@ -515,11 +516,11 @@ impl App {
             BgKind::Gradient => {
                 ui.horizontal(|ui| {
                     ui.color_edit_button_srgb(&mut s.background.color);
-                    ui.label("to");
+                    ui.label(tr!("collage-to"));
                     ui.color_edit_button_srgb(&mut s.background.color2);
-                    egui::ComboBox::from_id_salt("collage_grad").selected_text(s.background.gradient.label()).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("collage_grad").selected_text(crate::labels::gradient(&s.background.gradient)).show_ui(ui, |ui| {
                         for g in Gradient::ALL {
-                            ui.selectable_value(&mut s.background.gradient, g, g.label());
+                            ui.selectable_value(&mut s.background.gradient, g, crate::labels::gradient(&g));
                         }
                     });
                 });
@@ -529,24 +530,24 @@ impl App {
                 let sel = st.and_then(|c| c.selected).and_then(|id| self.photos.get(id)).map(|p| p.key.clone());
                 let current = st.and_then(|c| c.bg_key.clone());
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(sel.is_some(), egui::Button::new("Use the selected picture")).on_disabled_hover_text("Click a picture of the collage first").clicked() {
+                    if ui.add_enabled(sel.is_some(), egui::Button::new(tr!("collage-use-selected"))).on_disabled_hover_text(tr!("collage-use-selected-hint")).clicked() {
                         pick_bg = sel.clone();
                     }
-                    if ui.button("Choose a file…").clicked() {
+                    if ui.button(tr!("collage-choose-file")).clicked() {
                         pick_file = true;
                     }
                 });
                 let s = &mut self.store.collage;
-                ui.checkbox(&mut s.background.blur, "Soft focus");
+                ui.checkbox(&mut s.background.blur, tr!("look-soft-focus"));
                 let name = current.as_deref().map(|k| k.rsplit(['/', '\\']).next().unwrap_or(k).to_string());
-                ui.label(RichText::new(name.unwrap_or_else(|| "No picture chosen yet".into())).size(12.0).color(t().text_weak));
+                ui.label(RichText::new(name.unwrap_or_else(|| tr!("collage-no-bg"))).size(12.0).color(t().text_weak));
                 if current.is_none() && pick_bg.is_none() {
                     pick_bg = sel.or_else(|| self.collage.as_ref().and_then(|c| c.ids.first()).map(|&id| self.photos[id].key.clone()));
                 }
             }
         }
         if pick_file
-            && let Some(path) = rfd::FileDialog::new().set_title("Background picture").add_filter("Pictures", &["jpg", "jpeg", "png", "webp", "tif", "tiff", "bmp", "gif"]).pick_file()
+            && let Some(path) = rfd::FileDialog::new().set_title(tr!("collage-bg-dialog")).add_filter(tr!("filter-pictures"), &["jpg", "jpeg", "png", "webp", "tif", "tiff", "bmp", "gif"]).pick_file()
         {
             pick_bg = Some(path.to_string_lossy().to_string());
         }
@@ -556,14 +557,14 @@ impl App {
         ui.add_space(8.0);
 
         // page
-        ui.label(RichText::new("Page").strong());
+        ui.label(RichText::new(tr!("collage-page")).strong());
         let s = &mut self.store.collage;
         page_format(ui, "collage_format", &mut s.format, &mut s.landscape);
         ui.horizontal(|ui| {
-            ui.label("Picture size");
-            egui::ComboBox::from_id_salt("collage_px").selected_text(format!("{} pixels", s.out_px)).show_ui(ui, |ui| {
+            ui.label(tr!("collage-size"));
+            egui::ComboBox::from_id_salt("collage_px").selected_text(tr!("collage-px", px = s.out_px)).show_ui(ui, |ui| {
                 for px in collage::OUT_SIZES {
-                    ui.selectable_value(&mut s.out_px, px, format!("{px} pixels"));
+                    ui.selectable_value(&mut s.out_px, px, tr!("collage-px", px = px));
                 }
             });
         });
@@ -574,19 +575,19 @@ impl App {
             ui.add_space(8.0);
             ui.label(RichText::new(self.photos.get(id).map(|p| p.name.clone()).unwrap_or_default()).strong());
             ui.horizontal(|ui| {
-                if style == Style::Frame && ui.button("Put in the middle").clicked()
+                if style == Style::Frame && ui.button(tr!("collage-centre")).clicked()
                     && let Some(st) = self.collage.as_mut()
                     && let Some(pos) = st.ids.iter().position(|&i| i == id)
                 {
                     let v = st.ids.remove(pos);
                     st.ids.insert(0, v);
                 }
-                if style.free() && self.collage.as_ref().is_some_and(|c| c.nudges.contains_key(&id)) && ui.button("Put back").on_hover_text("Undo the moves of this picture").clicked()
+                if style.free() && self.collage.as_ref().is_some_and(|c| c.nudges.contains_key(&id)) && ui.button(tr!("collage-put-back")).on_hover_text(tr!("collage-put-back-hint")).clicked()
                     && let Some(st) = self.collage.as_mut()
                 {
                     st.nudges.remove(&id);
                 }
-                if ui.button(format!("{}  Leave out", icons::CLOSE)).on_hover_text("Take this picture out of the collage (Delete)").clicked() {
+                if ui.button(format!("{}  {}", icons::CLOSE, tr!("collage-leave-out"))).on_hover_text(tr!("collage-leave-out-hint")).clicked() {
                     self.collage_remove_selected();
                 }
             });
@@ -599,27 +600,27 @@ impl App {
     fn sheet_options(&mut self, ui: &mut egui::Ui) {
         let before = format!("{:?}", self.store.contact_sheet);
         if let Some(st) = self.collage.as_mut() {
-            ui.label(RichText::new("Title").strong());
-            ui.add(egui::TextEdit::singleline(&mut st.title).hint_text("No title").desired_width(270.0));
-            ui.add(egui::TextEdit::singleline(&mut st.subtitle).hint_text("No second line").desired_width(270.0));
+            ui.label(RichText::new(tr!("collage-title")).strong());
+            ui.add(egui::TextEdit::singleline(&mut st.title).hint_text(tr!("collage-no-title")).desired_width(270.0));
+            ui.add(egui::TextEdit::singleline(&mut st.subtitle).hint_text(tr!("collage-no-subtitle")).desired_width(270.0));
         }
         let s = &mut self.store.contact_sheet;
-        ui.checkbox(&mut s.header, "Title on the first page");
+        ui.checkbox(&mut s.header, tr!("collage-header"));
         ui.add_space(6.0);
-        ui.label(RichText::new("Under each picture").strong());
-        ui.checkbox(&mut s.names, "File name");
-        ui.checkbox(&mut s.captions, "Caption");
-        ui.checkbox(&mut s.dates, "Date");
+        ui.label(RichText::new(tr!("collage-under")).strong());
+        ui.checkbox(&mut s.names, tr!("sort-name"));
+        ui.checkbox(&mut s.captions, tr!("cap-caption"));
+        ui.checkbox(&mut s.dates, tr!("collage-date"));
         ui.add_space(6.0);
-        ui.label(RichText::new("Pictures").strong());
+        ui.label(RichText::new(tr!("collage-pictures")).strong());
         ui.horizontal(|ui| {
-            ui.label("Size");
+            ui.label(tr!("export-sig-size"));
             ui.add(egui::Slider::new(&mut s.thumb_mm, collage::THUMB_MM_MIN..=collage::THUMB_MM_MAX).suffix(" mm").step_by(1.0));
         });
-        ui.checkbox(&mut s.shadow, "Shadows");
-        ui.checkbox(&mut s.page_numbers, "Page numbers");
+        ui.checkbox(&mut s.shadow, tr!("collage-shadows"));
+        ui.checkbox(&mut s.page_numbers, tr!("collage-page-numbers"));
         ui.add_space(6.0);
-        ui.label(RichText::new("Page").strong());
+        ui.label(RichText::new(tr!("collage-page")).strong());
         page_format(ui, "sheet_format", &mut s.format, &mut s.landscape);
         if before != format!("{:?}", self.store.contact_sheet) {
             self.dirty = true;
@@ -636,21 +637,23 @@ impl App {
                     if let Some((done, total)) = &job {
                         ui.spinner();
                         let d = done.load(Ordering::SeqCst).min(*total);
-                        ui.label(format!("Sending page {} of {} to the printer…", (d + 1).min(*total), total));
+                        let (page, total) = ((d + 1).min(*total), *total);
+                        ui.label(tr!("collage-sending", page = page, total = total));
                     } else {
-                        let pages_text = if sheet { format!(", {} page{}", pages.len(), if pages.len() == 1 { "" } else { "s" }) } else { String::new() };
-                        ui.label(RichText::new(format!("{n} picture{}{pages_text}", if n == 1 { "" } else { "s" })).size(12.5));
+                        let pictures = tr!("count-pictures", n = n);
+                        let text = if sheet { tr!("collage-count-pages", pictures = pictures, pages = pages.len()) } else { pictures };
+                        ui.label(RichText::new(text).size(12.5));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let busy = job.is_some();
                         let big = |text: String| egui::Button::new(RichText::new(text).size(14.0)).min_size(egui::vec2(100.0, 30.0));
-                        if ui.add_enabled(!busy, big(format!("Close  {}", icons::CLOSE))).clicked() {
+                        if ui.add_enabled(!busy, big(format!("{}  {}", tr!("button-close"), icons::CLOSE))).clicked() {
                             self.close_collage();
                             return;
                         }
                         if print::available() {
                             let can = self.collage.as_ref().is_some_and(|c| !c.printer.is_empty());
-                            if ui.add_enabled(!busy && can, big(format!("{}  Print", icons::PRINT))).on_disabled_hover_text("No printer is available").clicked() {
+                            if ui.add_enabled(!busy && can, big(format!("{}  {}", icons::PRINT, tr!("output-print")))).on_disabled_hover_text(tr!("collage-no-printer")).clicked() {
                                 self.collage_print(pages.to_vec());
                             }
                             let (printers, current) = self.collage.as_ref().map(|c| (c.printers.clone(), c.printer.clone())).unwrap_or_default();
@@ -666,10 +669,10 @@ impl App {
                                 });
                             }
                         }
-                        if ui.add_enabled(!busy, big(format!("{}  Save as PDF…", icons::EXPORT))).clicked() {
+                        if ui.add_enabled(!busy, big(format!("{}  {}", icons::EXPORT, tr!("collage-save-pdf")))).clicked() {
                             self.collage_save(pages.to_vec(), true);
                         }
-                        if !sheet && ui.add_enabled(!busy, big(format!("{}  Save picture…", icons::EXPORT))).on_hover_text("Save the collage as a JPEG or PNG picture").clicked() {
+                        if !sheet && ui.add_enabled(!busy, big(format!("{}  {}", icons::EXPORT, tr!("collage-save-picture")))).on_hover_text(tr!("collage-save-picture-hint")).clicked() {
                             self.collage_save(pages.to_vec(), false);
                         }
                     });
@@ -691,12 +694,12 @@ impl App {
 
     fn collage_save(&mut self, pages: Vec<Page>, pdf: bool) {
         let sheet = self.collage.as_ref().is_some_and(|c| c.sheet);
-        let name = if sheet { "Contact sheet" } else { "Collage" };
-        let dialog = rfd::FileDialog::new().set_title(if pdf { "Save as PDF" } else { "Save the collage as a picture" });
+        let name = if sheet { tr!("collage-file-sheet") } else { tr!("collage-file-collage") };
+        let dialog = rfd::FileDialog::new().set_title(if pdf { tr!("collage-save-pdf-title") } else { tr!("collage-save-picture-title") });
         let picked = if pdf {
-            dialog.set_file_name(format!("{name}.pdf")).add_filter("PDF document", &["pdf"]).save_file()
+            dialog.set_file_name(format!("{name}.pdf")).add_filter(tr!("filter-pdf"), &["pdf"]).save_file()
         } else {
-            dialog.set_file_name(format!("{name}.jpg")).add_filter("JPEG picture", &["jpg", "jpeg"]).add_filter("PNG picture", &["png"]).save_file()
+            dialog.set_file_name(format!("{name}.jpg")).add_filter(tr!("filter-jpeg"), &["jpg", "jpeg"]).add_filter(tr!("filter-png"), &["png"]).save_file()
         };
         let Some(path) = picked else { return };
         let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
@@ -707,8 +710,8 @@ impl App {
             (false, _) => path.with_extension("jpg"),
         };
         let job = self.collage_job(pages);
-        self.toast(format!("Saving the {}…", name.to_lowercase()));
-        let task = self.start_task("Saving the collage");
+        self.toast(if sheet { tr!("collage-saving-sheet") } else { tr!("collage-saving") });
+        let task = self.start_task(tr!("task-save-collage"));
         self.lib.make_collage(task, job, path, self.store.collage.out_px);
     }
 
@@ -740,8 +743,8 @@ impl App {
             .unwrap_or_else(|_| Err("unexpected error".into()));
             progress.store(usize::MAX, Ordering::SeqCst);
             let _ = tx.send(Done::Report(match result {
-                Ok(n) => crate::library::Report::done(format!("Sent {n} page(s) to {}.", choice.name)),
-                Err(e) => crate::library::Report::failed(format!("Printing didn't finish: {e}")),
+                Ok(n) => crate::library::Report::done(tr!("collage-printed", n = n, printer = choice.name.as_str())),
+                Err(e) => crate::library::Report::failed(tr!("collage-print-failed", error = e.to_string())),
             }));
             ctx.request_repaint();
         });
@@ -757,9 +760,9 @@ impl App {
             let free = !sheet && self.store.collage.style.free();
 
             let hint = if !free {
-                "Drag a picture onto another to swap them. Click one to select it (Delete leaves it out)."
+                tr!("collage-hint-swap")
             } else {
-                "Drag a picture to move it, scroll over it to turn it. Click one to select it (Delete leaves it out)."
+                tr!("collage-hint-free")
             };
             ui.label(RichText::new(hint).size(12.5).color(t().text_weak));
             let full = ui.available_rect_before_wrap();
@@ -916,7 +919,8 @@ impl App {
                 if child.add_enabled(page_no > 0, egui::Button::new(icons::CHEVRON_LEFT)).clicked() {
                     new_page = page_no - 1;
                 }
-                child.label(format!("  Page {} of {}  ", page_no + 1, n_pages));
+                let shown = page_no + 1;
+                child.label(format!("  {}  ", tr!("collage-page-of", page = shown, total = n_pages)));
                 if child.add_enabled(page_no + 1 < n_pages, egui::Button::new(icons::CHEVRON_RIGHT)).clicked() {
                     new_page = page_no + 1;
                 }
@@ -931,14 +935,14 @@ impl App {
 /// Page size and orientation.
 fn page_format(ui: &mut egui::Ui, id: &str, format: &mut Format, landscape: &mut bool) {
     ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt(id).selected_text(format.label()).width(110.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(id).selected_text(crate::labels::page_format(format)).width(110.0).show_ui(ui, |ui| {
             for f in Format::ALL {
-                ui.selectable_value(format, f, f.label());
+                ui.selectable_value(format, f, crate::labels::page_format(&f));
             }
         });
         if *format != Format::Square {
-            ui.selectable_value(landscape, true, "Landscape");
-            ui.selectable_value(landscape, false, "Portrait");
+            ui.selectable_value(landscape, true, tr!("edit-landscape"));
+            ui.selectable_value(landscape, false, tr!("edit-portrait"));
         }
     });
 }

@@ -52,7 +52,7 @@ fn tidy(base: &Path, age: std::time::Duration) {
 /// could be asked (then the files have to be attached by hand).
 pub fn compose(files: &[PathBuf], subject: &str) -> Result<Opened, String> {
     if files.is_empty() {
-        return Err("no pictures to attach".into());
+        return Err(crate::msg!("mail-no-pictures", "no pictures to attach").into());
     }
     platform::compose(files, subject)
 }
@@ -67,28 +67,37 @@ pub fn email(jobs: &[crate::commands::ExportJob], subject: &str, with_location: 
     use crate::library::Report;
     let dir = match new_folder() {
         Ok(d) => d,
-        Err(e) => return Report::failed(format!("Could not make the copies for the email: {e}")),
+        Err(e) => return Report::failed(crate::msg!("mail-copies-fail", "Could not make the copies for the email: {error}", error = e)),
     };
     let Some((files, failed)) = copies(jobs, &dir, with_location, opts, step) else {
         let _ = std::fs::remove_dir_all(&dir);
-        return Report::done("The email was not prepared: stopped.");
+        return Report::done(crate::msg!("mail-stopped", "The email was not prepared: stopped."));
     };
     if files.is_empty() {
-        return Report::failed("Could not make the copies for the email: none of the pictures could be read.");
+        return Report::failed(crate::msg!("mail-none-read", "Could not make the copies for the email: none of the pictures could be read."));
     }
     let n = files.len();
-    let what = if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
-    let left_out = if failed > 0 { format!("\n{failed} picture(s) could not be read and were left out.") } else { String::new() };
+    let left_out = if failed > 0 { format!("\n{}", crate::msg!("mail-left-out", "{n} {n:picture|pictures} could not be read and were left out.", n = failed)) } else { String::new() };
     match compose(&files, subject) {
-        Ok(Opened::Attached) => Report::done(format!("A new message with {what} is open in your mail program.{left_out}")).showing(dir),
-        Ok(Opened::Asked) => Report::done(format!(
-            "Your mail program was asked for a new message with {what}. If they are not attached, attach them from:\n{}{left_out}",
-            dir.display()
+        Ok(Opened::Attached) => Report::done(crate::msg!("mail-opened", "A new message with {n} {n:picture|pictures} is open in your mail program.{left_out}", n = n, left_out = left_out)).showing(dir),
+        Ok(Opened::Asked) => Report::done(crate::msg!(
+            "mail-asked",
+            "Your mail program was asked for a new message with {n} {n:picture|pictures}. If they are not attached, attach them from:\n{path}{left_out}",
+            n = n,
+            path = dir.display(),
+            left_out = left_out
         ))
         .showing(dir),
         Err(e) => {
             // stays on screen until closed, with Show in folder
-            let mut r = Report::failed(format!("Could not open your mail program ({e}).\nThe small copies of {what} are in:\n{}\nAttach them to your message.{left_out}", dir.display()));
+            let mut r = Report::failed(crate::msg!(
+                "mail-open-fail",
+                "Could not open your mail program ({error}).\nThe small copies of {n} {n:picture|pictures} are in:\n{path}\nAttach them to your message.{left_out}",
+                error = e,
+                n = n,
+                path = dir.display(),
+                left_out = left_out
+            ));
             r.show = Some(dir);
             r
         }
@@ -163,7 +172,7 @@ mod platform {
             .collect();
         let message = MapiMessageW {
             lpszSubject: PWSTR(subject.as_mut_ptr()),
-            nFileCount: u32::try_from(descs.len()).map_err(|_| "too many pictures")?,
+            nFileCount: u32::try_from(descs.len()).map_err(|_| crate::msg!("mail-too-many", "too many pictures"))?,
             lpFiles: descs.as_mut_ptr(),
             ..Default::default()
         };
@@ -174,7 +183,7 @@ mod platform {
         // until after the call returns; the function only reads them. The library is freed only
         // after the call.
         unsafe {
-            let lib = LoadLibraryW(w!("mapi32.dll")).map_err(|e| format!("no mail program (mapi32.dll: {e})"))?;
+            let lib = LoadLibraryW(w!("mapi32.dll")).map_err(|e| crate::msg!("mail-no-mapi", "no mail program (mapi32.dll: {error})", error = e))?;
             let result = match GetProcAddress(lib, s!("MAPISendMailW")) {
                 Some(f) => {
                     // the signature of MAPISendMailW (`LPMAPISENDMAILW` in the windows crate)
@@ -182,12 +191,12 @@ mod platform {
                     let send = std::mem::transmute::<unsafe extern "system" fn() -> isize, SendMailW>(f);
                     Ok(send(0, 0, &message, MAPI_DIALOG | MAPI_LOGON_UI, 0))
                 }
-                None => Err("the mail program does not take attachments (no MAPISendMailW)".to_string()),
+                None => Err(crate::msg!("mail-no-attach", "the mail program does not take attachments (no MAPISendMailW)").to_string()),
             };
             let _ = FreeLibrary(lib);
             match result? {
                 SUCCESS_SUCCESS | MAPI_E_USER_ABORT => Ok(Opened::Attached),
-                code => Err(format!("the mail program refused the message (MAPI error {code})")),
+                code => Err(crate::msg!("mail-refused", "the mail program refused the message (MAPI error {code})", code = code).to_string()),
             }
         }
     }
@@ -199,8 +208,8 @@ mod platform {
     use std::path::PathBuf;
 
     pub fn compose(files: &[PathBuf], _subject: &str) -> Result<Opened, String> {
-        let status = std::process::Command::new("open").arg("-a").arg("Mail").args(files).status().map_err(|e| format!("could not open Mail: {e}"))?;
-        if status.success() { Ok(Opened::Attached) } else { Err("could not open Mail".into()) }
+        let status = std::process::Command::new("open").arg("-a").arg("Mail").args(files).status().map_err(|e| crate::msg!("mail-open-mail", "could not open Mail: {error}", error = e))?;
+        if status.success() { Ok(Opened::Attached) } else { Err(crate::msg!("mail-open-mail-short", "could not open Mail").into()) }
     }
 }
 
@@ -218,8 +227,8 @@ mod platform {
         // xdg-email may wait for the mail program it starts: not waited for here
         match cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
             Ok(_) => Ok(Opened::Asked),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err("xdg-email (from xdg-utils) is not installed".into()),
-            Err(e) => Err(format!("could not start xdg-email: {e}")),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(crate::msg!("mail-no-xdg", "xdg-email (from xdg-utils) is not installed").into()),
+            Err(e) => Err(crate::msg!("mail-xdg-fail", "could not start xdg-email: {error}", error = e).into()),
         }
     }
 }

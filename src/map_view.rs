@@ -7,6 +7,7 @@
 
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
+use crate::i18n::tr;
 use crate::icons;
 use crate::app::*;
 use crate::geo::{self, Found, LatLon, Place};
@@ -398,7 +399,7 @@ impl App {
         }
         paint_pin(&painter, rect.center() + drop, false);
         painter.rect_stroke(rect, 4, Stroke::new(1.0, t().border), StrokeKind::Inside);
-        resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Show on the map")
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("map-show-hint"))
     }
 
     /// Keep `place_terms` up to date: only pictures whose position is new or moved are looked up
@@ -451,9 +452,9 @@ impl App {
         if located == 0 {
             let n = keys.len();
             self.toast(if self.geo.indexing() {
-                "Still looking for GPS positions in your pictures: try again in a moment.".to_string()
+                tr!("map-search-still")
             } else {
-                format!("None of these {n} picture(s) has a location yet. Select them and click {} (Set location) in the selection bar to place them.", icons::LOCATION)
+                tr!("map-none-located", n = n, icon = icons::LOCATION)
             });
             return;
         }
@@ -487,7 +488,7 @@ impl App {
     pub fn start_placing(&mut self, ids: Vec<usize>) {
         let ids: Vec<usize> = ids.into_iter().filter(|&id| id < self.photos.len()).collect();
         if ids.is_empty() {
-            self.toast("Select some pictures first.");
+            self.toast(tr!("export-select-first"));
             return;
         }
         let locs: Vec<Option<LatLon>> = ids.iter().map(|&id| self.location(id)).collect();
@@ -538,14 +539,16 @@ impl App {
         let name = pl.name.clone();
         let ids = self.placing_ids();
         crate::commands::set_place(self, &ids, Some(Place::set(pin, &name)));
-        self.toast(format!("Location set for {} picture{}.", ids.len(), if ids.len() == 1 { "" } else { "s" }));
+        let n = ids.len();
+        self.toast(tr!("map-location-set", n = n));
         self.leave_map();
     }
 
     fn remove_placing(&mut self) {
         let ids = self.placing_ids();
         crate::commands::remove_place(self, &ids, false);
-        self.toast(format!("Location removed from {} picture{}.", ids.len(), if ids.len() == 1 { "" } else { "s" }));
+        let n = ids.len();
+        self.toast(tr!("map-location-removed", n = n));
         self.leave_map();
     }
 
@@ -589,7 +592,7 @@ impl App {
             m.searching = None;
             match r {
                 Ok(found) => {
-                    m.search_note = found.is_empty().then(|| "Nothing found online.".to_string());
+                    m.search_note = found.is_empty().then(|| tr!("map-nothing-online"));
                     m.online_results = found;
                 }
                 Err(e) => m.search_note = Some(e),
@@ -654,8 +657,8 @@ impl App {
             .frame(egui::Frame::new().fill(t().lightbox_bg).inner_margin(egui::Margin::symmetric(16, 8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let back = if self.geo.map.back == View::Edit { format!("{}  Editor", icons::ARROW_BACK) } else { format!("{}  Library", icons::ARROW_BACK) };
-                    if ui.add(egui::Button::new(RichText::new(back).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text("Go back (Esc)").clicked() {
+                    let back = if self.geo.map.back == View::Edit { format!("{}  {}", icons::ARROW_BACK, tr!("view-back-editor")) } else { format!("{}  {}", icons::ARROW_BACK, tr!("view-back-library")) };
+                    if ui.add(egui::Button::new(RichText::new(back).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text(tr!("view-back-hint")).clicked() {
                         self.leave_map();
                         return;
                     }
@@ -663,17 +666,17 @@ impl App {
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let (title, sub) = match placing {
-                            Some(n) => ("Set location".to_string(), format!("{n} picture{}", if n == 1 { "" } else { "s" })),
+                            Some(n) => (tr!("map-set-location"), tr!("count-pictures", n = n)),
                             None => {
                                 let n = located.len();
                                 let sub = match &self.geo.map.scope {
-                                    Some(s) => format!("{n} of {} picture{} with a location", s.keys.len(), if s.keys.len() == 1 { "" } else { "s" }),
-                                    None if self.geo.indexing() => format!("{n} with a location · looking for GPS positions…"),
-                                    None => format!("{n} picture{} with a location", if n == 1 { "" } else { "s" }),
+                                    Some(s) => tr!("map-sub-scope", n = n, total = s.keys.len()),
+                                    None if self.geo.indexing() => tr!("map-sub-indexing", n = n),
+                                    None => tr!("map-sub-all", n = n),
                                 };
                                 let title = match &self.geo.map.scope {
-                                    Some(s) => format!("Places · {}", s.title),
-                                    None => "Places".to_string(),
+                                    Some(s) => tr!("map-title-scope", title = s.title.as_str()),
+                                    None => tr!("nav-places"),
                                 };
                                 (title, sub)
                             }
@@ -683,7 +686,7 @@ impl App {
                             ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
                             if placing.is_none()
                                 && self.geo.map.scope.is_some()
-                                && ui.link(RichText::new("Show the whole library").size(12.0)).clicked()
+                                && ui.link(RichText::new(tr!("map-show-whole")).size(12.0)).clicked()
                             {
                                 self.geo.map.scope = None;
                                 self.geo.map.selected.clear();
@@ -694,11 +697,11 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         let online = self.online_maps();
-                        let label = if online { format!("{}  Online map", icons::WEB) } else { format!("{}  Built-in map", icons::MAP) };
+                        let label = if online { format!("{}  {}", icons::WEB, tr!("map-online")) } else { format!("{}  {}", icons::MAP, tr!("map-builtin")) };
                         let tip = if online {
-                            "Showing OpenStreetMap. Click to use the built-in map only (no internet connections)."
+                            tr!("map-online-tip")
                         } else {
-                            "Showing the built-in world map. Click to show detailed maps from OpenStreetMap (downloads map pictures from the internet)."
+                            tr!("map-builtin-tip")
                         };
                         if ui.add(egui::Button::new(label).selected(online).min_size(egui::vec2(0.0, 30.0))).on_hover_text(tip).clicked() {
                             self.store.online_maps = Some(!online);
@@ -706,7 +709,7 @@ impl App {
                             self.geo.map.online_results.clear();
                         }
                         if placing.is_none()
-                            && ui.add(egui::Button::new("Show all").min_size(egui::vec2(0.0, 30.0))).on_hover_text("Zoom to show every picture on the map").clicked()
+                            && ui.add(egui::Button::new(tr!("map-show-all")).min_size(egui::vec2(0.0, 30.0))).on_hover_text(tr!("map-show-all-hint")).clicked()
                         {
                             self.geo.map.fit_next = true;
                         }
@@ -727,7 +730,7 @@ impl App {
             .show(ui, |ui| {
                 ui.allocate_ui_with_layout(egui::vec2(300.0, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.label(RichText::new(icons::SEARCH).size(13.0).color(t().text_weak));
-                    let hint = if online { "Search a place or address" } else { "Search a city or coordinates" };
+                    let hint = if online { tr!("map-search-online-hint") } else { tr!("map-search-builtin-hint") };
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut self.geo.map.search)
                             .id(egui::Id::new("map_search"))
@@ -785,7 +788,7 @@ impl App {
         } else if let Some(f) = self.geo.map.results.first().cloned() {
             self.go_to(&f);
         } else {
-            self.geo.map.search_note = Some("No city by that name in the built-in list.".into());
+            self.geo.map.search_note = Some(tr!("map-no-city-builtin"));
             self.geo.map.results_open = true;
         }
     }
@@ -810,10 +813,10 @@ impl App {
                         ui.add(egui::Button::new(text).frame(false).wrap_mode(egui::TextWrapMode::Truncate)).clicked()
                     };
                     if m.results.is_empty() && m.online_results.is_empty() && m.searching.is_none() && m.search_note.is_none() {
-                        ui.label(RichText::new("No city by that name. Try coordinates, like 44.84, -0.58.").size(12.0).color(t().text_weak));
+                        ui.label(RichText::new(tr!("map-no-city-hint")).size(12.0).color(t().text_weak));
                     }
                     if !m.results.is_empty() {
-                        ui.label(RichText::new(if online { "CITIES" } else { "CITIES (BUILT-IN LIST)" }).size(10.5).strong().color(t().text_weak));
+                        ui.label(RichText::new(if online { tr!("map-cities") } else { tr!("map-cities-builtin") }).size(10.5).strong().color(t().text_weak));
                         for f in &m.results {
                             if row(ui, f) {
                                 chosen = Some(f.clone());
@@ -825,16 +828,16 @@ impl App {
                         if m.searching.is_some() {
                             ui.horizontal(|ui| {
                                 ui.spinner();
-                                ui.label(RichText::new("Searching online…").size(12.0));
+                                ui.label(RichText::new(tr!("map-searching")).size(12.0));
                             });
                         } else if !m.online_results.is_empty() {
-                            ui.label(RichText::new("PLACES AND ADDRESSES (OPENSTREETMAP)").size(10.5).strong().color(t().text_weak));
+                            ui.label(RichText::new(tr!("map-places-osm")).size(10.5).strong().color(t().text_weak));
                             for f in &m.online_results {
                                 if row(ui, f) {
                                     chosen = Some(f.clone());
                                 }
                             }
-                        } else if ui.add(egui::Button::new(RichText::new(format!("{}  Search addresses online   (Enter)", icons::SEARCH)).size(12.5)).frame(false)).clicked() {
+                        } else if ui.add(egui::Button::new(RichText::new(format!("{}  {}", icons::SEARCH, tr!("map-search-addresses"))).size(12.5)).frame(false)).clicked() {
                             search_online = true;
                         }
                     }
@@ -884,13 +887,16 @@ impl App {
                     ui.add_space(8.0);
                     let online = self.online_maps();
                     let Some(pl) = &mut self.geo.map.placing else { return };
+                    // the text wraps in what the buttons on the right leave (they are about 500 wide)
+                    let text_w = (ui.available_width() - 500.0).max(140.0);
                     ui.vertical(|ui| {
+                        ui.set_max_width(text_w);
                         ui.add_space(4.0);
                         match pl.pin {
                             None => {
-                                ui.label(RichText::new("Where were these taken?").size(15.0).strong().color(t().text_strong));
+                                ui.label(RichText::new(tr!("map-where")).size(15.0).strong().color(t().text_strong));
                                 ui.label(
-                                    RichText::new("Search for a place above, or click on the map to drop a pin. You can drag the pin afterwards.")
+                                    RichText::new(tr!("map-where-help"))
                                         .size(12.5)
                                         .color(t().text_weak),
                                 );
@@ -898,7 +904,7 @@ impl App {
                             Some(at) => {
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new(icons::LOCATION).size(16.0));
-                                    let r = ui.add(egui::TextEdit::singleline(&mut pl.name).hint_text("Name of the place (optional)").desired_width(300.0));
+                                    let r = ui.add(egui::TextEdit::singleline(&mut pl.name).hint_text(tr!("map-name-hint")).desired_width(300.0));
                                     if r.changed() {
                                         pl.name_edited = true;
                                     }
@@ -906,7 +912,7 @@ impl App {
                                         ui.spinner();
                                     }
                                 });
-                                let how = if online { "Drag the pin to adjust it." } else { "Drag the pin to adjust it. Online maps show streets." };
+                                let how = if online { tr!("map-drag-pin") } else { tr!("map-drag-pin-offline") };
                                 ui.label(RichText::new(format!("{}   ·   {how}", at.text())).size(12.0).color(t().text_weak));
                             }
                         }
@@ -915,15 +921,15 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         let n = ids.len();
-                        let label = format!("Set location for {n} picture{}", if n == 1 { "" } else { "s" });
+                        let label = tr!("map-set-n", n = n);
                         let set = egui::Button::new(RichText::new(label).color(Color32::WHITE).strong()).fill(t().accent).min_size(egui::vec2(0.0, 34.0));
                         if ui.add_enabled(has_pin, set).clicked() {
                             apply = true;
                         }
-                        if ui.add(egui::Button::new("Remove location").min_size(egui::vec2(0.0, 34.0))).on_hover_text("These pictures will have no location, even if the camera stored one (the files are not changed)").clicked() {
+                        if ui.add(egui::Button::new(tr!("map-remove-location")).min_size(egui::vec2(0.0, 34.0))).on_hover_text(tr!("map-remove-location-hint")).clicked() {
                             remove = true;
                         }
-                        if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(0.0, 34.0))).clicked() {
+                        if ui.add(egui::Button::new(tr!("button-cancel")).min_size(egui::vec2(0.0, 34.0))).clicked() {
                             cancel = true;
                         }
                     });
@@ -955,18 +961,18 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let n = ids.len();
-                    ui.label(RichText::new(format!("{n} picture{}", if n == 1 { "" } else { "s" })).strong().size(14.0).color(t().text_strong));
+                    ui.label(RichText::new(tr!("count-pictures", n = n)).strong().size(14.0).color(t().text_strong));
                     if let Some(l) = &label {
                         ui.label(RichText::new(format!("·  {l}")).size(13.0).color(t().text));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button(icons::CLOSE).on_hover_text("Close (Esc)").clicked() {
+                        if ui.small_button(icons::CLOSE).on_hover_text(tr!("map-close-hint")).clicked() {
                             close = true;
                         }
-                        if ui.button(format!("{} Change location…", icons::LOCATION)).clicked() {
+                        if ui.button(format!("{} {}", icons::LOCATION, tr!("map-change-location"))).clicked() {
                             change = true;
                         }
-                        if ui.button("Select in library").on_hover_text("Select these pictures in the library").clicked() {
+                        if ui.button(tr!("map-select-in-library")).on_hover_text(tr!("map-select-in-library-hint")).clicked() {
                             to_tray = true;
                         }
                     });
@@ -1093,7 +1099,7 @@ impl App {
             Some(b) => b.paint(&painter, &view),
             None => {
                 painter.rect_filled(rect, 0, t().map_water);
-                painter.text(rect.center(), egui::Align2::CENTER_CENTER, "Preparing the map…", egui::FontId::proportional(14.0), t().text_weak);
+                painter.text(rect.center(), egui::Align2::CENTER_CENTER, tr!("map-preparing"), egui::FontId::proportional(14.0), t().text_weak);
             }
         }
         let online = self.online_maps();
@@ -1124,7 +1130,7 @@ impl App {
             && !placing
         {
             let n = c.ids.len();
-            let text = format!("{n} picture{} · {}", if n == 1 { "" } else { "s" }, geo::describe(None, c.at));
+            let text = tr!("map-hover", pictures = tr!("count-pictures", n = n), place = geo::describe(None, c.at));
             resp.clone().on_hover_text_at_pointer(text);
         }
         let cursor = if dragging_pin || (resp.dragged() && !dragging_pin) {
@@ -1160,8 +1166,8 @@ impl App {
 
         // attribution (bottom right), as the map data's licences ask
         let tiles_problem = self.geo.tiles.as_ref().and_then(|t| t.problem.clone()).filter(|_| online);
-        let credit = if online { online::ATTRIBUTION } else { "Built-in map: Natural Earth · GeoNames" };
-        let galley = painter.layout_no_wrap(credit.to_string(), egui::FontId::proportional(11.0), t().text);
+        let credit = if online { online::ATTRIBUTION.to_string() } else { tr!("map-credit-builtin") };
+        let galley = painter.layout_no_wrap(credit, egui::FontId::proportional(11.0), t().text);
         let cr = Rect::from_min_size(rect.right_bottom() - galley.size() - egui::vec2(14.0, 8.0), galley.size() + egui::vec2(10.0, 4.0));
         painter.rect_filled(cr, 3, t().surface.gamma_multiply(0.85));
         painter.galley(cr.min + egui::vec2(5.0, 2.0), galley, t().text);
@@ -1172,7 +1178,7 @@ impl App {
             }
         }
         if let Some(problem) = tiles_problem {
-            let text = format!("{problem}. Showing the built-in map.");
+            let text = tr!("map-problem", problem = problem.as_str());
             let galley = painter.layout(text, egui::FontId::proportional(12.0), t().text, rect.width() - 120.0);
             let r = Rect::from_min_size(rect.left_top() + egui::vec2(56.0, 12.0), galley.size() + egui::vec2(16.0, 8.0));
             painter.rect_filled(r, 6, t().surface);
@@ -1183,9 +1189,9 @@ impl App {
         // nothing to show yet: say how to get pictures on the map
         if located.is_empty() && !placing {
             let text = if self.geo.indexing() {
-                "Looking for GPS positions in your pictures…".to_string()
+                tr!("map-empty-indexing")
             } else {
-                format!("No pictures with a location yet.\n\nPictures from phones and GPS cameras show up here by themselves. To place others, select them and click {} (Set location) in the selection bar.", icons::LOCATION)
+                tr!("map-empty", icon = icons::LOCATION)
             };
             let galley = painter.layout(text, egui::FontId::proportional(13.5), t().text, 360.0);
             let r = Rect::from_center_size(rect.center(), galley.size() + egui::vec2(36.0, 28.0));

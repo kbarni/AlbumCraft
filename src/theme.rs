@@ -3,7 +3,6 @@
 //! Style after PhotoCraft's "Studio" themes: flat surfaces, hairline borders, rounded controls and a
 //! single blue accent. Never hard-code a UI colour in a view; add a token here instead.
 
-use crate::icons;
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -142,25 +141,11 @@ impl Mode {
             Mode::Dark => "dark",
         }
     }
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Mode::System => "Same as system",
-            Mode::Light => "Light",
-            Mode::Dark => "Dark",
-        }
-    }
-    pub fn next(self) -> Mode {
-        match self {
-            Mode::System => Mode::Light,
-            Mode::Light => Mode::Dark,
-            Mode::Dark => Mode::System,
-        }
-    }
-    pub fn icon(self) -> &'static str {
-        match self {
-            Mode::System => icons::DESKTOP,
-            Mode::Light => icons::LIGHT_MODE,
-            Mode::Dark => icons::DARK_MODE,
+            Mode::System => crate::i18n::tr!("theme-system"),
+            Mode::Light => crate::i18n::tr!("theme-light"),
+            Mode::Dark => crate::i18n::tr!("theme-dark"),
         }
     }
 }
@@ -258,9 +243,22 @@ pub fn set_fonts(ctx: &egui::Context) {
         ..Default::default()
     });
     fonts.font_data.insert("icons".to_owned(), std::sync::Arc::new(icons));
+    // a language with a script the built-in fonts lack (Chinese, Japanese, Korean) uses a font of
+    // the system, after the others, so that Latin text keeps its look
+    let script_font = crate::i18n::first_existing(&crate::i18n::script_font_candidates(&crate::i18n::current_language()))
+        .and_then(|(path, index)| std::fs::read(path).ok().map(|bytes| (bytes, index)));
+    if let Some((bytes, index)) = script_font {
+        let mut data = egui::FontData::from_owned(bytes);
+        data.index = index;
+        fonts.font_data.insert("script".to_owned(), std::sync::Arc::new(data));
+    }
+    let has_script_font = fonts.font_data.contains_key("script");
     if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
         if !family.iter().any(|f| f == "Hack") {
             family.push("Hack".to_owned());
+        }
+        if has_script_font {
+            family.push("script".to_owned());
         }
         family.push("icons".to_owned());
     }
@@ -319,6 +317,26 @@ mod glyph_tests {
                         }
                     }
                     prev = c;
+                }
+            }
+        }
+        // the translations (i18n/<language>/albumcraft.ftl): every character but in # comments
+        let i18n = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("i18n");
+        for entry in std::fs::read_dir(&i18n).unwrap().flatten() {
+            let path = entry.path().join("albumcraft.ftl");
+            // Chinese, Japanese and Korean are drawn with a font of the system, not these
+            if !crate::i18n::script_font_candidates(entry.file_name().to_string_lossy().split('-').next().unwrap_or("")).is_empty() {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let name = format!("i18n/{}", entry.file_name().to_string_lossy());
+            for line in text.lines().filter(|l| !l.trim_start().starts_with('#')) {
+                for c in line.chars().filter(|c| !c.is_ascii() && !c.is_whitespace()) {
+                    let emoji_ok = !c.is_emoji_char() || text_fonts[0].glyph_id(c).0 != 0;
+                    let found = (text_fonts.iter().any(|f| f.glyph_id(c).0 != 0) && emoji_ok) || icons.glyph_id(c).0 != 0;
+                    if !found && !missing.iter().any(|(_, m)| *m == c) {
+                        missing.push((name.clone(), c));
+                    }
                 }
             }
         }

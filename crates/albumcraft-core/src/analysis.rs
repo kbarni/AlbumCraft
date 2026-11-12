@@ -130,7 +130,7 @@ impl Analysis {
         if let Some(table) = self.table(&spec) {
             return Ok(table);
         }
-        let dir = self.0.dir.as_ref().ok_or("No folder for application data was found.")?;
+        let dir = self.0.dir.as_ref().ok_or_else(|| crate::msg!("analysis-no-data-dir", "No folder for application data was found.").to_string())?;
         let table = Arc::new(RwLock::new(Table::open(dir, &spec)?));
         let mut s = self.state();
         s.lanes.push(Lane { analyser, table: table.clone(), failures: 0, stopped: false });
@@ -226,7 +226,7 @@ impl Analysis {
         let progress = s.progress();
         drop(s);
         if let Some(e) = gave_up {
-            (self.0.send)(Done::Report(Report::failed(format!("The analysis of the pictures was stopped: it failed {MAX_FAILURES} times in a row ({e}). It will be tried again the next time AlbumCraft starts."))));
+            (self.0.send)(Done::Report(Report::failed(crate::msg!("analysis-stopped", "The analysis of the pictures was stopped: it failed {n} times in a row ({error}). It will be tried again the next time AlbumCraft starts.", n = MAX_FAILURES, error = e).to_string())));
         }
         self.feed();
         Done::Analysis(progress)
@@ -278,22 +278,22 @@ fn pack(id: &str) -> Result<&'static ai::models::Pack, String> {
 /// Download a pack (the user asked for it). `step(done, total)` is told how far it is, in
 /// 1/1000, and answers false to stop.
 pub fn download_pack(id: &str, step: &dyn Fn(usize, usize) -> bool) -> Report {
-    let found = pack(id).and_then(|p| Ok((p, ai::models::models_dir().ok_or("No folder for application data was found.")?)));
+    let found = pack(id).and_then(|p| Ok((p, ai::models::models_dir().ok_or_else(|| crate::msg!("analysis-no-data-dir", "No folder for application data was found.").to_string())?)));
     let (pack, dir) = match found {
         Ok(f) => f,
-        Err(e) => return Report::failed(format!("Nothing was downloaded: {e}.")),
+        Err(e) => return Report::failed(crate::msg!("pack-nothing-downloaded", "Nothing was downloaded: {error}.", error = e).to_string()),
     };
     let progress = |done: u64, total: u64| step((done.saturating_mul(1000) / total.max(1)) as usize, 1000);
     match ai::download::download_pack(pack, &dir, &progress) {
-        Ok(()) => Report::done(format!("{} is downloaded ({}).", pack.title, library::fmt_bytes(pack.bytes()))),
-        Err(e) if e == ai::STOPPED => Report::done(format!("The download of {} was stopped. Starting it again continues where it was.", pack.title)),
-        Err(e) => Report::failed(format!("{} could not be downloaded. {e}", pack.title)),
+        Ok(()) => Report::done(crate::msg!("pack-downloaded", "{pack} is downloaded ({size}).", pack = &pack.title, size = library::fmt_bytes(pack.bytes())).to_string()),
+        Err(e) if e == ai::STOPPED => Report::done(crate::msg!("pack-download-stopped", "The download of {pack} was stopped. Starting it again continues where it was.", pack = &pack.title).to_string()),
+        Err(e) => Report::failed(crate::msg!("pack-download-failed", "{pack} could not be downloaded. {error}", pack = &pack.title, error = e).to_string()),
     }
 }
 
 /// Remove a pack's files from this computer. What was computed with it is kept.
 pub fn remove_pack(id: &str) -> Result<(), String> {
-    let dir = ai::models::models_dir().ok_or("No folder for application data was found.")?;
+    let dir = ai::models::models_dir().ok_or_else(|| crate::msg!("analysis-no-data-dir", "No folder for application data was found.").to_string())?;
     pack(id)?.remove(&dir)
 }
 

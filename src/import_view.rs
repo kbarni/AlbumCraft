@@ -6,6 +6,7 @@
 //! Adding a folder to the library (the folder manager) is the other way in: it copies nothing.
 #![allow(deprecated)] // egui::Id::new, as used elsewhere in this crate
 
+use crate::i18n::tr;
 use crate::app::{to_color_image, App, Dialog, TraySet, View};
 use crate::icons;
 use crate::import::{self, Candidate};
@@ -96,7 +97,7 @@ impl ImportState {
     fn dest(&self) -> Result<PathBuf, String> {
         let name = import::check_folder_name(&self.name)?;
         if self.dest_root.is_empty() {
-            return Err("Choose where to put the new folder.".into());
+            return Err(tr!("import-pick-dest"));
         }
         Ok(Path::new(&self.dest_root).join(name))
     }
@@ -105,7 +106,7 @@ impl ImportState {
 impl App {
     pub fn open_import(&mut self) {
         if self.importing.is_some() {
-            self.toast("An import is still running: wait for it to finish (see the status bar).");
+            self.toast(tr!("import-running"));
             return;
         }
         let mut dest_roots: Vec<String> = if self.using_samples { vec![] } else { self.store.roots.clone() };
@@ -176,7 +177,7 @@ impl App {
     }
 
     fn choose_import_source(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new().set_title("Import pictures from…").pick_folder() {
+        if let Some(dir) = rfd::FileDialog::new().set_title(tr!("import-from-dialog")).pick_folder() {
             self.set_import_source(dir);
         }
     }
@@ -228,7 +229,7 @@ impl App {
         }
         if problems || copied == 0 {
             if self.dialog.is_none() {
-                self.dialog = Some(Dialog::Info { title: "Import".into(), text: summary });
+                self.dialog = Some(Dialog::Info { title: tr!("bar-import"), text: summary });
             } else {
                 self.toast(summary);
             }
@@ -267,7 +268,7 @@ impl App {
         self.lib.import(files, dest.clone(), stop.clone());
         self.importing = Some(Importing { done: 0, total: n, stop });
         self.leave_import();
-        self.toast(format!("Importing {n} picture(s) into {}…", dest.display()));
+        self.toast(tr!("import-started", n = n, path = dest.display().to_string()));
     }
 
     pub fn stop_import(&mut self) {
@@ -335,29 +336,29 @@ impl App {
             .frame(egui::Frame::new().fill(t().toolbar_bg).inner_margin(egui::Margin::symmetric(16, 8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let back = format!("{}  {}", icons::ARROW_BACK, if st.back == View::Edit { "Editor" } else { "Library" });
-                    if ui.add(egui::Button::new(RichText::new(back).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text("Go back (Esc)").clicked() {
+                    let back = format!("{}  {}", icons::ARROW_BACK, if st.back == View::Edit { tr!("view-back-editor") } else { tr!("view-back-library") });
+                    if ui.add(egui::Button::new(RichText::new(back).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text(tr!("view-back-hint")).clicked() {
                         leave = true;
                     }
                     ui.add_space(10.0);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(RichText::new("Import").size(20.0).strong().color(t().text_strong));
+                        ui.label(RichText::new(tr!("bar-import")).size(20.0).strong().color(t().text_strong));
                         let sub = if st.listing {
-                            "Looking for pictures…".to_string()
+                            tr!("scanning")
                         } else if st.source.is_none() {
-                            "Copy pictures into your library".to_string()
+                            tr!("import-subtitle")
                         } else {
                             let shown = (0..st.items.len()).filter(|&i| st.visible(i)).count();
-                            format!("{shown} picture{}", if shown == 1 { "" } else { "s" })
+                            tr!("count-pictures", n = shown)
                         };
                         ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
                     });
                     ui.add_space(18.0);
-                    ui.label(RichText::new("From").color(t().text_weak));
+                    ui.label(RichText::new(tr!("import-from")).color(t().text_weak));
                     let current = match &st.source {
                         Some(p) => st.sources.iter().find(|s| &s.1 == p).map(|s| s.0.clone()).unwrap_or_else(|| p.display().to_string()),
-                        None => "Choose…".to_string(),
+                        None => tr!("import-choose"),
                     };
                     egui::ComboBox::from_id_salt("import_from").selected_text(current).width(260.0).show_ui(ui, |ui| {
                         for (label, path) in &st.sources {
@@ -368,11 +369,11 @@ impl App {
                         if !st.sources.is_empty() {
                             ui.separator();
                         }
-                        if ui.button(format!("{}  Choose a folder…", icons::FOLDER)).clicked() {
+                        if ui.button(format!("{}  {}", icons::FOLDER, tr!("export-choose-folder"))).clicked() {
                             choose = true;
                         }
                     });
-                    if ui.button(icons::REFRESH).on_hover_text("Look for cards and drives again, and read the folder again").clicked() {
+                    if ui.button(icons::REFRESH).on_hover_text(tr!("import-refresh-hint")).clicked() {
                         redetect = true;
                     }
                 });
@@ -398,14 +399,14 @@ impl App {
         ui.horizontal(|ui| {
             let dups = st.duplicates();
             if dups > 0 {
-                ui.checkbox(&mut st.hide_dups, format!("Hide the {dups} already in the library"))
-                    .on_hover_text("Pictures with the same content as one in your library, even under another name");
+                ui.checkbox(&mut st.hide_dups, tr!("import-hide-dups", n = dups))
+                    .on_hover_text(tr!("import-dups-hint"));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Uncheck all").clicked() {
+                if ui.button(tr!("import-uncheck-all")).clicked() {
                     st.checked.iter_mut().for_each(|c| *c = false);
                 }
-                if ui.button("Check all").clicked() {
+                if ui.button(tr!("import-check-all")).clicked() {
                     for i in 0..st.items.len() {
                         if st.visible(i)
                             && let Some(c) = st.checked.get_mut(i)
@@ -430,8 +431,8 @@ impl App {
             .frame(egui::Frame::new().fill(t().toolbar_bg).inner_margin(egui::Margin::symmetric(16, 10)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Copy into").color(t().text_weak));
-                    let shown = if st.dest_root.is_empty() { "Choose…".to_string() } else { st.dest_root.clone() };
+                    ui.label(RichText::new(tr!("import-copy-into")).color(t().text_weak));
+                    let shown = if st.dest_root.is_empty() { tr!("import-choose") } else { st.dest_root.clone() };
                     egui::ComboBox::from_id_salt("import_to").selected_text(shown).width(240.0).show_ui(ui, |ui| {
                         for r in &st.dest_roots {
                             if ui.selectable_label(&st.dest_root == r, r).clicked() {
@@ -441,14 +442,14 @@ impl App {
                         if !st.dest_roots.is_empty() {
                             ui.separator();
                         }
-                        if ui.button(format!("{}  Another folder…", icons::FOLDER)).clicked() {
+                        if ui.button(format!("{}  {}", icons::FOLDER, tr!("import-another-folder"))).clicked() {
                             choose_dest = true;
                         }
                     });
                     ui.label(RichText::new("/").size(16.0).color(t().text_weak));
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut st.name)
-                            .hint_text("New folder name, e.g. Summer in Spain")
+                            .hint_text(tr!("import-name-hint"))
                             .desired_width(ui.available_width().clamp(120.0, 320.0)),
                     );
                     if r.changed() {
@@ -461,14 +462,14 @@ impl App {
                     match &dest {
                         _ if st.items.is_empty() => {}
                         Ok(_) => {
-                            ui.label(RichText::new(format!("{chosen} of {shown} checked. Nothing is overwritten; the originals are not changed.")).size(12.5).color(t().text_weak));
+                            ui.label(RichText::new(tr!("import-checked", chosen = chosen, shown = shown)).size(12.5).color(t().text_weak));
                         }
                         Err(e) => {
                             ui.label(RichText::new(e).size(12.5).color(t().bad));
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let label = format!("Import {chosen} picture{}", if chosen == 1 { "" } else { "s" });
+                        let label = tr!("import-go", n = chosen);
                         let ok = chosen > 0 && dest.is_ok();
                         let b = egui::Button::new(RichText::new(label).strong().color(if ok { Color32::WHITE } else { t().text_weak }))
                             .fill(if ok { t().accent } else { t().surface })
@@ -476,14 +477,14 @@ impl App {
                         if ui.add_enabled(ok, b).clicked() {
                             go = true;
                         }
-                        if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(0.0, 32.0))).clicked() {
+                        if ui.add(egui::Button::new(tr!("button-cancel")).min_size(egui::vec2(0.0, 32.0))).clicked() {
                             cancel = true;
                         }
                     });
                 });
             });
         if choose_dest
-            && let Some(dir) = rfd::FileDialog::new().set_title("Put the new folder in…").pick_folder()
+            && let Some(dir) = rfd::FileDialog::new().set_title(tr!("import-dest-dialog")).pick_folder()
         {
             let d = dir.to_string_lossy().to_string();
             if !st.dest_roots.contains(&d) {
@@ -509,24 +510,24 @@ impl App {
                 ui.spinner();
                 ui.add_space(8.0);
                 let from = st.source.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-                ui.label(RichText::new(format!("Looking for pictures in {from}…")).size(15.0).color(t().text_weak));
+                ui.label(RichText::new(tr!("import-listing-in", from = from)).size(15.0).color(t().text_weak));
                 return;
             }
             if let Some(src) = &st.source {
                 ui.label(RichText::new(icons::SEARCH).size(42.0).color(t().text_weak));
                 ui.add_space(6.0);
-                ui.label(RichText::new(format!("No pictures in {}.", src.display())).size(15.0).color(t().text_weak));
+                ui.label(RichText::new(tr!("import-none-in", path = src.display().to_string())).size(15.0).color(t().text_weak));
                 ui.add_space(12.0);
-                if ui.button(format!("{}  Choose another folder…", icons::FOLDER)).clicked() {
+                if ui.button(format!("{}  {}", icons::FOLDER, tr!("import-choose-another"))).clicked() {
                     choose = true;
                 }
                 return;
             }
             ui.label(RichText::new(icons::DRIVE).size(48.0).color(t().text_weak));
             ui.add_space(6.0);
-            ui.label(RichText::new("Import from a memory card, a camera or a folder").size(18.0).color(t().text_strong));
+            ui.label(RichText::new(tr!("import-heading")).size(18.0).color(t().text_strong));
             ui.add_space(4.0);
-            ui.label(RichText::new("The pictures are copied into a new folder of your library. The originals are not changed.").color(t().text_weak));
+            ui.label(RichText::new(tr!("import-copy-note")).color(t().text_weak));
             ui.add_space(16.0);
             for (label, path) in &st.sources {
                 let b = egui::Button::new(RichText::new(format!("{}  {label}", icons::DRIVE)).size(14.0)).min_size(egui::vec2(260.0, 34.0));
@@ -535,16 +536,16 @@ impl App {
                 }
             }
             if st.sources.is_empty() {
-                ui.label(RichText::new(format!("No memory card or camera found. Plug one in and click {} above.", icons::REFRESH)).color(t().text_weak).size(12.5));
+                ui.label(RichText::new(tr!("import-no-cards", icon = icons::REFRESH)).color(t().text_weak).size(12.5));
                 ui.add_space(4.0);
             }
-            let b = egui::Button::new(RichText::new(format!("{}  Choose a folder…", icons::FOLDER)).size(14.0)).min_size(egui::vec2(260.0, 34.0));
+            let b = egui::Button::new(RichText::new(format!("{}  {}", icons::FOLDER, tr!("export-choose-folder"))).size(14.0)).min_size(egui::vec2(260.0, 34.0));
             if ui.add(b).clicked() {
                 choose = true;
             }
             ui.add_space(28.0);
-            ui.label(RichText::new("To show pictures where they already are, without copying them:").size(12.5).color(t().text_weak));
-            if ui.link(RichText::new("add a folder to the library instead").size(12.5)).clicked() {
+            ui.label(RichText::new(tr!("import-instead")).size(12.5).color(t().text_weak));
+            if ui.link(RichText::new(tr!("import-add-instead")).size(12.5)).clicked() {
                 folders = true;
             }
         });
@@ -554,7 +555,7 @@ impl App {
             self.choose_import_source();
         } else if folders {
             self.leave_import();
-            self.dialog = Some(Dialog::FolderManager);
+            self.open_settings(crate::settings_view::SettingsSection::Folders);
         }
     }
 
@@ -587,15 +588,15 @@ impl App {
         if rows.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.add_space(60.0);
-                ui.label(RichText::new(format!("All {} pictures are already in your library.", st.items.len())).size(15.0).color(t().text_weak));
-                if ui.button("Show them anyway").clicked() {
+                ui.label(RichText::new(tr!("import-all-dups", n = st.items.len())).size(15.0).color(t().text_weak));
+                if ui.button(tr!("import-show-anyway")).clicked() {
                     st.hide_dups = false;
                 }
             });
             return;
         }
         if st.truncated {
-            ui.label(RichText::new(format!("Only the first {} pictures are listed.", import::LIST_LIMIT)).color(t().bad));
+            ui.label(RichText::new(tr!("import-truncated", n = import::LIST_LIMIT)).color(t().bad));
         }
         let total = y;
         let mut toggle_group: Option<usize> = None;
@@ -624,10 +625,10 @@ impl App {
                         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
                         let mut all = on == shown.len();
                         let cb = egui::Checkbox::new(&mut all, RichText::new(title).size(15.0).color(t().text_strong)).indeterminate(on > 0 && on < shown.len());
-                        if child.add(cb).on_hover_text("Check or uncheck this whole group").clicked() {
+                        if child.add(cb).on_hover_text(tr!("import-group-hint")).clicked() {
                             toggle_group = Some(*g);
                         }
-                        child.label(RichText::new(format!("· {} picture{}", shown.len(), if shown.len() == 1 { "" } else { "s" })).color(t().text_weak));
+                        child.label(RichText::new(format!("· {}", tr!("count-pictures", n = shown.len()))).color(t().text_weak));
                     }
                     Row::Tiles(ids) => {
                         for (col, &i) in ids.iter().enumerate() {
@@ -663,7 +664,7 @@ impl App {
                             if c.duplicate {
                                 let tag = Rect::from_min_size(inner.left_bottom() - Vec2::new(0.0, 18.0), egui::vec2(inner.width(), 18.0));
                                 p.rect_filled(tag, 0, Color32::from_black_alpha(160));
-                                p.text(tag.center(), egui::Align2::CENTER_CENTER, "In the library", egui::FontId::proportional(11.0), Color32::WHITE);
+                                p.text(tag.center(), egui::Align2::CENTER_CENTER, tr!("import-in-library"), egui::FontId::proportional(11.0), Color32::WHITE);
                             }
                             // the check circle, top left: click it to check / uncheck
                             let dot = rect.left_top() + Vec2::new(17.0, 17.0);
@@ -740,7 +741,7 @@ impl App {
             .frame(egui::Frame::new().fill(t().edit_bg).inner_margin(12))
             .show(ui, |ui| {
                 let Some(c) = &current else {
-                    ui.centered_and_justified(|ui| ui.label(RichText::new("Click a picture to see it here").color(t().text_weak)));
+                    ui.centered_and_justified(|ui| ui.label(RichText::new(tr!("import-click-preview")).color(t().text_weak)));
                     return;
                 };
                 let info_h = 64.0;
@@ -763,20 +764,20 @@ impl App {
                 ui.allocate_rect(area, Sense::hover());
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button(icons::CHEVRON_LEFT).on_hover_text("Previous (←)").clicked() {
+                    if ui.button(icons::CHEVRON_LEFT).on_hover_text(tr!("ss-previous")).clicked() {
                         step = -1;
                     }
-                    if ui.button(icons::CHEVRON_RIGHT).on_hover_text("Next (→)").clicked() {
+                    if ui.button(icons::CHEVRON_RIGHT).on_hover_text(tr!("ss-next")).clicked() {
                         step = 1;
                     }
                     let mut on = st.current.and_then(|i| st.checked.get(i).copied()).unwrap_or(false);
-                    if ui.checkbox(&mut on, "Import this picture").on_hover_text("Space").clicked() {
+                    if ui.checkbox(&mut on, tr!("import-this")).on_hover_text(tr!("import-this-hint")).clicked() {
                         toggle = true;
                     }
                 });
                 let mut line = format!("{}  ·  {}, {}  ·  {}", c.name, fmt_date(c.taken), fmt_time(c.taken), fmt_bytes(c.bytes));
                 if c.duplicate {
-                    line += "  ·  already in your library";
+                    line += &format!("  ·  {}", tr!("import-already"));
                 }
                 ui.label(RichText::new(line).size(12.5).color(t().text_weak));
             });

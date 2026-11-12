@@ -117,7 +117,10 @@ pub struct RunningTask {
 }
 
 /// How the message about a failed save starts.
-const SAVE_FAILED: &str = "Your library could not be saved:";
+/// How the notice that the library could not be saved begins (it is replaced when saving works again).
+fn save_failed_prefix() -> String {
+    crate::i18n::tr!("save-failed-prefix")
+}
 
 
 /// A whole set put into the tray by clicking it in the folder list.
@@ -189,14 +192,14 @@ impl CropAspect {
             CropAspect::SixteenNine => Some(16.0 / 9.0),
         }
     }
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            CropAspect::Manual => "Free",
-            CropAspect::Original => "Original shape",
-            CropAspect::Square => "Square",
-            CropAspect::FourThree => "4 × 3",
-            CropAspect::ThreeTwo => "3 × 2 (10 × 15 print)",
-            CropAspect::SixteenNine => "16 × 9 (wide screen)",
+            CropAspect::Manual => crate::i18n::tr!("crop-free"),
+            CropAspect::Original => crate::i18n::tr!("crop-original"),
+            CropAspect::Square => crate::i18n::tr!("crop-square"),
+            CropAspect::FourThree => crate::i18n::tr!("crop-4-3"),
+            CropAspect::ThreeTwo => crate::i18n::tr!("crop-3-2"),
+            CropAspect::SixteenNine => crate::i18n::tr!("crop-16-9"),
         }
     }
 }
@@ -209,7 +212,6 @@ pub enum Dialog {
     /// Make a web gallery of the tray.
     Gallery { title: String, style: crate::gallery::Style, size: u32, captions: bool },
     FolderNote { path: String, text: String },
-    FolderManager,
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
     About,
@@ -443,6 +445,10 @@ pub struct App {
     pub scroll_to_folder: Option<usize>,
     /// Scroll the library to this picture (after coming back from the editor).
     pub scroll_to_photo: Option<usize>,
+    /// The grid is being dragged to scroll (middle button or finger), and how fast it goes on
+    /// (points per second) once let go.
+    pub grid_pan: bool,
+    pub grid_vel: f32,
     /// The folder / album / person whose pictures fill the tray (when nothing is picked one by one).
     pub tray_set: Option<TraySet>,
     /// The folder / album / person clicked last in the list (for its highlight).
@@ -518,7 +524,6 @@ impl App {
         let t_new = std::time::Instant::now();
         let ctx = cc.egui_ctx.clone();
         crate::theme::apply(&ctx, crate::theme::Mode::System, true);
-        crate::theme::set_fonts(&ctx);
         let (tx, rx) = std::sync::mpsc::channel();
         let wake_ctx = ctx.clone();
         let mut lib: Box<dyn Library> = Box::new(LocalLibrary::new(tx.clone(), Arc::new(move || wake_ctx.request_repaint())));
@@ -535,16 +540,11 @@ impl App {
                 }
                 Loaded::Unreadable { error, backup } => {
                     let text = match backup {
-                        Some(b) => format!(
-                            "Your library file could not be read ({error}).\n\nIt was kept as:\n{}\n\nAlbumCraft started with an empty library. Your pictures themselves are not affected.",
-                            b.display()
-                        ),
+                        Some(b) => crate::i18n::tr!("lib-unreadable-kept", error = error.to_string(), backup = b.display().to_string()),
                         None => {
                             // it could not be moved aside: never save over it
                             persist = false;
-                            format!(
-                                "Your library file could not be read ({error}).\n\nAlbumCraft started with an empty library and won't save any changes this time, so that the file is not overwritten."
-                            )
+                            crate::i18n::tr!("lib-unreadable-nosave", error = error.to_string())
                         }
                     };
                     load_problem = Some(text);
@@ -557,6 +557,9 @@ impl App {
         if let Ok(v) = std::env::var("ALBUMCRAFT_THEME") {
             store.theme = v;
         }
+        crate::i18n::set_language(&store.language);
+        // after the language: a script the built-in fonts lack needs a system font
+        crate::theme::set_fonts(&ctx);
         if first_run
             && let Some(p) = dirs::picture_dir() {
                 store.roots.push(p.to_string_lossy().to_string());
@@ -619,6 +622,8 @@ impl App {
             rescan_after: None,
             scroll_to_folder: None,
             scroll_to_photo: None,
+            grid_pan: false,
+            grid_vel: 0.0,
             tray_set: None,
             list_pick: None,
             real_dims: HashMap::new(),
@@ -694,7 +699,7 @@ impl App {
         } else {
             // the folders as the last scan found them, at once; the scan then brings what changed
             if !app.store.roots.is_empty() {
-                app.lib.cached(app.store.roots.clone());
+                app.lib.cached(app.store.roots.clone(), app.store.excluded.clone());
             }
             app.rescan();
             app.lib.tidy();
@@ -703,14 +708,12 @@ impl App {
             }
         }
         if let Some(text) = load_problem {
-            app.dialog = Some(Dialog::Info { title: "Library".into(), text });
+            app.dialog = Some(Dialog::Info { title: crate::i18n::tr!("dialog-library"), text });
         } else if persist && crate::crash_marker_path().is_some_and(|m| std::fs::remove_file(m).is_ok()) {
             let log = crate::crash_log_path().map(|p| p.display().to_string()).unwrap_or_default();
             app.dialog = Some(Dialog::Info {
-                title: "AlbumCraft closed unexpectedly".into(),
-                text: format!(
-                    "AlbumCraft stopped because of an error the last time it ran. Changes made in the last few seconds before that may be missing.\n\nDetails were written to:\n{log}\n\nPlease include that file when reporting the problem."
-                ),
+                title: crate::i18n::tr!("crash-title"),
+                text: crate::i18n::tr!("crash-text", log = log),
             });
         } else if persist && app.store.online_maps.is_none() {
             // asked once (and again at the next start if something more urgent was shown instead)
@@ -724,7 +727,7 @@ impl App {
 
     pub fn rescan(&mut self) {
         self.scanning = true;
-        self.lib.scan(self.store.roots.clone(), self.store.imported_ini.clone());
+        self.lib.scan(self.store.roots.clone(), self.store.excluded.clone(), self.store.imported_ini.clone());
     }
 
     /// Keep what is known about the pictures for the next start (the catalogue cache): at most
@@ -981,7 +984,7 @@ impl App {
             }
         }
         if imported > 0 {
-            self.toast(format!("Brought in stars, captions and edits from the .picasa.ini files of {imported} folder(s)."));
+            self.toast(crate::i18n::tr!("picasa-imported", n = imported));
         }
     }
 
@@ -1309,19 +1312,19 @@ impl App {
     pub fn copy_edits(&mut self, id: usize) {
         let ops = imaging::copyable_edits(&self.edits(id));
         if ops.is_empty() {
-            self.toast("This picture has no edits to copy.");
+            self.toast(crate::i18n::tr!("copy-no-edits"));
             return;
         }
         let n = ops.len();
         self.copied_edits = Some(ops);
-        self.toast(format!("Copied {n} edit{}. Select pictures and paste them (Ctrl+Shift+V).", if n == 1 { "" } else { "s" }));
+        self.toast(crate::i18n::tr!("copied-edits", n = n));
     }
 
     /// Add the copied edits after each picture's own edits (undo them one by one in the editor,
     /// or with "Undo all edits").
     pub fn paste_edits(&mut self, ids: &[usize]) {
         let Some(ops) = self.copied_edits.clone() else {
-            self.toast("Copy the edits of a picture first (Ctrl+Shift+C).");
+            self.toast(crate::i18n::tr!("paste-first"));
             return;
         };
         let ids: Vec<usize> = ids.iter().copied().filter(|&id| id < self.photos.len()).collect();
@@ -1329,7 +1332,7 @@ impl App {
             self.change_edits(id, "", |e| e.extend(ops.iter().cloned()));
         }
         let n = ids.len();
-        self.toast(format!("Pasted the edits onto {n} picture{}.", if n == 1 { "" } else { "s" }));
+        self.toast(crate::i18n::tr!("pasted-edits", n = n));
     }
 
     pub fn rotate(&mut self, ids: &[usize], dir: i32) {
@@ -1737,7 +1740,7 @@ impl App {
 
     fn start_show(&mut self, list: Vec<usize>, start: usize, settings: crate::slides::SlideSettings, viewer: bool) {
         if list.is_empty() {
-            self.toast("There are no pictures to show.");
+            self.toast(crate::i18n::tr!("no-pictures-to-show"));
             return;
         }
         let now = self.ctx.input(|i| i.time);
@@ -1808,7 +1811,7 @@ impl App {
         match crate::slides::Music::start(&path) {
             Ok(m) => Some(m),
             Err(e) => {
-                self.toast(format!("No music: {e}"));
+                self.toast(crate::i18n::tr!("music-error", error = e.to_string()));
                 None
             }
         }
@@ -1898,9 +1901,23 @@ impl App {
     }
 
     pub fn add_library_folder(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new().set_title("Choose a folder of pictures").pick_folder() {
+        if let Some(dir) = rfd::FileDialog::new().set_title(crate::i18n::tr!("choose-folder-dialog")).pick_folder() {
             let s = dir.to_string_lossy().to_string();
             match self.store.add_root(&s) {
+                Ok(()) => {
+                    self.dirty = true;
+                    self.rescan();
+                }
+                Err(e) => self.toast(e),
+            }
+        }
+    }
+
+    /// Pick a folder inside a library folder to leave out of the library.
+    pub fn add_excluded_folder(&mut self) {
+        let start = self.store.roots.first().cloned().unwrap_or_default();
+        if let Some(dir) = rfd::FileDialog::new().set_title(crate::i18n::tr!("choose-folder-dialog")).set_directory(start).pick_folder() {
+            match self.store.add_excluded(&dir.to_string_lossy()) {
                 Ok(()) => {
                     self.dirty = true;
                     self.rescan();
@@ -1922,7 +1939,7 @@ impl App {
             }
             let name = a.name.clone();
             self.dirty = true;
-            self.toast(format!("Added {n} picture(s) to \"{name}\"."));
+            self.toast(crate::i18n::tr!("added-to-album", n = n, name = name.as_str()));
         }
     }
 
@@ -1930,7 +1947,7 @@ impl App {
     pub fn ask_trash_rejects(&mut self) {
         let rejects: Vec<&Photo> = self.photos.iter().enumerate().filter(|(id, p)| !p.is_sample() && self.flag(*id) == Flag::Reject).map(|(_, p)| p).collect();
         if rejects.is_empty() {
-            self.toast(if self.using_samples { "Sample pictures can't be moved to the trash." } else { "No picture is rejected. Press X to reject one." });
+            self.toast(if self.using_samples { crate::i18n::tr!("trash-samples") } else { crate::i18n::tr!("trash-no-rejects") });
             return;
         }
         let bytes = rejects.iter().map(|p| p.bytes).sum();
@@ -1940,7 +1957,7 @@ impl App {
 
     /// Move these files to the trash in the background; the library is scanned again after.
     pub fn trash_files(&mut self, keys: Vec<String>) {
-        let task = self.start_task(format!("Moving {} picture(s) to the trash", keys.len()));
+        let task = self.start_task(crate::i18n::tr!("task-trash", n = keys.len()));
         self.rescan_after = Some(task.id);
         self.selection.clear();
         self.tray_set = None;
@@ -1951,11 +1968,11 @@ impl App {
     /// the background.
     pub fn email(&mut self, ids: &[usize]) {
         if ids.is_empty() {
-            self.toast("Select some pictures first.");
+            self.toast(crate::i18n::tr!("export-select-first"));
             return;
         }
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
-        let task = self.start_task(format!("Preparing {} picture(s) for an email", jobs.len()));
+        let task = self.start_task(crate::i18n::tr!("task-email", n = jobs.len()));
         let subject = self.tray_title();
         self.lib.email(task, jobs, subject, self.store.export_location, self.store.export_options(0, 0));
     }
@@ -1967,7 +1984,7 @@ impl App {
             Source::Person(n) => Some(n.clone()),
             _ => self.tray().first().and_then(|&id| self.photos.get(id)).and_then(|p| self.folders.get(p.folder)).map(|f| f.name.clone()),
         }
-        .unwrap_or_else(|| "My pictures".into())
+        .unwrap_or_else(|| crate::i18n::tr!("default-title"))
     }
 
     /// Open the web-gallery dialog for the tray, titled after what is shown.
@@ -1978,10 +1995,10 @@ impl App {
 
     pub fn make_gallery(&mut self, ids: Vec<usize>, opts: crate::gallery::Options) {
         if ids.is_empty() {
-            self.toast("Select some pictures first.");
+            self.toast(crate::i18n::tr!("export-select-first"));
             return;
         }
-        let Some(parent) = rfd::FileDialog::new().set_title("Make the web gallery in…").pick_folder() else { return };
+        let Some(parent) = rfd::FileDialog::new().set_title(crate::i18n::tr!("gallery-folder-dialog")).pick_folder() else { return };
         let items: Vec<crate::gallery::Item> = ids
             .iter()
             .filter_map(|&id| {
@@ -1990,17 +2007,17 @@ impl App {
                 Some((p.key.clone(), p.name.clone(), self.edits(id), caption))
             })
             .collect();
-        let task = self.start_task(format!("Making the web gallery of {} picture(s)", items.len()));
+        let task = self.start_task(crate::i18n::tr!("task-gallery", n = items.len()));
         self.lib.make_gallery(task, items, parent, opts);
     }
 
     pub fn make_movie(&mut self, ids: Vec<usize>, size: (u32, u32)) {
-        let Some(out) = rfd::FileDialog::new().set_title("Save the movie as…").set_file_name("Slideshow.mp4").add_filter("MP4 video", &["mp4"]).save_file() else {
+        let Some(out) = rfd::FileDialog::new().set_title(crate::i18n::tr!("movie-save-dialog")).set_file_name("Slideshow.mp4").add_filter(crate::i18n::tr!("filter-mp4"), &["mp4"]).save_file() else {
             return;
         };
         let out = if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4")) { out } else { out.with_extension("mp4") };
         let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().filter_map(|&id| Some((self.photos.get(id)?.key.clone(), self.edits(id)))).collect();
-        let task = self.start_task("Making the movie");
+        let task = self.start_task(crate::i18n::tr!("task-movie"));
         self.lib.make_movie(task, pictures, out, size, self.store.slideshow.clone());
     }
 
@@ -2105,10 +2122,7 @@ impl App {
                     }
                     self.show_imported_folder();
                     if truncated {
-                        self.toast(format!(
-                            "Only the first {} pictures are shown: remove some folders from the library to see the rest.",
-                            fmt_count(library::SCAN_LIMIT)
-                        ));
+                        self.toast(crate::i18n::tr!("scan-truncated", n = fmt_count(library::SCAN_LIMIT)));
                     }
                 }
                 Done::Toast(m) => self.toast(m),
@@ -2231,15 +2245,7 @@ impl App {
 
 /// A count with thousands separators from 1000 up.
 pub fn fmt_count(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    crate::locale::group(n as u64)
 }
 
 /// The selection line of the status bar: "No Selection"; for one picture its name, date, pixel
@@ -2247,11 +2253,11 @@ pub fn fmt_count(n: usize) -> String {
 /// the same) and total size on disk.
 pub fn selection_text(items: &[(String, i64, u64)], one_date: Option<&str>, dims: Option<(u32, u32)>) -> String {
     match items {
-        [] => "No Selection".into(),
+        [] => crate::i18n::tr!("selection-none"),
         [(name, modified, bytes)] => {
             let date = one_date.map(str::to_string).unwrap_or_else(|| library::fmt_date(*modified));
             let (w, h) = dims.unwrap_or((0, 0));
-            format!("{name}     {date}     {w}x{h} pixels     {}", library::fmt_bytes(*bytes))
+            crate::i18n::tr!("selection-one", name = name.as_str(), date = date, w = w, h = h, size = library::fmt_bytes(*bytes))
         }
         _ => several_text(items.len(), items.iter().map(|i| (i.1, i.2))),
     }
@@ -2269,13 +2275,12 @@ pub fn several_text(count: usize, items: impl Iterator<Item = (i64, u64)>) -> St
         (first, last) = (0, 0);
     }
     let (a, b) = (library::fmt_date(first), library::fmt_date(last));
-    let mut s = format!("{} pictures", fmt_count(count));
+    let pictures = crate::i18n::tr!("selected-count", n = count, count = fmt_count(count));
     if a == b {
-        s += &format!("     {a}      {} on disk", library::fmt_bytes(total));
+        crate::i18n::tr!("selection-several", pictures = pictures, a = a, size = library::fmt_bytes(total))
     } else {
-        s += &format!("     {a} to {b}     {} on disk", library::fmt_bytes(total));
+        crate::i18n::tr!("selection-range", pictures = pictures, a = a, b = b, size = library::fmt_bytes(total))
     }
-    s
 }
 
 impl App {
@@ -2283,8 +2288,8 @@ impl App {
         match result {
             Ok(()) => {
                 if self.save_error.take().is_some() {
-                    self.notices.retain(|n| !n.text.starts_with(SAVE_FAILED));
-                    self.toast("Your library is saved again.");
+                    self.notices.retain(|n| !n.text.starts_with(&save_failed_prefix()));
+                    self.toast(crate::i18n::tr!("save-ok-again"));
                 }
             }
             Err(e) => {
@@ -2292,8 +2297,8 @@ impl App {
                 self.unsaved = true;
                 if self.save_error.as_ref() != Some(&e) {
                     // stays until it works again or the user closes it
-                    self.notices.retain(|n| !n.text.starts_with(SAVE_FAILED));
-                    self.error(format!("{SAVE_FAILED} {e}\nYour latest changes are only in this window for now; AlbumCraft keeps trying."));
+                    self.notices.retain(|n| !n.text.starts_with(&save_failed_prefix()));
+                    self.error(crate::i18n::tr!("save-failed", prefix = save_failed_prefix(), error = e.to_string()));
                     self.save_error = Some(e);
                 }
             }

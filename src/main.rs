@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod i18n;
 mod app;
 mod backend;
 mod basemap;
@@ -12,6 +13,7 @@ mod icons;
 mod import_view;
 mod collage_view;
 mod info_panel;
+mod labels;
 mod library_view;
 mod map_view;
 mod online;
@@ -28,7 +30,7 @@ mod theme;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{ai, analysis, catalogue, collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, looks, mail, mcp, movie, raw, steps, thumbcache};
+pub use albumcraft_core::{ai, analysis, catalogue, collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, steps, thumbcache};
 
 use std::path::PathBuf;
 
@@ -113,6 +115,7 @@ fn main() -> eframe::Result<()> {
         };
         std::process::exit(code);
     }
+    i18n::init();
     let trace = std::env::var_os("ALBUMCRAFT_TRACE").is_some();
     if trace {
         eprintln!("start");
@@ -127,13 +130,18 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    // ALBUMCRAFT_SHOT_SIZE=900x560: the window's size (to check layouts, with --screenshot)
+    let size = std::env::var("ALBUMCRAFT_SHOT_SIZE")
+        .ok()
+        .and_then(|v| v.split_once('x').and_then(|(w, h)| Some([w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?])))
+        .unwrap_or([1280.0, 800.0]);
     let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("AlbumCraft")
             // Wayland and X11 match the window to io.github.kbarni.albumcraft.desktop (its icon)
             .with_app_id(APP_ID)
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([900.0, 560.0])
+            .with_inner_size(size)
+            .with_min_inner_size([size[0].min(900.0), size[1].min(560.0)])
             .with_icon(window_icon()),
         ..Default::default()
     };

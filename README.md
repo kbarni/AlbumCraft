@@ -3,7 +3,8 @@
 <h1 align="center">AlbumCraft</h1>
 
 <p align="center">A fast, simple photo organizer with a non-destructive editor.<br>
-Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.</p>
+Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.<br>
+In English, French, German, Spanish, Italian and Portuguese (Brazil).</p>
 
 > **Early version.** Expect rough edges and missing pieces.
 > Your original pictures are never modified, so trying it is safe.
@@ -31,8 +32,8 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 - Every change can be undone step by step; hold **Original** (or `O`) to see the picture without your edits; copy the edits of one picture and paste them onto many; compare two pictures side by side.
 
 **Share**
-- Export edited copies (any size, JPEG quality), collages (photo pile, mosaic, centre stage, grid, film strip, clothesline, fan, heart / circle / star, multiple exposure; colour, gradient or picture background; drag pictures to arrange them), contact sheets (title, file names, several pages, PDF), prints (Windows printing, or CUPS on Linux and macOS).
-- Full-screen slideshow with crossfades, slow pan and zoom, and music.
+- Export edited copies (any size, JPEG quality, with a text or logo signature, creator and copyright, and the camera information if you want), collages (photo pile, mosaic, centre stage, grid, film strip, clothesline, fan, heart / circle / star, multiple exposure; colour, gradient or picture background; drag pictures to arrange them), contact sheets (title, file names, several pages, PDF), prints (Windows printing, or CUPS on Linux and macOS).
+- Full-screen slideshow with crossfades, slow pan and zoom, and music; a full-screen viewer from the editor (F11).
 - Email: small copies attached to a new message in your mail program (Thunderbird, Evolution, KMail, Outlook, Apple Mail).
 - A web gallery: a self-contained folder with an `index.html` (three styles, lightbox), ready to open or upload anywhere.
 - A slideshow movie (MP4, 720p or 1080p, with music) when [FFmpeg](https://ffmpeg.org/download.html) is installed.
@@ -106,7 +107,7 @@ contributors (human or AI); `new_features.md` is the plan and its status.
   under 500 MB; GPS positions read from your pictures: `AlbumCraft/gps.json`. Both safe to delete.
 
 AlbumCraft makes no network connections unless you turn on **online maps** (it asks once, at the
-first start; change it later in the main menu or on the map). Then, and only
+first start; change it later in *Settings → Maps*). Then, and only
 while you use the map, it downloads map pictures from OpenStreetMap and sends the places you
 search for to OpenStreetMap's search service. Your pictures and their locations are never sent.
 Without online maps, the map and place search use the built-in world map and city list.

@@ -156,13 +156,13 @@ fn is_camera_folder(name: &str) -> bool {
 pub fn check_folder_name(name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Type a name for the new folder.".into());
+        return Err(crate::msg!("import-name-empty", "Type a name for the new folder.").into());
     }
     if name == "." || name == ".." || name.chars().any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()) {
-        return Err("A folder name can't contain / \\ : * ? \" < > |".into());
+        return Err(crate::msg!("import-name-chars", "A folder name can't contain / \\ : * ? \" < > |").into());
     }
     if name.len() > 200 {
-        return Err("That folder name is too long.".into());
+        return Err(crate::msg!("import-name-long", "That folder name is too long.").into());
     }
     Ok(name.to_string())
 }
@@ -175,7 +175,7 @@ pub fn removable_sources() -> Vec<(String, PathBuf)> {
     for letter in b'D'..=b'Z' {
         let root = PathBuf::from(format!("{}:\\", letter as char));
         if root.join("DCIM").is_dir() {
-            out.push((format!("Drive {}:", letter as char), root));
+            out.push((crate::msg!("import-drive", "Drive {letter}:", letter = letter as char).to_string(), root));
         }
     }
     #[cfg(not(windows))]
@@ -244,7 +244,7 @@ impl Report {
 /// Copy `files` into `dest` (created if needed), all in that one folder. `progress(done, total)`
 /// is called after each file; setting `stop` ends the copy after the current file.
 pub fn copy_into(files: &[String], dest: &Path, progress: &dyn Fn(usize, usize), stop: &AtomicBool) -> Result<Report, String> {
-    std::fs::create_dir_all(dest).map_err(|e| format!("The folder {} could not be made: {e}", dest.display()))?;
+    std::fs::create_dir_all(dest).map_err(|e| crate::msg!("import-mkdir-fail", "The folder {path} could not be made: {error}", path = dest.display(), error = e))?;
     let mut report = Report::default();
     for (i, src) in files.iter().enumerate() {
         if stop.load(Ordering::Relaxed) {
@@ -277,7 +277,7 @@ fn copy_one(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String> {
         }
         n += 1;
         if n > 9999 {
-            return Err("too many files with this name".into());
+            return Err(crate::msg!("import-too-many", "too many files with this name").into());
         }
         target = dest.join(format!("{stem} ({n}){ext}"));
     }
@@ -291,7 +291,7 @@ fn copy_one(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String> {
         }
         // the name was free a moment ago; nothing else writes into this new folder meanwhile
         if target.exists() {
-            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "a file with this name appeared during the copy"));
+            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, crate::msg!("import-appeared", "a file with this name appeared during the copy").to_string()));
         }
         std::fs::rename(&temp, &target)
     })();

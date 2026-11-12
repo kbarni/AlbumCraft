@@ -29,7 +29,6 @@ icons! {
     CONTRAST = "contrast" "\u{eb37}";
     CROP = "crop" "\u{e3be}";
     DRIVE = "sd_card" "\u{e623}";
-    DARK_MODE = "dark_mode" "\u{e51c}";
     DESKTOP = "desktop_windows" "\u{e30c}";
     EDIT = "edit" "\u{f097}";
     EXPAND_MORE = "expand_more" "\u{e5cf}";
@@ -41,7 +40,6 @@ icons! {
     FULLSCREEN = "fullscreen" "\u{e5d0}";
     FULLSCREEN_EXIT = "fullscreen_exit" "\u{e5d1}";
     HOURGLASS = "hourglass_empty" "\u{e88b}";
-    LIGHT_MODE = "light_mode" "\u{e518}";
     LOCATION = "location_on" "\u{f1db}";
     MAIL = "mail" "\u{e159}";
     MAP = "map" "\u{e55b}";

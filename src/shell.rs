@@ -7,6 +7,7 @@
 
 use crate::icons;
 use crate::app::*;
+use crate::i18n::tr;
 use crate::library::fmt_date;
 use crate::library::{Flag, MAX_RATING};
 use crate::library_view::{paint_flag, paint_rating, paint_reject, paint_star};
@@ -27,7 +28,7 @@ pub fn paint_dragged(ctx: &egui::Context) {
     let Some(p) = ctx.pointer_latest_pos() else { return };
     ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
     let n = d.0.len();
-    let text = if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") };
+    let text = tr!("count-pictures", n = n);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("dragged_pictures")));
     let galley = painter.layout_no_wrap(text, egui::FontId::proportional(13.0), t().text_strong);
     let r = Rect::from_min_size(p + egui::vec2(14.0, 10.0), galley.size() + egui::vec2(16.0, 8.0));
@@ -108,6 +109,11 @@ struct GroupRows {
     height: f32,
 }
 const PAD: i8 = 24;
+/// How much faster than egui's default the wheel scrolls the grid, and the drag (middle button
+/// or finger) compared with the pointer; how fast the drag's momentum dies away (per second).
+const WHEEL_GAIN: f32 = 3.0;
+const PAN_GAIN: f32 = 1.6;
+const PAN_FRICTION: f32 = 3.0;
 
 // ---------------------------------------------------------------------------------------------
 // small widgets
@@ -259,10 +265,10 @@ impl App {
 
     fn source_title(&self) -> String {
         match &self.source {
-            Source::Library => "All pictures".to_string(),
+            Source::Library => tr!("nav-all"),
             Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_default(),
             Source::Person(n) => n.clone(),
-            Source::Picks => "Picks".to_string(),
+            Source::Picks => tr!("nav-picks"),
         }
     }
 
@@ -273,53 +279,49 @@ impl App {
             .show(ui, |ui| {
                 let bottom = ui.max_rect().bottom() + 8.0;
                 ui.painter().hline(ui.max_rect().x_range().expand(PAD as f32), bottom, Stroke::new(1.0, t().border));
+                // the title gets a share of the bar and is cut short when it is longer (a longer
+                // language must not push it under the buttons)
                 let wide = ui.available_width();
+                let title_w = (wide * 0.2).clamp(110.0, 240.0);
                 ui.horizontal_centered(|ui| {
                     let shown = self.visible_count();
-                    ui.vertical(|ui| {
+                    ui.allocate_ui_with_layout(egui::vec2(title_w, 44.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong));
+                        ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate());
                         let sub = if self.scanning {
-                            "Looking for pictures…".to_string()
+                            tr!("scanning")
                         } else {
-                            format!("{shown} picture{}", if shown == 1 { "" } else { "s" })
+                            tr!("count-pictures", n = shown)
                         };
-                        ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
+                        ui.add(egui::Label::new(RichText::new(sub).size(12.0).color(t().text_weak)).truncate());
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if pill(ui, &format!("{}  Import", icons::DRIVE), true)
-                            .on_hover_text("Copy pictures from a memory card, a camera or a folder into your library")
+                        if pill(ui, &format!("{}  {}", icons::DRIVE, tr!("bar-import")), true)
+                            .on_hover_text(tr!("bar-import-hint"))
                             .clicked()
                         {
                             self.open_import();
                         }
-                        if pill(ui, &format!("{}  Folders", icons::FOLDER), false)
-                            .on_hover_text("The folders shown in the library, where they are (nothing is copied)")
-                            .clicked()
-                        {
-                            self.dialog = Some(Dialog::FolderManager);
-                        }
-                        use crate::theme::Mode;
-                        let mode = Mode::from_name(&self.store.theme);
-                        if icon_btn(ui, mode.icon(), &format!("Appearance: {} (click to change)", mode.label())).clicked() {
-                            self.store.theme = mode.next().name().into();
-                            self.dirty = true;
+                        // icon only when the window is narrow (a longer language needs the room)
+                        let folders = if wide >= 760.0 { pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false) } else { icon_btn(ui, icons::FOLDER, &tr!("bar-folders")) };
+                        if folders.on_hover_text(tr!("bar-folders-hint")).clicked() {
+                            self.open_settings(crate::settings_view::SettingsSection::Folders);
                         }
                         ui.add_space(4.0);
                         if wide > 980.0 {
                             ui.spacing_mut().slider_width = 84.0;
-                            if ui.add(egui::Slider::new(&mut self.store.thumb_size, 64.0..=256.0).show_value(false)).on_hover_text("Picture size").changed() {
+                            if ui.add(egui::Slider::new(&mut self.store.thumb_size, 64.0..=256.0).show_value(false)).on_hover_text(tr!("bar-size-hint")).changed() {
                                 self.dirty = true;
                             }
                             ui.add_space(2.0);
                         }
                         // the order of the pictures (a small menu)
                         use crate::library::Sort;
-                        let sorts = [(Sort::Name, "File name"), (Sort::Taken, "Date taken"), (Sort::Rating, "Rating")];
-                        let current = sorts.iter().find(|(s, _)| *s == self.store.sort).map(|(_, l)| *l).unwrap_or("File name");
+                        let sorts = [(Sort::Name, tr!("sort-name")), (Sort::Taken, tr!("sort-taken")), (Sort::Rating, tr!("sort-rating"))];
+                        let current = sorts.iter().find(|(s, _)| *s == self.store.sort).map(|(_, l)| l.clone()).unwrap_or_else(|| tr!("sort-name"));
                         let label = if wide > 1100.0 { format!("{current}  {}", icons::EXPAND_MORE) } else { icons::EXPAND_MORE.to_string() };
-                        let resp = chip(ui, &label, false).on_hover_text(format!("Order of the pictures: {}", current.to_lowercase()));
+                        let resp = chip(ui, &label, false).on_hover_text(tr!("sort-hint", order = current.to_lowercase()));
                         egui::Popup::menu(&resp).show(|ui| {
                             for (sort, text) in sorts {
                                 if ui.radio(self.store.sort == sort, text).clicked() {
@@ -331,32 +333,33 @@ impl App {
                         // rating / rejects filter (a small menu), then the Picks toggle
                         let f = self.filter.clone();
                         let label = match (f.min_rating, f.hide_rejects) {
-                            (0, false) => format!("{}  Any", icons::STAR),
-                            (0, true) => format!("{}  Any, no rejects", icons::STAR),
-                            (n, false) => format!("{}  {n}+", icons::STAR),
-                            (n, true) => format!("{}  {n}+, no rejects", icons::STAR),
+                            (0, false) => format!("{}  {}", icons::STAR, tr!("filter-any")),
+                            (0, true) => format!("{}  {}", icons::STAR, tr!("filter-any-no-rejects")),
+                            (n, false) => format!("{}  {}", icons::STAR, tr!("filter-min", n = n)),
+                            (n, true) => format!("{}  {}", icons::STAR, tr!("filter-min-no-rejects", n = n)),
                         };
-                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text("Filter by rating; hide rejected pictures");
+                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text(tr!("filter-hint"));
                         egui::Popup::menu(&resp).show(|ui| {
                             for n in 0..=crate::library::MAX_RATING {
-                                let text = if n == 0 { "Any rating".to_string() } else { format!("{} or more", crate::library_view::rating_label(n)) };
+                                let text = if n == 0 { tr!("filter-any-rating") } else { tr!("filter-or-more", rating = crate::library_view::rating_label(n)) };
                                 if ui.radio(self.filter.min_rating == n, text).clicked() {
                                     self.filter.min_rating = n;
                                 }
                             }
                             ui.separator();
-                            ui.checkbox(&mut self.filter.hide_rejects, "Hide rejected pictures");
-                            if ui.button("Move rejected pictures to the trash…").clicked() {
+                            ui.checkbox(&mut self.filter.hide_rejects, tr!("bar-hide-rejects"));
+                            if ui.button(tr!("menu-trash-rejects")).clicked() {
                                 self.ask_trash_rejects();
                                 ui.close();
                             }
                         });
                         let on = self.filter.picks;
-                        if chip_with_flag(ui, if wide > 800.0 { "Picks" } else { "" }, on, true).on_hover_text("Show only picks").clicked() {
+                        if chip_with_flag(ui, &if wide > 800.0 { tr!("nav-picks") } else { String::new() }, on, true).on_hover_text(tr!("bar-picks-hint")).clicked() {
                             self.filter.picks = !on;
                         }
                         ui.add_space(4.0);
-                        let sw = ((wide - 640.0) * 0.5).clamp(70.0, 190.0) + 40.0 * self.search_terms.len().min(3) as f32;
+                        // the search box takes what the buttons left (its frame adds about 80)
+                        let sw = (ui.available_width() - 80.0).clamp(40.0, 190.0 + 40.0 * self.search_terms.len().min(3) as f32);
                         self.library_search(ui, sw);
                     });
                 });
@@ -388,29 +391,29 @@ impl App {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     let all_on = self.source == Source::Library && !self.searching() && self.list_pick.is_none();
-                    if nav_row(ui, icons::PHOTOS, "All pictures", Some(self.photos.len()), all_on).clicked() {
+                    if nav_row(ui, icons::PHOTOS, &tr!("nav-all"), Some(self.photos.len()), all_on).clicked() {
                         self.source = Source::Library;
                         self.selection.clear();
                         self.tray_set = None;
                         self.list_pick = None;
                     }
                     let counts = self.sidebar_counts();
-                    let r = nav_row(ui, "", "Picks", Some(counts.picks), self.source == Source::Picks);
+                    let r = nav_row(ui, "", &tr!("nav-picks"), Some(counts.picks), self.source == Source::Picks);
                     paint_flag(ui.painter(), Pos2::new(r.rect.left() + 18.0, r.rect.center().y), 7.0, t().pick, t().pick);
                     if r.clicked() {
                         self.source = Source::Picks;
                         self.pick_set(TraySet::Picks);
                     }
                     let nplaces = self.located().len();
-                    if nav_row(ui, icons::MAP, "Places", Some(nplaces), false).on_hover_text("Your pictures on a map").clicked() {
+                    if nav_row(ui, icons::MAP, &tr!("nav-places"), Some(nplaces), false).on_hover_text(tr!("nav-places-hint")).clicked() {
                         self.open_places();
                     }
 
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("ALBUMS").size(11.0).strong().color(t().text_weak));
+                        ui.label(RichText::new(tr!("nav-albums").to_uppercase()).size(11.0).strong().color(t().text_weak));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_btn(ui, icons::ADD, "New album").clicked() {
+                            if icon_btn(ui, icons::ADD, &tr!("dialog-new-album")).clicked() {
                                 self.dialog = Some(Dialog::NewAlbum { name: String::new() });
                             }
                         });
@@ -431,21 +434,21 @@ impl App {
                             self.pick_set(TraySet::Album(i));
                         }
                         r.context_menu(|ui| {
-                            if ui.button("Rename…").clicked() {
+                            if ui.button(tr!("album-rename")).clicked() {
                                 self.dialog = Some(Dialog::RenameAlbum { idx: i, name: self.store.albums[i].name.clone() });
                                 ui.close();
                             }
-                            if ui.button("Delete album").clicked() {
+                            if ui.button(tr!("album-delete")).clicked() {
                                 delete = Some(i);
                                 ui.close();
                             }
-                            if ui.button("Show on map").clicked() {
+                            if ui.button(tr!("album-show-map")).clicked() {
                                 let ids: Vec<usize> = self.store.albums[i].keys.iter().filter_map(|k| self.key_index.get(k).copied()).collect();
                                 let name = self.store.albums[i].name.clone();
                                 self.show_set_on_map(name, &ids);
                                 ui.close();
                             }
-                            if ui.button("Play as slideshow").clicked() {
+                            if ui.button(tr!("album-slideshow")).clicked() {
                                 self.source = Source::Album(i);
                                 let list = self.visible_flat();
                                 let first = list.first().copied().unwrap_or(0);
@@ -465,13 +468,13 @@ impl App {
                         };
                         self.tray_set = None;
                         self.list_pick = None;
-                        self.undoable(format!("Deleted the album \"{}\". Its pictures are untouched.", album.name), Undo::Album { at: i, album });
+                        self.undoable(tr!("album-deleted", name = album.name.as_str()), Undo::Album { at: i, album });
                     }
 
-                    caption(ui, "People");
+                    caption(ui, &tr!("nav-people"));
                     let people = &counts.people;
                     if people.is_empty() {
-                        ui.label(RichText::new("Tag people from the selection bar.").size(12.0).color(t().text_weak));
+                        ui.label(RichText::new(tr!("people-hint")).size(12.0).color(t().text_weak));
                     }
                     for (name, n) in people {
                         let sel = self.source == Source::Person(name.clone());
@@ -481,7 +484,7 @@ impl App {
                         }
                     }
 
-                    caption(ui, "Folders");
+                    caption(ui, &tr!("nav-folders"));
                     let current_folder = match &self.list_pick {
                         Some(TraySet::Folder(fi)) if self.selection.is_empty() => Some(*fi),
                         _ => self.selection.iter().next().map(|&id| self.photos[id].folder),
@@ -634,6 +637,64 @@ impl App {
         }
     }
 
+    /// Scrolling the grid by dragging it, with the middle button or a finger: faster than the
+    /// pointer, and it goes on after the release, slowing down.
+    fn pan_grid(&mut self, ui: &mut egui::Ui) {
+        let clip = ui.clip_rect();
+        let (dt, delta, hold, started) = ui.input(|i| {
+            let held = i.pointer.middle_down() || (i.any_touches() && i.pointer.primary_down());
+            let started = (i.pointer.button_pressed(egui::PointerButton::Middle) || (i.any_touches() && i.pointer.primary_pressed()))
+                && i.pointer.interact_pos().is_some_and(|p| clip.contains(p));
+            (i.stable_dt.min(0.1), i.pointer.delta().y, held, started)
+        });
+        // Two fingers on a touchpad come as wheel events in points (a wheel's are in lines). The
+        // system adds no momentum on Linux and Windows (macOS does, and sends it on), so the
+        // speed of the fingers is kept here and carried on with once they stop.
+        let (finger, notch) = ui.input(|i| {
+            let mut finger = 0.0;
+            let mut notch = false;
+            for e in &i.raw.events {
+                if let egui::Event::MouseWheel { unit, delta, .. } = e {
+                    if *unit == egui::MouseWheelUnit::Point { finger += delta.y } else { notch = true }
+                }
+            }
+            (finger, notch)
+        });
+        if !cfg!(target_os = "macos") && !self.grid_pan && clip.contains(ui.input(|i| i.pointer.hover_pos()).unwrap_or_default()) {
+            if notch {
+                self.grid_vel = 0.0;
+            } else if finger != 0.0 {
+                let v = finger * WHEEL_GAIN / dt.max(0.001);
+                self.grid_vel = self.grid_vel * 0.5 + v * 0.5;
+                ui.ctx().request_repaint();
+                return;
+            }
+        }
+        if started {
+            self.grid_pan = true;
+            self.grid_vel = 0.0;
+        }
+        if self.grid_pan && hold {
+            let d = delta * PAN_GAIN;
+            if d != 0.0 {
+                ui.scroll_with_delta(egui::vec2(0.0, d));
+            }
+            // the speed of the last moments, to carry on with at the release
+            let v = d / dt.max(0.001);
+            self.grid_vel = self.grid_vel * 0.6 + v * 0.4;
+            ui.ctx().request_repaint();
+        } else {
+            self.grid_pan = false;
+            if self.grid_vel.abs() > 20.0 {
+                ui.scroll_with_delta(egui::vec2(0.0, self.grid_vel * dt));
+                self.grid_vel *= (-dt * PAN_FRICTION).exp();
+                ui.ctx().request_repaint();
+            } else {
+                self.grid_vel = 0.0;
+            }
+        }
+    }
+
     fn grid(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().lightbox_bg)).show(ui, |ui| {
             let groups = self.groups();
@@ -648,7 +709,7 @@ impl App {
             let mut background_click = false;
             let mut flat: Rc<Vec<usize>> = Rc::new(vec![]);
 
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).wheel_scroll_multiplier(egui::vec2(1.0, WHEEL_GAIN)).show(ui, |ui| {
                 egui::Frame::new().inner_margin(egui::Margin { left: PAD, right: PAD, top: 8, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                     let width = ui.available_width();
@@ -656,7 +717,11 @@ impl App {
                     // pointer): a click clears the selection, a drag draws a selection box
                     let origin = ui.min_rect().min.to_vec2();
                     let back = ui.interact(ui.clip_rect(), egui::Id::new("grid_background"), Sense::click_and_drag());
+                    self.pan_grid(ui);
+                    // on a touch screen a drag scrolls (see pan_grid); the box is for the mouse
+                    let touch = ui.input(|i| i.any_touches());
                     if back.drag_started()
+                        && !touch
                         && let Some(p) = back.interact_pointer_pos()
                     {
                         let m = ui.input(|i| i.modifiers);
@@ -839,18 +904,18 @@ impl App {
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() * 0.3);
             let (icon, msg) = if self.scanning {
-                (icons::HOURGLASS, "Looking for pictures…")
+                (icons::HOURGLASS, tr!("empty-scanning"))
             } else if self.searching() || self.filter.is_active() {
-                (icons::SEARCH, "Nothing matches your search or filter.")
+                (icons::SEARCH, tr!("empty-no-match"))
             } else {
                 match self.source {
-                    Source::Album(_) => (icons::ALBUM, "This album is empty. Select pictures and add them from the selection bar."),
-                    Source::Person(_) => (icons::PERSON, "Nobody tagged yet."),
-                    Source::Picks => (icons::FLAG, "No picks yet. Hover a picture and click its flag, or press P."),
+                    Source::Album(_) => (icons::ALBUM, tr!("empty-album")),
+                    Source::Person(_) => (icons::PERSON, tr!("empty-person")),
+                    Source::Picks => (icons::FLAG, tr!("empty-picks")),
                     Source::Library if !self.store.roots.is_empty() => {
-                        (icons::FOLDER, "No pictures were found in your library's folders. If they are on a disk that is not connected, connect it and scan again.")
+                        (icons::FOLDER, tr!("empty-unreachable"))
                     }
-                    Source::Library => (icons::PHOTOS, "Your library is empty. Import pictures, or add a folder you already have."),
+                    Source::Library => (icons::PHOTOS, tr!("empty-library")),
                 }
             };
             let unreachable = matches!(self.source, Source::Library) && !self.store.roots.is_empty() && self.photos.is_empty() && !self.scanning;
@@ -862,11 +927,11 @@ impl App {
                 ui.horizontal(|ui| {
                     // centred: two pills of about 290 px together
                     ui.add_space((ui.available_width() - 290.0).max(0.0) / 2.0);
-                    if pill(ui, &format!("{}  Scan again", icons::REFRESH), true).clicked() {
+                    if pill(ui, &format!("{}  {}", icons::REFRESH, tr!("scan-again")), true).clicked() {
                         self.rescan();
                     }
-                    if pill(ui, &format!("{}  Folders", icons::FOLDER), false).on_hover_text("The folders shown in the library").clicked() {
-                        self.dialog = Some(Dialog::FolderManager);
+                    if pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false).on_hover_text(tr!("empty-folders-hint")).clicked() {
+                        self.open_settings(crate::settings_view::SettingsSection::Folders);
                     }
                 });
             } else if matches!(self.source, Source::Library) && !self.searching() && !self.scanning {
@@ -874,14 +939,14 @@ impl App {
                 ui.horizontal(|ui| {
                     // centred: two pills of about 330 px together
                     ui.add_space((ui.available_width() - 330.0).max(0.0) / 2.0);
-                    if pill(ui, &format!("{}  Import pictures", icons::DRIVE), true)
-                        .on_hover_text("Copy pictures from a memory card, a camera or a folder")
+                    if pill(ui, &format!("{}  {}", icons::DRIVE, tr!("empty-import")), true)
+                        .on_hover_text(tr!("empty-import-hint"))
                         .clicked()
                     {
                         self.open_import();
                     }
-                    if pill(ui, &format!("{}  Add a folder", icons::FOLDER), false)
-                        .on_hover_text("Show the pictures of a folder where they are, without copying them")
+                    if pill(ui, &format!("{}  {}", icons::FOLDER, tr!("empty-add")), false)
+                        .on_hover_text(tr!("empty-add-hint"))
                         .clicked()
                     {
                         self.add_library_folder();
@@ -900,13 +965,13 @@ impl App {
                 ui.label(RichText::new(&f.name).size(19.0).strong().color(t().text_strong));
                 ui.label(RichText::new(format!("{}  ·  {}", fmt_date(f.date), ids.len())).size(12.5).color(t().text_weak));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_btn(ui, icons::PLAY, "Play this folder as a slideshow").clicked() {
+                    if icon_btn(ui, icons::PLAY, &tr!("folder-play-hint")).clicked() {
                         self.start_slideshow(ids.to_vec(), ids[0]);
                     }
-                    if icon_btn(ui, icons::EDIT, "Edit description").clicked() {
+                    if icon_btn(ui, icons::EDIT, &tr!("folder-edit-hint")).clicked() {
                         self.dialog = Some(Dialog::FolderNote { path: f.path.clone(), text: note.clone().unwrap_or_default() });
                     }
-                    if icon_btn(ui, icons::MAP, "Show this folder on the map").clicked() {
+                    if icon_btn(ui, icons::MAP, &tr!("folder-map-hint")).clicked() {
                         self.show_set_on_map(f.name.clone(), ids);
                     }
                 });
@@ -1009,7 +1074,7 @@ impl App {
         }
         let fc = img.right_top() + egui::vec2(-18.0, 18.0);
         let flag_r = Rect::from_center_size(fc, Vec2::splat(30.0));
-        let flag = ui.interact(flag_r, egui::Id::new(("pick", id)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Pick (P)");
+        let flag = ui.interact(flag_r, egui::Id::new(("pick", id)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("tile-pick-hint"));
         let on = self.is_picked(id);
         let p = ui.painter();
         let r = if flag.hovered() { 9.0 } else { 8.0 };
@@ -1022,7 +1087,7 @@ impl App {
             let rej = ui
                 .interact(Rect::from_center_size(rc, Vec2::splat(28.0)), egui::Id::new(("reject", id)), Sense::click())
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Reject (X)");
+                .on_hover_text(tr!("tile-reject-hint"));
             let rejected = self.flag(id) == Flag::Reject;
             let color = if rejected { t().reject } else { Color32::WHITE };
             let bg = if rej.hovered() { Color32::from_black_alpha(110) } else { Color32::from_black_alpha(50) };

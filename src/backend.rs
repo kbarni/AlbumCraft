@@ -8,6 +8,7 @@
 //! channel given to the library, and the library wakes the window when one is ready. Quick ones
 //! (a picture's size, its camera information) are answered directly.
 
+use crate::i18n::tr;
 use crate::exifinfo::CameraInfo;
 use crate::geo::{self, FileStamp, LatLon};
 use crate::imaging::{self, EditOp};
@@ -54,10 +55,10 @@ pub trait Library {
     /// Look for pictures in these folders; the result arrives as `Done::Scan`.
     /// `ini_done`: folders whose `.picasa.ini` was brought in already; for the others the scan
     /// reads that file (read only, never written) and sends what it holds along.
-    fn scan(&self, roots: Vec<String>, ini_done: Vec<String>);
+    fn scan(&self, roots: Vec<String>, excluded: Vec<String>, ini_done: Vec<String>);
     /// What the last scan found in these folders, from the catalogue cache, to show until the
     /// scan's result arrives; it arrives as `Done::Cached` (nothing when there is no cache).
-    fn cached(&self, roots: Vec<String>);
+    fn cached(&self, roots: Vec<String>, excluded: Vec<String>);
     /// Keep what the window knows about the pictures for the next start: in the background, or
     /// before returning when `now` (the window closes).
     fn save_catalogue(&self, cat: crate::catalogue::Catalogue, now: bool);
@@ -157,7 +158,7 @@ impl LocalLibrary {
     /// Run `work` on its own thread as a task the user sees: `work` gets `step(done, total)` to
     /// say how far it is, which answers false once the user asked to stop. Its report (a panic
     /// becomes `failed`) ends the task.
-    fn run_task(&self, task: Task, failed: &'static str, work: impl FnOnce(&dyn Fn(usize, usize) -> bool) -> Report + Send + 'static) {
+    fn run_task(&self, task: Task, failed: String, work: impl FnOnce(&dyn Fn(usize, usize) -> bool) -> Report + Send + 'static) {
         let send = self.sender();
         std::thread::spawn(move || {
             let step = |done: usize, total: usize| {
@@ -178,7 +179,7 @@ impl Library for LocalLibrary {
 
     fn save(&mut self, store: &mut Store, now: bool) {
         let job = library::store_path()
-            .ok_or_else(|| "No folder for application data was found.".to_string())
+            .ok_or_else(|| tr!("backend-no-data-dir"))
             .and_then(|path| Ok((path, store.snapshot()?)));
         match job {
             Ok((path, bytes)) if now => self.saved = Some(library::write_library(&path, &bytes)),
@@ -218,18 +219,18 @@ impl Library for LocalLibrary {
         let send = self.sender();
         std::thread::spawn(move || {
             if let Err(e) = library::clear_cache(which) {
-                send(Done::Toast(format!("The cache could not be emptied ({e})")));
+                send(Done::Toast(tr!("backend-cache-fail", error = e.to_string())));
             }
             let (thumbs, tiles) = library::cache_sizes();
             send(Done::CacheSizes { thumbs, tiles });
         });
     }
 
-    fn scan(&self, roots: Vec<String>, ini_done: Vec<String>) {
+    fn scan(&self, roots: Vec<String>, excluded: Vec<String>, ini_done: Vec<String>) {
         let send = self.sender();
         std::thread::spawn(move || {
             let (found, truncated, inis) = std::panic::catch_unwind(|| {
-                let (found, truncated) = library::scan_roots(&roots, library::SCAN_LIMIT);
+                let (found, truncated) = library::scan_roots_except(&roots, &excluded, library::SCAN_LIMIT);
                 let done: std::collections::HashSet<&str> = ini_done.iter().map(String::as_str).collect();
                 let inis: Vec<(String, IniFolder)> = found
                     .iter()
@@ -243,13 +244,13 @@ impl Library for LocalLibrary {
         });
     }
 
-    fn cached(&self, roots: Vec<String>) {
+    fn cached(&self, roots: Vec<String>, excluded: Vec<String>) {
         let send = self.sender();
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
             let found = std::panic::catch_unwind(|| {
                 let cat = crate::catalogue::load_from(&crate::catalogue::path()?)?;
-                Some(cat.within(&roots, library::SCAN_LIMIT))
+                Some(cat.within_except(&roots, &excluded, library::SCAN_LIMIT))
             });
             if let Ok(Some((folders, known))) = found
                 && !folders.is_empty()
@@ -302,12 +303,12 @@ impl Library for LocalLibrary {
     }
 
     fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, opts: crate::export::Options, with_location: bool) {
-        self.run_task(task, "Could not export: unexpected error.", move |step| {
+        self.run_task(task, tr!("fail-export"), move |step| {
             // the logo is read once for all the pictures
             let logo = match opts.signature.as_ref().filter(|s| s.use_logo).and_then(|s| s.logo.as_deref()) {
                 Some(path) => match crate::export::load_logo(path) {
                     Ok(l) => Some(l),
-                    Err(e) => return Report::failed(format!("Nothing was exported: {e}.")),
+                    Err(e) => return Report::failed(tr!("export-nothing", error = e.to_string())),
                 },
                 None => None,
             };
@@ -330,18 +331,19 @@ impl Library for LocalLibrary {
                     Err(e) => failed.push(format!("{name}: {e}")),
                 }
             }
-            let mut msg = format!("Exported {ok} of {} picture(s) to {}", jobs.len(), dir.display());
+            let mut msg = tr!("export-result", ok = ok, total = jobs.len(), path = dir.display().to_string());
             if stopped {
-                msg.push_str("\nThe export was stopped before the end.");
+                msg.push_str(&format!("\n{}", tr!("export-stopped")));
             }
             if !failed.is_empty() {
-                msg.push_str("\n\nNot exported:");
+                msg.push_str(&format!("\n\n{}", tr!("export-failed-list")));
                 for f in failed.iter().take(10) {
                     msg.push_str("\n• ");
                     msg.push_str(f);
                 }
                 if failed.len() > 10 {
-                    msg.push_str(&format!("\n… and {} more", failed.len() - 10));
+                    let more = failed.len() - 10;
+                    msg.push_str(&format!("\n{}", tr!("export-more", n = more)));
                 }
             }
             let report = if failed.is_empty() { Report::done(msg) } else { Report::failed(msg) };
@@ -350,46 +352,46 @@ impl Library for LocalLibrary {
     }
 
     fn trash(&self, task: Task, files: Vec<String>) {
-        self.run_task(task, "Could not move the pictures to the trash: unexpected error.", move |step| library::move_to_trash(&files, step));
+        self.run_task(task, tr!("fail-trash"), move |step| library::move_to_trash(&files, step));
     }
 
     fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, opts: crate::export::Options) {
-        self.run_task(task, "Could not prepare the email: unexpected error.", move |step| crate::mail::email(&jobs, &subject, with_location, &opts, step));
+        self.run_task(task, tr!("fail-email"), move |step| crate::mail::email(&jobs, &subject, with_location, &opts, step));
     }
 
     fn make_gallery(&self, task: Task, items: Vec<crate::gallery::Item>, parent: PathBuf, opts: crate::gallery::Options) {
-        self.run_task(task, "Could not make the web gallery: unexpected error.", move |step| match crate::gallery::write(&parent, &items, &opts, step) {
+        self.run_task(task, tr!("fail-gallery"), move |step| match crate::gallery::write(&parent, &items, &opts, step) {
             Ok((dir, failed)) => {
                 let index = dir.join("index.html");
                 let _ = crate::library_view::open_with_system(&index);
-                let mut m = format!("The web gallery is ready:\n{}", index.display());
+                let mut m = tr!("gallery-ready", path = index.display().to_string());
                 if failed > 0 {
-                    m.push_str(&format!("\n\n{failed} picture(s) could not be read and were left out."));
+                    m.push_str(&format!("\n\n{}", tr!("gallery-left-out", n = failed)));
                 }
                 Report::done(m).showing(index)
             }
-            Err(e) if e == library::STOPPED => Report::done("The web gallery was not made: stopped."),
-            Err(e) => Report::failed(format!("Could not make the web gallery: {e}")),
+            Err(e) if e == library::STOPPED => Report::done(tr!("gallery-stopped")),
+            Err(e) => Report::failed(tr!("gallery-failed", error = e.to_string())),
         });
     }
 
     fn make_movie(&self, task: Task, pictures: Vec<(String, Vec<EditOp>)>, out: PathBuf, size: (u32, u32), settings: SlideSettings) {
-        self.run_task(task, "Could not make the movie: unexpected error", move |step| {
+        self.run_task(task, tr!("fail-movie"), move |step| {
             let progress = |f: f32| step((f * 1000.0) as usize, 1000);
             match crate::movie::make(&out, &pictures, size, &settings, &progress) {
-                Ok(()) => Report::done(format!("The movie is ready:\n{}", out.display())).showing(out),
-                Err(e) if e == library::STOPPED => Report::done("The movie was not made: stopped."),
-                Err(e) => Report::failed(format!("Could not make the movie: {e}")),
+                Ok(()) => Report::done(tr!("movie-ready", path = out.display().to_string())).showing(out),
+                Err(e) if e == library::STOPPED => Report::done(tr!("movie-stopped")),
+                Err(e) => Report::failed(tr!("movie-failed", error = e.to_string())),
             }
         });
     }
 
     fn make_collage(&self, task: Task, job: crate::collage::Job, out: PathBuf, px_long: u32) {
-        self.run_task(task, "Could not save the collage: unexpected error.", move |_| {
+        self.run_task(task, tr!("fail-collage"), move |_| {
             match crate::collage::save(&job, &out, px_long, &imaging::load_source) {
-                Ok(files) if files.len() > 1 => Report::done(format!("Saved {} pictures, the first one is:\n{}", files.len(), out.display())).showing(out),
-                Ok(_) => Report::done(format!("Saved:\n{}", out.display())).showing(out),
-                Err(e) => Report::failed(format!("Could not save the collage: {e}")),
+                Ok(files) if files.len() > 1 => Report::done(tr!("collage-saved-many", n = files.len(), path = out.display().to_string())).showing(out),
+                Ok(_) => Report::done(tr!("collage-saved", path = out.display().to_string())).showing(out),
+                Err(e) => Report::failed(tr!("collage-save-failed", error = e.to_string())),
             }
         });
     }
@@ -413,13 +415,13 @@ impl Library for LocalLibrary {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::import::copy_into(&files, &dest, &progress, &stop)));
             let done = match result {
                 Ok(Ok(r)) => Done::ImportDone {
-                    summary: r.summary(&dest),
+                    summary: crate::labels::import_summary(&r, &dest),
                     copied: r.copied.len(),
                     problems: !r.failed.is_empty() || r.stopped,
                     dest,
                 },
                 Ok(Err(e)) => Done::ImportDone { dest, summary: e, copied: 0, problems: true },
-                Err(_) => Done::ImportDone { dest, summary: "The import stopped unexpectedly.".into(), copied: 0, problems: true },
+                Err(_) => Done::ImportDone { dest, summary: tr!("import-unexpected"), copied: 0, problems: true },
             };
             send(done);
         });
@@ -438,7 +440,7 @@ impl Library for LocalLibrary {
     }
 
     fn download_pack(&self, task: Task, id: String) {
-        self.run_task(task, "The download stopped: unexpected error.", move |step| crate::analysis::download_pack(&id, step));
+        self.run_task(task, tr!("fail-download"), move |step| crate::analysis::download_pack(&id, step));
     }
 
     fn remove_pack(&self, id: &str) -> Result<(), String> {
@@ -472,7 +474,7 @@ mod tests {
         // a missing picture still gets an answer, so the window never waits forever
         lib.request(Job::Big { id: 1, key: "/no/such/picture.jpg".into() }, true);
         assert!(matches!(next(&rx), Done::Big { id: 1, img: None, .. }));
-        lib.scan(vec!["/no/such/folder".into()], vec![]);
+        lib.scan(vec!["/no/such/folder".into()], vec![], vec![]);
         assert!(matches!(next(&rx), Done::Scan(found, false, inis) if found.is_empty() && inis.is_empty()));
         assert!(lib.pictures()(&key, 50).is_some_and(|i| i.width().max(i.height()) == 50));
         assert!(lib.camera_info(&key).is_none() && lib.source_dims("/no/such/picture.jpg").is_none());

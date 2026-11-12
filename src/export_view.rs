@@ -4,6 +4,7 @@
 //! background (`Library::export`); the signature, creator and copyright are kept for next time.
 
 use crate::app::*;
+use crate::i18n::tr;
 use crate::export::Signature;
 use crate::icons;
 use crate::library::Job;
@@ -12,7 +13,17 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// The sizes offered (longest side in pixels; 0 = the picture's own size).
-pub(crate) const SIZES: [(u32, &str); 4] = [(0, "Original size"), (2560, "Very large (2560 pixels)"), (1600, "Large (1600 pixels)"), (800, "Small, for email (800 pixels)")];
+pub(crate) const SIZES: [u32; 4] = [0, 2560, 1600, 800];
+
+/// The name of one of the `SIZES`.
+pub(crate) fn size_label(dim: u32) -> String {
+    match dim {
+        0 => tr!("export-size-original"),
+        2560 => tr!("export-size-very-large"),
+        1600 => tr!("export-size-large"),
+        _ => tr!("export-size-small"),
+    }
+}
 
 pub struct ExportState {
     pub ids: Vec<usize>,
@@ -41,7 +52,7 @@ impl App {
     /// Show the Export view for these pictures.
     pub fn open_export(&mut self, ids: Vec<usize>) {
         if ids.is_empty() {
-            self.toast("Select some pictures first.");
+            self.toast(tr!("export-select-first"));
             return;
         }
         let dest = self
@@ -51,7 +62,7 @@ impl App {
             .or_else(|| dirs::picture_dir().map(|d| d.to_string_lossy().to_string()))
             .unwrap_or_default();
         let max_dim = self.store.export_size;
-        let custom = if SIZES.iter().any(|s| s.0 == max_dim) { 1200 } else { max_dim };
+        let custom = if SIZES.contains(&max_dim) { 1200 } else { max_dim };
         let back = if self.view == View::Edit { View::Edit } else { View::Library };
         self.export = Some(Box::new(ExportState { ids, skip: HashSet::new(), max_dim, custom, quality: self.store.export_quality, back, dest, logo_asked: None, logo_tex: None }));
         self.view = View::Export;
@@ -73,7 +84,7 @@ impl App {
                 let tex = self.ctx.load_texture("export-logo", to_color_image(img), egui::TextureOptions::LINEAR);
                 st.logo_tex = Some((key.to_string(), tex));
             }
-            None => self.toast(format!("The logo {key} can't be read.")),
+            None => self.toast(tr!("export-logo-unreadable", path = key)),
         }
         true
     }
@@ -88,7 +99,7 @@ impl App {
         self.store.export_to = Some(st.dest.clone());
         self.dirty = true;
         let jobs: Vec<crate::commands::ExportJob> = ids.iter().map(|&id| crate::commands::export_job(self, id)).collect();
-        let task = self.start_task(format!("Exporting {} picture(s)", jobs.len()));
+        let task = self.start_task(tr!("export-task", n = jobs.len()));
         let opts = self.store.export_options(max_dim, quality);
         self.lib.export(task, jobs, dir, opts, self.store.export_location);
         self.leave_export();
@@ -137,15 +148,15 @@ impl App {
             .frame(egui::Frame::new().fill(t().toolbar_bg).inner_margin(egui::Margin::symmetric(16, 8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let label = format!("{}  {}", icons::ARROW_BACK, if back == View::Edit { "Editor" } else { "Library" });
-                    if ui.add(egui::Button::new(RichText::new(label).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text("Go back (Esc)").clicked() {
+                    let label = format!("{}  {}", icons::ARROW_BACK, if back == View::Edit { tr!("view-back-editor") } else { tr!("view-back-library") });
+                    if ui.add(egui::Button::new(RichText::new(label).size(13.5)).min_size(egui::vec2(0.0, 32.0))).on_hover_text(tr!("view-back-hint")).clicked() {
                         leave = true;
                     }
                     ui.add_space(10.0);
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(RichText::new("Export").size(20.0).strong().color(t().text_strong));
-                        let sub = if n == total { format!("{total} picture{}", plural(total)) } else { format!("{n} of {total} pictures") };
+                        ui.label(RichText::new(tr!("export-title")).size(20.0).strong().color(t().text_strong));
+                        let sub = if n == total { tr!("export-count-all", n = total) } else { tr!("export-count-some", n = n, total = total) };
                         ui.label(RichText::new(sub).size(12.0).color(t().text_weak));
                     });
                 });
@@ -164,32 +175,32 @@ impl App {
             .frame(egui::Frame::new().fill(t().toolbar_bg).inner_margin(egui::Margin::symmetric(16, 10)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Save into").color(t().text_weak));
-                    let shown = if dest.is_empty() { "Choose a folder…".to_string() } else { dest.clone() };
-                    if ui.button(format!("{}  {shown}", icons::FOLDER)).on_hover_text("Choose the folder for the copies").clicked() {
+                    ui.label(RichText::new(tr!("export-save-into")).color(t().text_weak));
+                    let shown = if dest.is_empty() { tr!("export-choose-folder") } else { dest.clone() };
+                    if ui.button(format!("{}  {shown}", icons::FOLDER)).on_hover_text(tr!("export-choose-folder-hint")).clicked() {
                         choose = true;
                     }
                 });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Nothing is overwritten; the originals are not changed.").size(12.5).color(t().text_weak));
+                    ui.label(RichText::new(tr!("export-safe")).size(12.5).color(t().text_weak));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let ok = n > 0 && !dest.is_empty();
-                        let label = format!("Export {n} picture{}", plural(n));
+                        let label = tr!("export-go", n = n);
                         let b = egui::Button::new(RichText::new(label).strong().color(if ok { Color32::WHITE } else { t().text_weak }))
                             .fill(if ok { t().accent } else { t().surface })
                             .min_size(egui::vec2(150.0, 32.0));
                         if ui.add_enabled(ok, b).clicked() {
                             go = true;
                         }
-                        if ui.add(egui::Button::new("Cancel").min_size(egui::vec2(0.0, 32.0))).clicked() {
+                        if ui.add(egui::Button::new(tr!("button-cancel")).min_size(egui::vec2(0.0, 32.0))).clicked() {
                             cancel = true;
                         }
                     });
                 });
             });
         if choose {
-            let mut dialog = rfd::FileDialog::new().set_title("Export pictures to…");
+            let mut dialog = rfd::FileDialog::new().set_title(tr!("export-dialog-title"));
             if !dest.is_empty() {
                 dialog = dialog.set_directory(&dest);
             }
@@ -210,31 +221,31 @@ impl App {
     fn export_options(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
         if let Some(st) = self.export.as_mut() {
-            heading(ui, "Size");
-            for (dim, label) in SIZES {
-                ui.radio_value(&mut st.max_dim, dim, label);
+            heading(ui, &tr!("export-size"));
+            for dim in SIZES {
+                ui.radio_value(&mut st.max_dim, dim, size_label(dim));
             }
             ui.horizontal(|ui| {
-                let other = !SIZES.iter().any(|s| s.0 == st.max_dim);
-                if ui.radio(other, "Other:").clicked() {
+                let other = !SIZES.contains(&st.max_dim);
+                if ui.radio(other, tr!("export-size-other")).clicked() {
                     st.max_dim = st.custom;
                 }
-                if ui.add(egui::DragValue::new(&mut st.custom).range(64..=20_000).suffix(" pixels")).changed() {
+                if ui.add(egui::DragValue::new(&mut st.custom).range(64..=20_000).suffix(tr!("export-size-pixels"))).changed() {
                     st.max_dim = st.custom;
                 }
             });
-            note(ui, "The longest side. Pictures are never made larger than they are.");
+            note(ui, &tr!("export-size-note"));
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("JPEG quality");
+                ui.label(tr!("export-quality"));
                 ui.add(egui::Slider::new(&mut st.quality, 50..=100));
             });
         }
 
-        heading(ui, "Signature");
+        heading(ui, &tr!("export-signature"));
         let creator = self.store.export_creator.trim().to_string();
         let sig = &mut self.store.export_signature;
-        let r = ui.checkbox(&mut sig.on, "Add a signature or a logo");
+        let r = ui.checkbox(&mut sig.on, tr!("export-signature-on"));
         if r.changed() {
             changed = true;
             if sig.on && sig.text.trim().is_empty() && !creator.is_empty() {
@@ -243,14 +254,14 @@ impl App {
         }
         ui.add_enabled_ui(sig.on, |ui| {
             ui.horizontal(|ui| {
-                changed |= ui.radio_value(&mut sig.use_logo, false, "Text").changed();
-                changed |= ui.radio_value(&mut sig.use_logo, true, "Picture (logo)").changed();
+                changed |= ui.radio_value(&mut sig.use_logo, false, tr!("export-sig-text")).changed();
+                changed |= ui.radio_value(&mut sig.use_logo, true, tr!("export-sig-logo")).changed();
             });
             if sig.use_logo {
                 ui.horizontal(|ui| {
                     let name = sig.logo.as_deref().and_then(|l| std::path::Path::new(l).file_name()).map(|n| n.to_string_lossy().to_string());
-                    if ui.button(if name.is_some() { "Other picture…" } else { "Choose a picture…" }).clicked()
-                        && let Some(f) = rfd::FileDialog::new().set_title("Logo or signature picture").add_filter("Pictures", &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]).pick_file()
+                    if ui.button(if name.is_some() { tr!("export-logo-other") } else { tr!("export-logo-choose") }).clicked()
+                        && let Some(f) = rfd::FileDialog::new().set_title(tr!("export-logo-dialog")).add_filter(tr!("filter-pictures"), &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]).pick_file()
                     {
                         sig.logo = Some(f.to_string_lossy().to_string());
                         changed = true;
@@ -259,51 +270,51 @@ impl App {
                         ui.label(RichText::new(n).weak());
                     }
                 });
-                note(ui, "A PNG with a transparent background works best.");
+                note(ui, &tr!("export-logo-note"));
             } else {
-                changed |= ui.add(egui::TextEdit::singleline(&mut sig.text).hint_text("Your name, or © Your Name").desired_width(f32::INFINITY)).changed();
+                changed |= ui.add(egui::TextEdit::singleline(&mut sig.text).hint_text(tr!("export-sig-text-hint")).desired_width(f32::INFINITY)).changed();
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Position");
+                ui.label(tr!("export-sig-position"));
                 changed |= anchor_picker(ui, &mut sig.anchor);
             });
             egui::Grid::new("signature_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                ui.label("Size");
+                ui.label(tr!("export-sig-size"));
                 let size = if sig.use_logo { &mut sig.logo_size } else { &mut sig.text_size };
                 let range = if sig.use_logo { 0.05..=0.6 } else { 0.01..=0.15 };
-                changed |= ui.add(egui::Slider::new(size, range).custom_formatter(|v, _| format!("{:.0} %", v * 100.0)).custom_parser(percent)).on_hover_text("Compared with the picture's shorter side").changed();
+                changed |= ui.add(egui::Slider::new(size, range).custom_formatter(|v, _| format!("{:.0} %", v * 100.0)).custom_parser(percent)).on_hover_text(tr!("export-sig-size-hint")).changed();
                 ui.end_row();
-                ui.label("Opacity");
+                ui.label(tr!("export-sig-opacity"));
                 changed |= ui.add(egui::Slider::new(&mut sig.opacity, 0.1..=1.0).custom_formatter(|v, _| format!("{:.0} %", v * 100.0)).custom_parser(percent)).changed();
                 ui.end_row();
                 if !sig.use_logo {
-                    ui.label("Colour");
+                    ui.label(tr!("export-sig-colour"));
                     ui.horizontal(|ui| {
                         changed |= ui.color_edit_button_srgb(&mut sig.color).changed();
-                        changed |= ui.checkbox(&mut sig.halo, "Shadow").on_hover_text("A soft halo so the text reads on any picture").changed();
+                        changed |= ui.checkbox(&mut sig.halo, tr!("export-sig-shadow")).on_hover_text(tr!("export-sig-shadow-hint")).changed();
                     });
                     ui.end_row();
                 }
             });
         });
 
-        heading(ui, "Information in the files");
+        heading(ui, &tr!("export-info"));
         changed |= ui
-            .checkbox(&mut self.store.export_location, "Where the pictures were taken (GPS)")
-            .on_hover_text("Turn off before sharing pictures if you don't want others to see the location.")
+            .checkbox(&mut self.store.export_location, tr!("export-gps"))
+            .on_hover_text(tr!("export-gps-hint"))
             .changed();
-        changed |= ui.checkbox(&mut self.store.export_exif, "Camera information (EXIF)").on_hover_text("Camera, lens, exposure and the date taken, copied from the original file.").changed();
+        changed |= ui.checkbox(&mut self.store.export_exif, tr!("export-exif")).on_hover_text(tr!("export-exif-hint")).changed();
         ui.add_space(4.0);
         egui::Grid::new("credit_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label("Creator");
-            changed |= ui.add(egui::TextEdit::singleline(&mut self.store.export_creator).hint_text("Your name").desired_width(f32::INFINITY)).changed();
+            ui.label(tr!("export-creator"));
+            changed |= ui.add(egui::TextEdit::singleline(&mut self.store.export_creator).hint_text(tr!("export-creator-hint")).desired_width(f32::INFINITY)).changed();
             ui.end_row();
-            ui.label("Copyright");
-            changed |= ui.add(egui::TextEdit::singleline(&mut self.store.export_copyright).hint_text("© Your Name").desired_width(f32::INFINITY)).changed();
+            ui.label(tr!("export-copyright"));
+            changed |= ui.add(egui::TextEdit::singleline(&mut self.store.export_copyright).hint_text(tr!("export-copyright-hint")).desired_width(f32::INFINITY)).changed();
             ui.end_row();
         });
-        note(ui, "Written into each copy. The signature, creator and copyright are kept for next time (also in Settings, Export).");
+        note(ui, &tr!("export-credit-note"));
         if changed {
             self.dirty = true;
         }
@@ -350,7 +361,7 @@ impl App {
                         p.circle_filled(dot, 10.0, t().accent);
                         p.text(dot, egui::Align2::CENTER_CENTER, icons::CHECK, egui::FontId::proportional(13.0), Color32::WHITE);
                     }
-                    let resp = resp.on_hover_text(if out { "Left out: click to export it too" } else { "Click to leave this picture out" });
+                    let resp = resp.on_hover_text(if out { tr!("export-left-out") } else { tr!("export-leave-out") });
                     if resp.clicked() {
                         toggle = Some(id);
                     }
@@ -363,10 +374,6 @@ impl App {
             st.skip.insert(id);
         }
     }
-}
-
-fn plural(n: usize) -> &'static str {
-    if n == 1 { "" } else { "s" }
 }
 
 fn heading(ui: &mut egui::Ui, text: &str) {

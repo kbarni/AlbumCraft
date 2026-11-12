@@ -59,7 +59,7 @@ fn real(v: &Value) -> Option<f64> {
 /// Plain number without trailing zeros: 5.0 -> "5", 5.6 -> "5.6".
 pub fn trim_num(x: f64, decimals: usize) -> String {
     let s = format!("{x:.decimals$}");
-    if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
+    crate::locale::decimal(&if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s })
 }
 
 impl CameraInfo {
