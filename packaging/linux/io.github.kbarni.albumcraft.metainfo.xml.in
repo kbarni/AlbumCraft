@@ -9,6 +9,7 @@
   <summary xml:lang="fr">Organisez, retouchez et partagez vos photos</summary>
   <summary xml:lang="de">Fotos ordnen, bearbeiten und teilen</summary>
   <summary xml:lang="es">Organice, retoque y comparta sus fotos</summary>
+  <summary xml:lang="it">Organizza, ritocca e condividi le tue foto</summary>
   <developer id="io.github.kbarni">
     <name>Keresztes Barna</name>
   </developer>
@@ -71,6 +72,21 @@
       Comparta sus fotos como copias exportadas, collages, impresiones, presentaciones con música,
       galerías web y películas de presentación.
     </p>
+    <p xml:lang="it">
+      AlbumCraft è un organizzatore di foto veloce e semplice, con un editor non distruttivo.
+      Indicagli le tue cartelle di foto e le mostrerà tutte, dalle più recenti; scegli, scarta e
+      valuta le foto, aggiungi didascalie, tag e persone, ordinale in album e guarda su una mappa
+      dove sono state scattate.
+    </p>
+    <p xml:lang="it">
+      L'editor offre correzioni con un clic, cursori per luce e colore, look predefiniti ed
+      effetti. Le tue foto originali non vengono mai modificate: le modifiche vengono applicate
+      quando una foto viene mostrata o esportata.
+    </p>
+    <p xml:lang="it">
+      Condividi le foto come copie esportate, collage, stampe, presentazioni con musica,
+      gallerie web e filmati di presentazione.
+    </p>
   </description>
   <launchable type="desktop-id">io.github.kbarni.albumcraft.desktop</launchable>
   <icon type="stock">io.github.kbarni.albumcraft</icon>
@@ -97,6 +113,10 @@
     <keyword xml:lang="es">imagen</keyword>
     <keyword xml:lang="es">álbum</keyword>
     <keyword xml:lang="es">presentación</keyword>
+    <keyword xml:lang="it">foto</keyword>
+    <keyword xml:lang="it">immagine</keyword>
+    <keyword xml:lang="it">album</keyword>
+    <keyword xml:lang="it">presentazione</keyword>
   </keywords>
   <screenshots>
     <screenshot type="default">
@@ -104,6 +124,7 @@
       <caption xml:lang="fr">La bibliothèque</caption>
       <caption xml:lang="de">Die Bibliothek</caption>
       <caption xml:lang="es">La biblioteca</caption>
+      <caption xml:lang="it">La libreria</caption>
       <image type="source">https://raw.githubusercontent.com/kbarni/AlbumCraft/main/docs/screenshots/library.jpg</image>
     </screenshot>
     <screenshot>
@@ -111,6 +132,7 @@
       <caption xml:lang="fr">Retouche avec les curseurs avancés</caption>
       <caption xml:lang="de">Bearbeiten mit den erweiterten Reglern</caption>
       <caption xml:lang="es">Edición con los deslizadores avanzados</caption>
+      <caption xml:lang="it">Modifica con i cursori avanzati</caption>
       <image type="source">https://raw.githubusercontent.com/kbarni/AlbumCraft/main/docs/screenshots/compare.jpg</image>
     </screenshot>
   </screenshots>
