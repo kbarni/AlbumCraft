@@ -21,7 +21,7 @@ pub struct Manifest {
 }
 
 /// Networks that are downloaded and removed together, for one feature.
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 pub struct Pack {
     /// The name it is known by in commands and settings: "faces", "search-light"…
     pub id: String,
@@ -36,6 +36,9 @@ pub struct Pack {
     /// The release of the project that holds the files (its tag).
     pub release: String,
     pub files: Vec<ModelFile>,
+    /// For a smart search pack: what its networks expect.
+    #[serde(default)]
+    pub search: Option<crate::search::Config>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -59,7 +62,9 @@ impl ModelFile {
 
 impl Pack {
     pub fn valid(&self) -> bool {
-        plain_name(&self.id) && plain_name(&self.release) && !self.title.is_empty() && !self.licence.is_empty() && !self.files.is_empty() && self.files.iter().all(ModelFile::valid)
+        plain_name(&self.id) && plain_name(&self.release) && !self.title.is_empty() && !self.licence.is_empty() && !self.files.is_empty()
+            && self.files.iter().all(ModelFile::valid)
+            && self.search.as_ref().is_none_or(|c| c.valid(self))
     }
 
     /// Bytes to download.

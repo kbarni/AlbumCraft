@@ -225,6 +225,9 @@ settings-ai-downloaded = Downloaded
 settings-ai-downloading = Downloading… (see the bar at the bottom)
 settings-ai-download = Download
 settings-ai-remove-failed = The networks could not be removed: { $error }
+settings-ai-search-uses = Smart search uses
+settings-ai-search-auto = The pack for the interface's language
+settings-ai-search-auto-hint = The multilingual pack when the interface is not in English, else the English one
 settings-ai-download-task = Downloading { $pack }
 settings-ai-analysis = Analysis of the library
 settings-ai-analysis-text = Each picture is analysed once, in the background, while AlbumCraft has nothing else to do. It stops when AlbumCraft closes and carries on at the next start.
@@ -472,6 +475,8 @@ bar-clear = Clear
 
 ctx-open = Open in editor
 ctx-slideshow = View slideshow from here
+ctx-more-like-this = More like this
+ctx-more-like-this-hint = Show the pictures that look like this one
 ctx-add-to-album = Add to album
 ctx-remove-from-album = Remove from album
 ctx-tags = Tags and people…
@@ -802,6 +807,21 @@ search-and = and…
 search-clear-hint = Clear the search
 search-for = Search for “{ $text }”
 search-kind-tags = Tags
+search-like-chip = Like { $name }
+search-looks-like-title = Looks like
+search-similar-title = Pictures like this one
+search-still-analysing = (analysis still running: some pictures are not ranked yet)
+search-show-more = Show more
+search-show-more-hint = { $n ->
+    [one] One more picture matches less well
+   *[other] { $count } more pictures match less well
+}
+search-like-no-pack = To find similar pictures, download a search pack in Settings › AI features.
+search-failed-because = Smart search failed: { $error }
+search-failed = the search stopped unexpectedly
+search-no-folder = AlbumCraft has no folder for its data
+search-pack-failed = Smart search could not start: { $error }
+search-not-analysed = This picture is not analysed yet.
 music-dialog-title = Music for the slideshow
 filter-music = Music
 ss-previous = Previous (←)

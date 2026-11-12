@@ -459,6 +459,21 @@ impl App {
             self.packs_at = f64::NEG_INFINITY;
         }
 
+        // with more than one search pack on this computer, which one searches
+        let search: Vec<(String, String)> = self.packs.iter().filter(|p| p.installed && p.pack.search.is_some()).map(|p| (p.pack.id.clone(), p.pack.title.clone())).collect();
+        if search.len() > 1 {
+            group(ui, &tr!("settings-ai-search-uses"));
+            let choice = &mut self.store.search_pack;
+            let mut changed = ui.radio_value(choice, String::new(), tr!("settings-ai-search-auto")).on_hover_text(tr!("settings-ai-search-auto-hint")).changed();
+            for (id, title) in search {
+                changed |= ui.radio_value(choice, id, title).changed();
+            }
+            if changed {
+                self.dirty = true;
+                self.smart.recheck();
+            }
+        }
+
         group(ui, &tr!("settings-ai-analysis"));
         note(ui, &tr!("settings-ai-analysis-text"));
         ui.add_space(2.0);

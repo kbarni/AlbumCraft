@@ -222,6 +222,9 @@ settings-ai-downloaded = Heruntergeladen
 settings-ai-downloading = Wird heruntergeladen… (siehe die Leiste unten)
 settings-ai-download = Herunterladen
 settings-ai-remove-failed = Die Netze konnten nicht entfernt werden: { $error }
+settings-ai-search-uses = Die intelligente Suche verwendet
+settings-ai-search-auto = Das Paket für die Sprache der Oberfläche
+settings-ai-search-auto-hint = Das mehrsprachige Paket, wenn die Oberfläche nicht Englisch ist, sonst das englische
 settings-ai-download-task = { $pack } wird heruntergeladen
 settings-ai-analysis = Analyse der Bibliothek
 settings-ai-analysis-text = Jedes Foto wird einmal im Hintergrund analysiert, wenn AlbumCraft nichts anderes zu tun hat. Die Analyse hält an, wenn AlbumCraft geschlossen wird, und geht beim nächsten Start weiter.
@@ -467,6 +470,8 @@ bar-clear = Aufheben
 
 ctx-open = Im Editor öffnen
 ctx-slideshow = Diashow ab hier abspielen
+ctx-more-like-this = Ähnliche Fotos
+ctx-more-like-this-hint = Die Fotos anzeigen, die diesem ähneln
 ctx-add-to-album = Zu einem Album hinzufügen
 ctx-remove-from-album = Aus dem Album entfernen
 ctx-tags = Stichwörter und Personen…
@@ -797,6 +802,21 @@ search-and = und…
 search-clear-hint = Suche löschen
 search-for = Nach „{ $text }“ suchen
 search-kind-tags = Stichwörter
+search-like-chip = Wie { $name }
+search-looks-like-title = Sieht aus wie
+search-similar-title = Ähnliche Fotos
+search-still-analysing = (Analyse läuft noch: einige Fotos sind noch nicht eingeordnet)
+search-show-more = Mehr anzeigen
+search-show-more-hint = { $n ->
+    [one] Ein weiteres Foto passt weniger gut
+   *[other] { $count } weitere Fotos passen weniger gut
+}
+search-like-no-pack = Um ähnliche Fotos zu finden, laden Sie unter Einstellungen › KI-Funktionen ein Suchpaket herunter.
+search-failed-because = Die intelligente Suche ist fehlgeschlagen: { $error }
+search-failed = die Suche wurde unerwartet beendet
+search-no-folder = AlbumCraft hat keinen Ordner für seine Daten
+search-pack-failed = Die intelligente Suche konnte nicht starten: { $error }
+search-not-analysed = Dieses Foto ist noch nicht analysiert.
 music-dialog-title = Musik für die Diashow
 filter-music = Musik
 ss-previous = Zurück (←)

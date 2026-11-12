@@ -66,7 +66,7 @@ struct Waiting {
 struct State {
     lanes: Vec<Lane>,
     /// The library's pictures, as last given.
-    files: Vec<FileStamp>,
+    files: Arc<Vec<FileStamp>>,
     waiting: VecDeque<Waiting>,
     /// Jobs given to the pool and not finished.
     in_pool: usize,
@@ -89,7 +89,7 @@ impl State {
         self.waiting.clear();
         for (i, lane) in self.lanes.iter().enumerate().filter(|(_, l)| !l.stopped) {
             let table = lane.table.read().unwrap_or_else(PoisonError::into_inner);
-            for (key, modified, bytes) in &self.files {
+            for (key, modified, bytes) in self.files.iter() {
                 if !key.starts_with(SAMPLE_PREFIX) && !table.has(key, (*modified, *bytes)) {
                     self.waiting.push_back(Waiting { lane: i, key: key.clone(), stamp: (*modified, *bytes) });
                 }
@@ -132,12 +132,65 @@ impl Analysis {
         }
         let dir = self.0.dir.as_ref().ok_or_else(|| crate::msg!("analysis-no-data-dir", "No folder for application data was found.").to_string())?;
         let table = Arc::new(RwLock::new(Table::open(dir, &spec)?));
-        let mut s = self.state();
-        s.lanes.push(Lane { analyser, table: table.clone(), failures: 0, stopped: false });
-        s.plan();
-        drop(s);
-        self.feed();
+        self.add_with(analyser, table.clone());
         Ok(table)
+    }
+
+    /// Where the result files are kept.
+    pub fn dir(&self) -> Option<&std::path::Path> {
+        self.0.dir.as_deref()
+    }
+
+    /// Analyse the library with this analyser too, keeping its results in `table` (already
+    /// open: one that others read as well). Nothing changes when an analyser for the same file
+    /// is there already.
+    pub fn add_with(&self, analyser: Arc<dyn Analyser>, table: SharedTable) {
+        let spec = analyser.table();
+        let mut s = self.state();
+        let same = |l: &Lane| l.table.read().unwrap_or_else(PoisonError::into_inner).spec() == &spec;
+        match s.lanes.iter_mut().find(|l| same(l)) {
+            // removed earlier (or stopped after failing): it starts again
+            Some(lane) if lane.stopped => {
+                *lane = Lane { analyser, table: lane.table.clone(), failures: 0, stopped: false };
+            }
+            Some(_) => return,
+            None => s.lanes.push(Lane { analyser, table, failures: 0, stopped: false }),
+        }
+        // before the library's pictures are known there is nothing to plan or to tell
+        if s.files.is_empty() {
+            return;
+        }
+        s.plan();
+        let progress = s.progress();
+        drop(s);
+        (self.0.send)(Done::Analysis(progress));
+        self.feed();
+    }
+
+    /// Stop analysing with the analyser of `spec` (its network was removed, or another one is
+    /// used now). Its results stay in its file.
+    pub fn remove(&self, spec: &Spec) {
+        let mut s = self.state();
+        let before = s.lanes.len();
+        // lanes are known by their place in the list: jobs given out keep theirs, so the lane
+        // stays, stopped, with nothing left to do
+        for lane in s.lanes.iter_mut() {
+            if lane.table.read().unwrap_or_else(PoisonError::into_inner).spec() == spec {
+                lane.stopped = true;
+            }
+        }
+        if before == 0 {
+            return;
+        }
+        s.plan();
+        let progress = s.progress();
+        drop(s);
+        (self.0.send)(Done::Analysis(progress));
+    }
+
+    /// The library's pictures as last given (path, file date, size).
+    pub fn files(&self) -> Arc<Vec<FileStamp>> {
+        self.state().files.clone()
     }
 
     /// The results kept in the file of `spec`, when an analyser for it was added.
@@ -149,7 +202,7 @@ impl Analysis {
     /// changed.
     pub fn set_pictures(&self, files: Vec<FileStamp>) {
         let mut s = self.state();
-        s.files = files;
+        s.files = Arc::new(files);
         s.plan();
         let progress = s.progress();
         drop(s);
@@ -256,7 +309,7 @@ fn look_at(analyser: &dyn Analyser, key: &str) -> Found {
 // The packs of networks
 
 /// A pack of the built-in list and whether it is on this computer.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PackState {
     pub pack: ai::models::Pack,
     pub installed: bool,

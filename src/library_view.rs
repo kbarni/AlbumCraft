@@ -734,6 +734,10 @@ impl App {
                 self.start_slideshow(list, id);
                 ui.close();
             }
+            if self.smart.pack.is_some() && !self.photos[id].is_sample() && ui.button(format!("{} {}", icons::SEARCH, tr!("ctx-more-like-this"))).on_hover_text(tr!("ctx-more-like-this-hint")).clicked() {
+                self.more_like_this(id);
+                ui.close();
+            }
             ui.separator();
             self.flag_rating_menu(ui, &tray);
             ui.separator();

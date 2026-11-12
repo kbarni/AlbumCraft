@@ -222,6 +222,9 @@ settings-ai-downloaded = Téléchargé
 settings-ai-downloading = Téléchargement… (voir la barre en bas)
 settings-ai-download = Télécharger
 settings-ai-remove-failed = Les réseaux n'ont pas pu être supprimés : { $error }
+settings-ai-search-uses = La recherche intelligente utilise
+settings-ai-search-auto = Le pack adapté à la langue de l'interface
+settings-ai-search-auto-hint = Le pack multilingue quand l'interface n'est pas en anglais, sinon le pack anglais
 settings-ai-download-task = Téléchargement de { $pack }
 settings-ai-analysis = Analyse de la photothèque
 settings-ai-analysis-text = Chaque photo est analysée une fois, en arrière-plan, quand AlbumCraft n'a rien d'autre à faire. L'analyse s'arrête à la fermeture d'AlbumCraft et reprend au démarrage suivant.
@@ -467,6 +470,8 @@ bar-clear = Effacer
 
 ctx-open = Ouvrir dans l'éditeur
 ctx-slideshow = Lire le diaporama à partir d'ici
+ctx-more-like-this = Plus de photos semblables
+ctx-more-like-this-hint = Afficher les photos qui ressemblent à celle-ci
 ctx-add-to-album = Ajouter à un album
 ctx-remove-from-album = Retirer de l'album
 ctx-tags = Mots-clés et personnes…
@@ -797,6 +802,21 @@ search-and = et…
 search-clear-hint = Effacer la recherche
 search-for = Rechercher « { $text } »
 search-kind-tags = Mots-clés
+search-like-chip = Comme { $name }
+search-looks-like-title = Ressemble à
+search-similar-title = Photos semblables
+search-still-analysing = (analyse en cours : certaines photos ne sont pas encore classées)
+search-show-more = Afficher plus
+search-show-more-hint = { $n ->
+    [one] Une autre photo correspond moins bien
+   *[other] { $count } autres photos correspondent moins bien
+}
+search-like-no-pack = Pour trouver des photos semblables, téléchargez un pack de recherche dans Paramètres › Fonctions d'IA.
+search-failed-because = La recherche intelligente a échoué : { $error }
+search-failed = la recherche s'est arrêtée de façon inattendue
+search-no-folder = AlbumCraft n'a pas de dossier pour ses données
+search-pack-failed = La recherche intelligente n'a pas pu démarrer : { $error }
+search-not-analysed = Cette photo n'est pas encore analysée.
 music-dialog-title = Musique pour le diaporama
 filter-music = Musique
 ss-previous = Précédente (←)

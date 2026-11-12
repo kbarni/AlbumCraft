@@ -222,6 +222,9 @@ settings-ai-downloaded = Scaricato
 settings-ai-downloading = Download in corso… (vedi la barra in basso)
 settings-ai-download = Scarica
 settings-ai-remove-failed = Impossibile rimuovere le reti: { $error }
+settings-ai-search-uses = La ricerca intelligente usa
+settings-ai-search-auto = Il pacchetto per la lingua dell'interfaccia
+settings-ai-search-auto-hint = Il pacchetto multilingue quando l'interfaccia non è in inglese, altrimenti quello inglese
 settings-ai-download-task = Download di { $pack }
 settings-ai-analysis = Analisi della libreria
 settings-ai-analysis-text = Ogni foto viene analizzata una volta, in background, quando AlbumCraft non ha altro da fare. Si ferma alla chiusura di AlbumCraft e riprende all'avvio successivo.
@@ -467,6 +470,8 @@ bar-clear = Annulla
 
 ctx-open = Apri nell'editor
 ctx-slideshow = Riproduci la presentazione da qui
+ctx-more-like-this = Altre foto simili
+ctx-more-like-this-hint = Mostra le foto che somigliano a questa
 ctx-add-to-album = Aggiungi a un album
 ctx-remove-from-album = Rimuovi dall'album
 ctx-tags = Tag e persone…
@@ -797,6 +802,21 @@ search-and = e…
 search-clear-hint = Cancella la ricerca
 search-for = Cerca «{ $text }»
 search-kind-tags = Tag
+search-like-chip = Come { $name }
+search-looks-like-title = Somiglia a
+search-similar-title = Foto simili
+search-still-analysing = (analisi in corso: alcune foto non sono ancora classificate)
+search-show-more = Mostra altre
+search-show-more-hint = { $n ->
+    [one] Un'altra foto corrisponde meno bene
+   *[other] Altre { $count } foto corrispondono meno bene
+}
+search-like-no-pack = Per trovare foto simili, scarica un pacchetto di ricerca in Impostazioni › Funzioni IA.
+search-failed-because = La ricerca intelligente non è riuscita: { $error }
+search-failed = la ricerca si è interrotta in modo imprevisto
+search-no-folder = AlbumCraft non ha una cartella per i suoi dati
+search-pack-failed = La ricerca intelligente non è potuta partire: { $error }
+search-not-analysed = Questa foto non è ancora analizzata.
 music-dialog-title = Musica per la presentazione
 filter-music = Musica
 ss-previous = Precedente (←)

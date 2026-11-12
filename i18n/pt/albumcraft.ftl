@@ -222,6 +222,9 @@ settings-ai-downloaded = Baixado
 settings-ai-downloading = Baixando… (veja a barra embaixo)
 settings-ai-download = Baixar
 settings-ai-remove-failed = Não foi possível remover as redes: { $error }
+settings-ai-search-uses = A busca inteligente usa
+settings-ai-search-auto = O pacote para o idioma da interface
+settings-ai-search-auto-hint = O pacote multilíngue quando a interface não está em inglês; senão, o inglês
 settings-ai-download-task = Baixando { $pack }
 settings-ai-analysis = Análise da biblioteca
 settings-ai-analysis-text = Cada foto é analisada uma vez, em segundo plano, quando o AlbumCraft não tem mais nada a fazer. Para quando o AlbumCraft fecha e continua na próxima vez que ele abrir.
@@ -467,6 +470,8 @@ bar-clear = Limpar
 
 ctx-open = Abrir no editor
 ctx-slideshow = Reproduzir a apresentação a partir daqui
+ctx-more-like-this = Mais fotos parecidas
+ctx-more-like-this-hint = Mostrar as fotos que se parecem com esta
 ctx-add-to-album = Adicionar a um álbum
 ctx-remove-from-album = Remover do álbum
 ctx-tags = Tags e pessoas…
@@ -797,6 +802,21 @@ search-and = e…
 search-clear-hint = Limpar a busca
 search-for = Buscar “{ $text }”
 search-kind-tags = Tags
+search-like-chip = Como { $name }
+search-looks-like-title = Parece com
+search-similar-title = Fotos parecidas
+search-still-analysing = (análise em andamento: algumas fotos ainda não foram classificadas)
+search-show-more = Mostrar mais
+search-show-more-hint = { $n ->
+    [one] Mais uma foto corresponde menos bem
+   *[other] Mais { $count } fotos correspondem menos bem
+}
+search-like-no-pack = Para encontrar fotos parecidas, baixe um pacote de busca em Configurações › Recursos de IA.
+search-failed-because = A busca inteligente falhou: { $error }
+search-failed = a busca parou de forma inesperada
+search-no-folder = O AlbumCraft não tem pasta para seus dados
+search-pack-failed = A busca inteligente não pôde iniciar: { $error }
+search-not-analysed = Esta foto ainda não foi analisada.
 music-dialog-title = Música para a apresentação
 filter-music = Música
 ss-previous = Anterior (←)

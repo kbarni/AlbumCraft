@@ -115,6 +115,12 @@ pub trait Library {
     fn download_pack(&self, task: Task, id: String);
     /// Remove a downloaded pack; what was computed with it is kept.
     fn remove_pack(&self, id: &str) -> Result<(), String>;
+    /// Smart search uses this pack from now on (None: none is downloaded): the background
+    /// analysis makes the library's vectors with it. Called when the active pack changes.
+    fn use_search_pack(&self, pack: Option<String>);
+    /// Rank the library's pictures for a smart search with `pack`, off the window's thread;
+    /// the answer is `Done::LooksLike` (the query with it, to tell stale answers apart).
+    fn looks_like(&self, pack: String, query: crate::smart_search::Query);
 }
 
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).
@@ -140,8 +146,8 @@ impl LocalLibrary {
                 wake();
             })
         };
-        // No analyser yet: they come with the features that need them (picture vectors for
-        // search, faces), each one when its pack of networks is downloaded.
+        // No analyser yet: each feature adds its own when its pack of networks is there (the
+        // window tells which search pack to use, `use_search_pack`).
         let analysis = crate::analysis::Analysis::new(pool.clone(), send, crate::ai::store::analysis_dir());
         LocalLibrary { pool, tx, wake, analysis, saving: None, saved: None }
     }
@@ -445,6 +451,25 @@ impl Library for LocalLibrary {
 
     fn remove_pack(&self, id: &str) -> Result<(), String> {
         crate::analysis::remove_pack(id)
+    }
+
+    fn use_search_pack(&self, pack: Option<String>) {
+        let pack = pack.and_then(|id| crate::ai::models::manifest().pack(&id));
+        if let Err(e) = crate::smart_search::use_pack(&self.analysis, pack) {
+            self.sender()(Done::Report(Report::failed(tr!("search-pack-failed", error = e))));
+        }
+    }
+
+    fn looks_like(&self, pack: String, query: crate::smart_search::Query) {
+        let (send, files, dir) = (self.sender(), self.analysis.files(), self.analysis.dir().map(PathBuf::from));
+        std::thread::spawn(move || {
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let pack = crate::ai::models::manifest().pack(&pack).ok_or_else(|| format!("no pack is named {pack}"))?;
+                let dir = dir.ok_or_else(|| tr!("search-no-folder"))?;
+                crate::smart_search::search(pack, &files, &dir, &query)
+            }));
+            send(Done::LooksLike(query, found.unwrap_or_else(|_| Err(tr!("search-failed")))));
+        });
     }
 }
 

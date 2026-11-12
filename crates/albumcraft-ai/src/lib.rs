@@ -3,7 +3,8 @@
 //! - `runtime`: running a network file (ONNX Runtime, behind the `onnx` feature);
 //! - `models`: the packs of networks the app can use, listed in a manifest built into it;
 //! - `download`: fetching a pack, only when the user asked for it;
-//! - `store`: what the networks found in each picture, in files that are only ever added to.
+//! - `store`: what the networks found in each picture, in files that are only ever added to;
+//! - `search`: smart search, pictures and sentences as vectors of one space.
 //!
 //! Everything is computed on this computer. The only connection made is the download of a pack
 //! from the project's own releases, and no picture, face or search text is ever sent.
@@ -11,6 +12,7 @@
 pub mod download;
 pub mod models;
 pub mod runtime;
+pub mod search;
 pub mod store;
 
 /// The error of work the user stopped (not a failure to report as one).

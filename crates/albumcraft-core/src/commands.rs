@@ -438,6 +438,26 @@ Call `rescan` afterwards to see the new pictures in the library.",
             schema: || json!({ "type": "object", "properties": { "pack": { "type": "string" } }, "required": ["pack"] }),
         },
         Spec {
+            name: "semantic_search",
+            description: "Find pictures by describing what is in them (\"group photo sailing\", \"red car in the snow\", \"autumn forest\"), ranked best first; computed on the user's computer with the smart search pack (see ai_status; it must be downloaded, and only pictures already analysed are found). Without `limit`, only the matches close to the best one are given. Scores rank pictures of one search; they are not probabilities. Use search_photos for names, tags, captions, people and places.",
+            schema: || {
+                json!({ "type": "object", "properties": {
+                    "text": { "type": "string", "description": "What the pictures show, in a few words" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "How many pictures to give, best first (default: the good matches)" }
+                }, "required": ["text"] })
+            },
+        },
+        Spec {
+            name: "similar_pictures",
+            description: "Pictures that look like a given one (same scene, subject or event), best first, from the smart search pack's analysis (see ai_status). Without `limit`, only the close ones are given.",
+            schema: || {
+                json!({ "type": "object", "properties": {
+                    "key": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 2000 }
+                }, "required": ["key"] })
+            },
+        },
+        Spec {
             name: "pause_analysis",
             description: "Pause (or resume) the background analysis of the library by the AI features. What is analysed is kept.",
             schema: || json!({ "type": "object", "properties": { "paused": { "type": "boolean" } }, "required": ["paused"] }),
@@ -975,7 +995,8 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 .map(|p| json!({ "id": p.pack.id, "title": p.pack.title, "about": p.pack.about, "licence": p.pack.licence, "version": p.pack.version, "bytes": p.pack.bytes(), "installed": p.installed }))
                 .collect();
             let analysis = host.analysis().map(|a| json!({ "analysed": a.done, "to_analyse": a.total, "running": a.active() && !a.paused }));
-            now(json!({ "can_run_networks": crate::ai::runtime::available(), "packs": packs, "analysis_paused": host.store().analysis_paused, "analysis": analysis }))
+            let search = crate::smart_search::active(&host.store().search_pack, &host.store().language).map(|p| p.id.clone());
+            now(json!({ "can_run_networks": crate::ai::runtime::available(), "packs": packs, "analysis_paused": host.store().analysis_paused, "analysis": analysis, "search_pack": search }))
         }
         "download_model_pack" => {
             let id = str_arg(args, "pack")?.to_string();
@@ -991,6 +1012,40 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let id = str_arg(args, "pack")?;
             crate::analysis::remove_pack(id)?;
             now(json!({ "removed": id }))
+        }
+        "semantic_search" | "similar_pictures" => {
+            let query = if name == "semantic_search" {
+                let text = str_arg(args, "text")?.trim();
+                if text.is_empty() {
+                    return Err("`text` is empty".into());
+                }
+                crate::smart_search::Query::Text(text.chars().take(500).collect())
+            } else {
+                let key = str_arg(args, "key")?;
+                one(host, key)?;
+                crate::smart_search::Query::Like(key.to_string())
+            };
+            let limit = opt_u64(args, "limit")?.map(|n| n.clamp(1, crate::smart_search::MAX_HITS as u64) as usize);
+            let store = host.store();
+            let pack = crate::smart_search::active(&store.search_pack, &store.language)
+                .ok_or("smart search needs a search pack: none is downloaded (see ai_status and download_model_pack)")?;
+            let files: Vec<crate::geo::FileStamp> = host.photos().iter().filter(|p| !p.is_sample()).map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
+            let files = std::sync::Arc::new(files);
+            Ok(Outcome::Later(Box::new(move || {
+                let dir = crate::smart_search::vectors_dir()?;
+                let hits = crate::smart_search::search(pack, &files, &dir, &query)?;
+                let n = limit.unwrap_or_else(|| crate::smart_search::cut(pack, &hits, &query));
+                let analysed = crate::smart_search::analysed(pack, &files, &dir)?;
+                let pictures: Vec<Value> = hits
+                    .iter()
+                    .take(n)
+                    .map(|h| {
+                        let name = std::path::Path::new(&h.key).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        json!({ "key": h.key, "name": name, "score": (f64::from(h.score) * 1000.0).round() / 1000.0 })
+                    })
+                    .collect();
+                Ok(Reply::json(json!({ "pictures": pictures, "more": hits.len().saturating_sub(n), "pack": pack.id, "analysed": analysed, "library": files.len() })))
+            })))
         }
         "pause_analysis" => {
             let paused = opt_bool(args, "paused")?.ok_or("`paused` (true or false) is required")?;
@@ -1500,7 +1555,7 @@ impl Host for Headless {
 pub fn read_only(name: &str) -> bool {
     matches!(
         name,
-        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place"
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place" | "semantic_search" | "similar_pictures" | "ai_status"
     )
 }
 
@@ -1721,6 +1776,10 @@ mod tests {
             ("remove_model_pack", json!({ "pack": "no-such-pack" })),
             ("pause_analysis", json!({})),
             ("pause_analysis", json!({ "paused": "yes" })),
+            ("semantic_search", json!({})),
+            ("semantic_search", json!({ "text": "   " })),
+            ("semantic_search", json!({ "text": "snow", "limit": "ten" })),
+            ("similar_pictures", json!({ "key": "/no/such/picture.jpg" })),
             ("trash_rejected", json!({ "confirm": "yes" })),
             ("trash_rejected", json!({ "confirm": false })),
             ("trash_rejected", json!({ "keys": [k], "confirm": true })),

@@ -222,6 +222,9 @@ settings-ai-downloaded = Descargado
 settings-ai-downloading = Descargando… (vea la barra de abajo)
 settings-ai-download = Descargar
 settings-ai-remove-failed = No se pudieron quitar las redes: { $error }
+settings-ai-search-uses = La búsqueda inteligente usa
+settings-ai-search-auto = El paquete para el idioma de la interfaz
+settings-ai-search-auto-hint = El paquete multilingüe cuando la interfaz no está en inglés; si no, el inglés
 settings-ai-download-task = Descargando { $pack }
 settings-ai-analysis = Análisis de la biblioteca
 settings-ai-analysis-text = Cada foto se analiza una vez, en segundo plano, cuando AlbumCraft no tiene nada más que hacer. Se detiene al cerrar AlbumCraft y continúa en el siguiente inicio.
@@ -467,6 +470,8 @@ bar-clear = Quitar
 
 ctx-open = Abrir en el editor
 ctx-slideshow = Reproducir la presentación desde aquí
+ctx-more-like-this = Más fotos parecidas
+ctx-more-like-this-hint = Mostrar las fotos que se parecen a esta
 ctx-add-to-album = Añadir a un álbum
 ctx-remove-from-album = Quitar del álbum
 ctx-tags = Etiquetas y personas…
@@ -797,6 +802,21 @@ search-and = y…
 search-clear-hint = Borrar la búsqueda
 search-for = Buscar «{ $text }»
 search-kind-tags = Etiquetas
+search-like-chip = Como { $name }
+search-looks-like-title = Se parece a
+search-similar-title = Fotos parecidas
+search-still-analysing = (análisis en curso: algunas fotos aún no están clasificadas)
+search-show-more = Mostrar más
+search-show-more-hint = { $n ->
+    [one] Una foto más coincide peor
+   *[other] { $count } fotos más coinciden peor
+}
+search-like-no-pack = Para encontrar fotos parecidas, descargue un paquete de búsqueda en Ajustes › Funciones de IA.
+search-failed-because = La búsqueda inteligente falló: { $error }
+search-failed = la búsqueda se detuvo de forma inesperada
+search-no-folder = AlbumCraft no tiene carpeta para sus datos
+search-pack-failed = La búsqueda inteligente no pudo iniciarse: { $error }
+search-not-analysed = Esta foto aún no está analizada.
 music-dialog-title = Música para la presentación
 filter-music = Música
 ss-previous = Anterior (←)

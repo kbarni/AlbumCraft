@@ -33,4 +33,5 @@ pub mod collage;
 pub mod print;
 pub mod raw;
 pub mod slides;
+pub mod smart_search;
 pub mod thumbcache;

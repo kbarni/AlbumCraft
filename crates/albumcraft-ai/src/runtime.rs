@@ -55,7 +55,13 @@ impl Network {
     /// Load a network file. It computes on one thread: analysis runs in the background and must
     /// leave the computer free for the window.
     pub fn load(path: &Path) -> Result<Network, String> {
-        imp::Network::load(path).map(Network)
+        Network::load_threads(path, 1)
+    }
+
+    /// Load a network that computes on up to `threads` threads (the background analysis has
+    /// two; calls wait for each other, so a second worker would otherwise sit idle).
+    pub fn load_threads(path: &Path, threads: usize) -> Result<Network, String> {
+        imp::Network::load(path, threads.clamp(1, 8)).map(Network)
     }
 
     pub fn inputs(&self) -> &[Port] {
@@ -120,11 +126,11 @@ mod imp {
     }
 
     impl Network {
-        pub fn load(path: &Path) -> Result<Network, String> {
+        pub fn load(path: &Path, threads: usize) -> Result<Network, String> {
             let failed = |e: String| format!("the network {} could not be loaded: {e}", path.display());
             // a damaged file must give a message, whatever the library does with it
             let loaded = std::panic::catch_unwind(|| -> Result<Session, String> {
-                let mut builder = Session::builder(environment()?).map_err(|e| e.to_string())?.with_intra_threads(1).map_err(|e| e.to_string())?;
+                let mut builder = Session::builder(environment()?).map_err(|e| e.to_string())?.with_intra_threads(threads).map_err(|e| e.to_string())?;
                 builder.commit_from_file(path).map_err(|e| e.to_string())
             });
             let session = loaded.unwrap_or_else(|_| Err("unexpected error".into())).map_err(failed)?;
@@ -174,7 +180,7 @@ mod imp {
     }
 
     impl Network {
-        pub fn load(_: &Path) -> Result<Network, String> {
+        pub fn load(_: &Path, _: usize) -> Result<Network, String> {
             Err(MISSING.into())
         }
 

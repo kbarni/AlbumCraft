@@ -100,6 +100,8 @@ pub struct Table {
     dead: usize,
     /// Records in the file, marks included.
     in_file: usize,
+    /// Counts the changes made since it was opened (what a cache made from it is checked by).
+    changes: u64,
 }
 
 impl Table {
@@ -110,7 +112,7 @@ impl Table {
             return Err(format!("not a valid analysis file: {} / {}", spec.kind, spec.model));
         }
         let path = dir.join(spec.file_name());
-        let mut table = Table { spec: spec.clone(), path, file: None, records: vec![], pictures: HashMap::new(), dead: 0, in_file: 0 };
+        let mut table = Table { spec: spec.clone(), path, file: None, records: vec![], pictures: HashMap::new(), dead: 0, in_file: 0, changes: 0 };
         let bytes = match std::fs::read(&table.path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => vec![],
@@ -165,6 +167,7 @@ impl Table {
             rows.push((self.records.len() / self.spec.record_len) as u32);
             self.records.extend_from_slice(payload);
         }
+        self.changes += 1;
         if let Some(old) = self.pictures.insert(id, Entry { stamp, rows }) {
             self.dead += old.rows.len().max(1);
         }
@@ -189,6 +192,11 @@ impl Table {
     fn record(&self, row: u32) -> Option<&[u8]> {
         let at = (row as usize).checked_mul(self.spec.record_len)?;
         self.records.get(at..at.checked_add(self.spec.record_len)?)
+    }
+
+    /// A number that changes whenever what the table holds changes.
+    pub fn changes(&self) -> u64 {
+        self.changes
     }
 
     /// How many pictures were analysed.
@@ -258,8 +266,10 @@ impl Table {
         // read it back in, so that memory and file agree again
         let spec = self.spec.clone();
         let path = std::mem::take(&mut self.path);
-        *self = Table { spec, path, file: None, records: vec![], pictures: HashMap::new(), dead: 0, in_file: 0 };
+        let changes = self.changes;
+        *self = Table { spec, path, file: None, records: vec![], pictures: HashMap::new(), dead: 0, in_file: 0, changes: 0 };
         self.read(&bytes);
+        self.changes = changes + 1;
         Ok(())
     }
 

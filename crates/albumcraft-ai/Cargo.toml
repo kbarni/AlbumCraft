@@ -20,6 +20,9 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 ureq.workspace = true
+# the tokenizers of the search networks (CLIP's BPE, SigLIP's SentencePiece), read from their
+# tokenizer.json; pure Rust regular expressions, nothing downloaded
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 
 # ONNX Runtime, linked statically from the prebuilt libraries the `ort` crate downloads when
 # building (none exist for Windows with the GNU toolchain: the feature does nothing there).

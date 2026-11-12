@@ -250,6 +250,8 @@ pub struct Store {
     pub export_quality: u8,
     /// The user paused the background analysis of the library (AI features).
     pub analysis_paused: bool,
+    /// The search pack the user chose (a pack id); empty: the one for the interface's language.
+    pub search_pack: String,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -305,6 +307,7 @@ impl Default for Store {
             export_size: 0,
             export_quality: 90,
             analysis_paused: false,
+            search_pack: String::new(),
         }
     }
 }
@@ -1365,6 +1368,8 @@ pub enum Done {
     CacheSizes { thumbs: u64, tiles: u64 },
     /// How far the background analysis of the library is.
     Analysis(crate::analysis::Progress),
+    /// The pictures a smart search found, best first (`Library::looks_like`).
+    LooksLike(crate::smart_search::Query, Result<Vec<crate::smart_search::Hit>, String>),
 }
 
 /// (photo id, key, what its header says).

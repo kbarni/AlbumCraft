@@ -183,6 +183,29 @@ impl App {
                 }
             }
         }
+        if shot_view == "looks" || shot_view == "similar" {
+            // smart search with a fixed ranking: "sea" typed (the pictures tagged Sea match it
+            // word for word, those that look like it follow), or the pictures like the first
+            let tagged = [0usize, 2, 4];
+            for &id in &tagged {
+                if let Some(p) = self.photos.get(id) {
+                    self.store.meta.entry(p.key.clone()).or_default().tags = vec!["Sea".into()];
+                }
+            }
+            let ranked = [1usize, 5, 7, 3, 8, 12, 6, 20, 15, 22];
+            let hits: Vec<crate::smart_search::Hit> =
+                ranked.iter().enumerate().filter_map(|(i, &id)| self.photos.get(id).map(|p| crate::smart_search::Hit { key: p.key.clone(), score: 0.31 - i as f32 * 0.012 })).collect();
+            let query = if shot_view == "looks" {
+                self.search = "sea".into();
+                crate::smart_search::Query::Text("sea".into())
+            } else {
+                let key = self.photos.first().map(|p| p.key.clone()).unwrap_or_default();
+                self.search_terms = vec![SearchTerm::Like(key.clone())];
+                crate::smart_search::Query::Like(key)
+            };
+            self.smart.demo("search-light", query, hits, 6);
+            self.analysis = crate::analysis::Progress { done: 1240, total: 18300, paused: false };
+        }
         if shot_view == "search" {
             // places in Scotland and Spain, a few tags, "sc" typed, one tag already chosen
             let spots = [(56.4907, -4.2026), (55.9533, -3.1883), (57.4778, -4.2247), (43.3614, -5.8593), (43.4623, -3.8100)];
@@ -313,11 +336,12 @@ impl App {
                 version: 1,
                 release: "models-1".into(),
                 files: vec![ModelFile { name: format!("{id}.onnx"), size, sha256: "0".repeat(64) }],
+                search: None,
             };
             self.packs = vec![
                 crate::analysis::PackState { pack: pack("faces", "Faces", "Finds faces and groups them by person; you name the groups.", "Apache 2.0", 9 << 20), installed: true },
-                crate::analysis::PackState { pack: pack("search-light", "Smart search: Light", "Find pictures by describing them, in English.", "MIT", 100 << 20), installed: false },
-                crate::analysis::PackState { pack: pack("search-multilingual", "Smart search: Multilingual", "Find pictures by describing them, in your language.", "Apache 2.0", 400 << 20), installed: false },
+                crate::analysis::PackState { pack: pack("search-light", "Smart search: Light", "Find pictures by describing them, in English.", "MIT", 218 << 20), installed: false },
+                crate::analysis::PackState { pack: pack("search-multilingual", "Smart search: Multilingual", "Find pictures by describing them, in your language.", "Apache 2.0", 511 << 20), installed: false },
             ];
             self.packs_at = f64::INFINITY;
             self.dialog = Some(Dialog::Settings { section: crate::settings_view::SettingsSection::Ai });
