@@ -446,6 +446,10 @@ pub struct App {
     pub scroll_to_folder: Option<usize>,
     /// Scroll the library to this picture (after coming back from the editor).
     pub scroll_to_photo: Option<usize>,
+    /// The grid is being dragged to scroll (middle button or finger), and how fast it goes on
+    /// (points per second) once let go.
+    pub grid_pan: bool,
+    pub grid_vel: f32,
     /// The folder / album / person whose pictures fill the tray (when nothing is picked one by one).
     pub tray_set: Option<TraySet>,
     /// The folder / album / person clicked last in the list (for its highlight).
@@ -611,6 +615,8 @@ impl App {
             rescan_after: None,
             scroll_to_folder: None,
             scroll_to_photo: None,
+            grid_pan: false,
+            grid_vel: 0.0,
             tray_set: None,
             list_pick: None,
             real_dims: HashMap::new(),

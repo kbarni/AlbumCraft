@@ -109,6 +109,11 @@ struct GroupRows {
     height: f32,
 }
 const PAD: i8 = 24;
+/// How much faster than egui's default the wheel scrolls the grid, and the drag (middle button
+/// or finger) compared with the pointer; how fast the drag's momentum dies away (per second).
+const WHEEL_GAIN: f32 = 3.0;
+const PAN_GAIN: f32 = 1.6;
+const PAN_FRICTION: f32 = 3.0;
 
 // ---------------------------------------------------------------------------------------------
 // small widgets
@@ -638,6 +643,41 @@ impl App {
         }
     }
 
+    /// Scrolling the grid by dragging it, with the middle button or a finger: faster than the
+    /// pointer, and it goes on after the release, slowing down.
+    fn pan_grid(&mut self, ui: &mut egui::Ui) {
+        let clip = ui.clip_rect();
+        let (dt, delta, hold, started) = ui.input(|i| {
+            let held = i.pointer.middle_down() || (i.any_touches() && i.pointer.primary_down());
+            let started = (i.pointer.button_pressed(egui::PointerButton::Middle) || (i.any_touches() && i.pointer.primary_pressed()))
+                && i.pointer.interact_pos().is_some_and(|p| clip.contains(p));
+            (i.stable_dt.min(0.1), i.pointer.delta().y, held, started)
+        });
+        if started {
+            self.grid_pan = true;
+            self.grid_vel = 0.0;
+        }
+        if self.grid_pan && hold {
+            let d = delta * PAN_GAIN;
+            if d != 0.0 {
+                ui.scroll_with_delta(egui::vec2(0.0, d));
+            }
+            // the speed of the last moments, to carry on with at the release
+            let v = d / dt.max(0.001);
+            self.grid_vel = self.grid_vel * 0.6 + v * 0.4;
+            ui.ctx().request_repaint();
+        } else {
+            self.grid_pan = false;
+            if self.grid_vel.abs() > 20.0 {
+                ui.scroll_with_delta(egui::vec2(0.0, self.grid_vel * dt));
+                self.grid_vel *= (-dt * PAN_FRICTION).exp();
+                ui.ctx().request_repaint();
+            } else {
+                self.grid_vel = 0.0;
+            }
+        }
+    }
+
     fn grid(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().lightbox_bg)).show(ui, |ui| {
             let groups = self.groups();
@@ -652,7 +692,7 @@ impl App {
             let mut background_click = false;
             let mut flat: Rc<Vec<usize>> = Rc::new(vec![]);
 
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).wheel_scroll_multiplier(egui::vec2(1.0, WHEEL_GAIN)).show(ui, |ui| {
                 egui::Frame::new().inner_margin(egui::Margin { left: PAD, right: PAD, top: 8, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                     let width = ui.available_width();
@@ -660,7 +700,11 @@ impl App {
                     // pointer): a click clears the selection, a drag draws a selection box
                     let origin = ui.min_rect().min.to_vec2();
                     let back = ui.interact(ui.clip_rect(), egui::Id::new("grid_background"), Sense::click_and_drag());
+                    self.pan_grid(ui);
+                    // on a touch screen a drag scrolls (see pan_grid); the box is for the mouse
+                    let touch = ui.input(|i| i.any_touches());
                     if back.drag_started()
+                        && !touch
                         && let Some(p) = back.interact_pointer_pos()
                     {
                         let m = ui.input(|i| i.modifiers);
