@@ -337,5 +337,6 @@ mod tests {
         assert!(list.iter().any(|(code, name)| code == "fr" && name == "Français"), "{list:?}");
         assert!(list.iter().any(|(code, name)| code == "de" && name == "Deutsch"), "{list:?}");
         assert!(list.iter().any(|(code, name)| code == "es" && name == "Español"), "{list:?}");
+        assert!(list.iter().any(|(code, name)| code == "it" && name == "Italiano"), "{list:?}");
     }
 }
