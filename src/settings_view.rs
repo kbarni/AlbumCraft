@@ -216,6 +216,32 @@ impl App {
                 self.rescan();
             }
         });
+        ui.add_space(14.0);
+        group(ui, &tr!("settings-excluded-title"));
+        note(ui, &tr!("settings-excluded-intro"));
+        ui.add_space(6.0);
+        if self.store.excluded.is_empty() {
+            ui.weak(tr!("settings-excluded-none"));
+        }
+        let mut show_again = None;
+        egui::Grid::new("settings_excluded").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+            for (i, e) in self.store.excluded.iter().enumerate() {
+                ui.label(format!("{} {e}", icons::FOLDER));
+                if ui.small_button(tr!("button-remove")).on_hover_text(tr!("settings-excluded-remove-hint")).clicked() {
+                    show_again = Some(i);
+                }
+                ui.end_row();
+            }
+        });
+        if let Some(i) = show_again.filter(|&i| i < self.store.excluded.len()) {
+            self.store.excluded.remove(i);
+            self.dirty = true;
+            self.rescan();
+        }
+        ui.add_space(8.0);
+        if ui.add_enabled(!self.store.roots.is_empty(), egui::Button::new(format!("{} {}", icons::ADD, tr!("settings-excluded-add")))).clicked() {
+            self.add_excluded_folder();
+        }
     }
 
     fn settings_editing(&mut self, ui: &mut egui::Ui) {

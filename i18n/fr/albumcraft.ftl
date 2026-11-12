@@ -44,7 +44,6 @@ dialog-rename-album = Renommer l'album
 dialog-tags = Mots-clés et personnes
 dialog-gallery = Galerie web
 dialog-folder-note = Description du dossier
-dialog-folder-manager = Dossiers de la bibliothèque
 dialog-movie = Film
 dialog-about = À propos d'AlbumCraft
 dialog-online-maps = Cartes
@@ -81,9 +80,6 @@ gallery-make = Choisir le dossier et créer…
 
 folder-note-intro = Une courte description affichée sous le nom du dossier :
 
-folders-intro = La bibliothèque montre les photos de ces dossiers et de leurs sous-dossiers, là où elles sont : rien n'est copié ni déplacé.
-folders-import-hint = Pour copier des photos d'une carte mémoire ou d'un appareil photo, utilisez Importer.
-folders-none = (aucun pour l'instant — des photos d'exemple sont affichées à la place)
 
 # $fade and $motion are "yes" or "no"
 movie-intro = { $n ->
@@ -152,6 +148,11 @@ settings-folders-intro = La bibliothèque montre les photos de ces dossiers et d
 settings-folders-none = Aucun dossier pour l'instant : des photos d'exemple sont affichées à la place.
 settings-folders-remove-hint = Ne plus afficher ce dossier (ses photos et vos notes sur elles sont conservées)
 settings-folders-rescan-hint = Chercher maintenant les photos nouvelles, modifiées et supprimées
+settings-excluded-title = Dossiers exclus
+settings-excluded-intro = Dossiers d'un dossier de la bibliothèque qui ne sont pas affichés, avec tout ce qu'ils contiennent (par exemple Screenshots).
+settings-excluded-none = Rien n’est exclu.
+settings-excluded-add = Exclure un dossier
+settings-excluded-remove-hint = Afficher de nouveau ce dossier
 
 settings-edit-opens = L'onglet Retouche s'ouvre sur
 settings-edit-basic = Basique : corrections en un clic et outils
@@ -300,7 +301,6 @@ bar-import = Importer
 bar-import-hint = Copier des photos d'une carte mémoire, d'un appareil photo ou d'un dossier dans votre bibliothèque
 bar-folders = Dossiers
 bar-folders-hint = Les dossiers affichés dans la bibliothèque, là où ils sont (rien n'est copié)
-bar-appearance = Apparence : { $mode } (cliquez pour changer)
 bar-size-hint = Taille des photos
 bar-picks-hint = Afficher seulement les photos choisies
 bar-hide-rejects = Masquer les photos rejetées
@@ -1231,6 +1231,10 @@ movie-ffmpeg-failed =
     { $tail }
 root-already = Ce dossier est déjà dans la bibliothèque.
 root-inside = Ce dossier est déjà dans la bibliothèque, dans { $outer }.
+root-excluded = Ce dossier est dans { $folder }, qui est exclu de la bibliothèque.
+exclude-is-root = C’est un dossier de la bibliothèque : retirez-le plutôt.
+exclude-outside = Ce dossier n’est dans aucun dossier de la bibliothèque.
+exclude-already = Ce dossier est déjà exclu.
 online-tile-bad = une tuile de carte n'a pas pu être lue : { $error }
 online-map-down = Carte en ligne inaccessible ({ $error })
 online-search-down = La recherche en ligne est inaccessible ({ $error }).

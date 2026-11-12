@@ -555,7 +555,7 @@ impl App {
             self.choose_import_source();
         } else if folders {
             self.leave_import();
-            self.dialog = Some(Dialog::FolderManager);
+            self.open_settings(crate::settings_view::SettingsSection::Folders);
         }
     }
 

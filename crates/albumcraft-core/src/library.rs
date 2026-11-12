@@ -190,6 +190,8 @@ pub struct Store {
     /// recorded read as this one).
     pub version: u32,
     pub roots: Vec<String>,
+    /// Folders inside the roots that are left out (with everything under them).
+    pub excluded: Vec<String>,
     /// Notes by picture (file path). Notes on the built-in sample pictures are not saved.
     #[serde(serialize_with = "without_samples")]
     pub meta: HashMap<String, Meta>,
@@ -272,6 +274,7 @@ impl Default for Store {
         Self {
             version: FORMAT_VERSION,
             roots: vec![],
+            excluded: vec![],
             meta: HashMap::new(),
             albums: vec![],
             folder_notes: HashMap::new(),
@@ -600,26 +603,57 @@ impl Store {
                 crate::msg!("root-inside", "That folder is already in the library, as part of {outer}.", outer = outer).into()
             });
         }
+        if let Some(e) = self.excluded.iter().find(|e| p.starts_with(e)) {
+            return Err(crate::msg!("root-excluded", "That folder is inside {folder}, which is left out of the library.", folder = e).into());
+        }
         self.roots.retain(|r| !Path::new(r).starts_with(p));
         self.roots.push(path.to_string());
         Ok(())
     }
+
+    /// Leave a folder out of the library, with everything under it. It must be inside a
+    /// library folder (leaving out a library folder itself is removing it).
+    pub fn add_excluded(&mut self, path: &str) -> Result<(), String> {
+        let p = Path::new(path);
+        if self.roots.iter().any(|r| Path::new(r) == p) {
+            return Err(crate::msg!("exclude-is-root", "That is a library folder: remove it instead.").into());
+        }
+        if !self.roots.iter().any(|r| p.starts_with(r)) {
+            return Err(crate::msg!("exclude-outside", "That folder is not inside a library folder.").into());
+        }
+        if self.excluded.iter().any(|e| p.starts_with(e)) {
+            return Err(crate::msg!("exclude-already", "That folder is already left out.").into());
+        }
+        self.excluded.retain(|e| !Path::new(e).starts_with(p));
+        self.excluded.push(path.to_string());
+        Ok(())
+    }
+}
+
+/// Whether `dir` is one of the excluded folders or inside one.
+pub fn is_excluded(dir: &Path, excluded: &[String]) -> bool {
+    excluded.iter().any(|e| dir.starts_with(e))
 }
 
 /// Scan the folders for pictures; the flag is true when the scan stopped at `limit`.
 pub fn scan_roots(roots: &[String], limit: usize) -> (Vec<ScannedFolder>, bool) {
+    scan_roots_except(roots, &[], limit)
+}
+
+/// `scan_roots`, leaving out the `excluded` folders and everything under them.
+pub fn scan_roots_except(roots: &[String], excluded: &[String], limit: usize) -> (Vec<ScannedFolder>, bool) {
     let t0 = std::time::Instant::now();
     let mut out = vec![];
     let mut count = 0;
     for r in &distinct_roots(roots) {
-        scan_dir(Path::new(r), 0, &mut out, &mut count, limit);
+        scan_dir(Path::new(r), 0, &mut out, &mut count, limit, excluded);
     }
     trace_since(&format!("scan of {} folder(s): {count} pictures", roots.len()), t0, 0);
     (out, count >= limit)
 }
 
-fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut usize, limit: usize) {
-    if depth > 12 || *count >= limit {
+fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut usize, limit: usize, excluded: &[String]) {
+    if depth > 12 || *count >= limit || is_excluded(dir, excluded) {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else { return };
@@ -652,7 +686,7 @@ fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ScannedFolder>, count: &mut 
     }
     subdirs.sort();
     for s in subdirs {
-        scan_dir(&s, depth + 1, out, count, limit);
+        scan_dir(&s, depth + 1, out, count, limit, excluded);
     }
 }
 
@@ -738,6 +772,21 @@ mod root_tests {
         // a sibling with a common prefix is not inside
         let roots: Vec<String> = ["/p/2025", "/p/2025-old"].iter().map(|s| s.to_string()).collect();
         assert_eq!(distinct_roots(&roots), roots);
+    }
+
+    #[test]
+    fn excluding_folders() {
+        let mut s = Store::default();
+        s.add_root("/p").unwrap();
+        assert!(s.add_excluded("/p").is_err());
+        assert!(s.add_excluded("/elsewhere/x").is_err());
+        s.add_excluded("/p/Screenshots/old").unwrap();
+        s.add_excluded("/p/Screenshots").unwrap();
+        assert_eq!(s.excluded, vec!["/p/Screenshots".to_string()]);
+        assert!(s.add_excluded("/p/Screenshots/new").is_err());
+        assert!(s.add_root("/p/Screenshots/new").is_err());
+        assert!(is_excluded(Path::new("/p/Screenshots/a"), &s.excluded));
+        assert!(!is_excluded(Path::new("/p/Screenshots2"), &s.excluded));
     }
 
     #[test]

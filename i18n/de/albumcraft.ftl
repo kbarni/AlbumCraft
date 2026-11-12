@@ -44,7 +44,6 @@ dialog-rename-album = Album umbenennen
 dialog-tags = Stichwörter und Personen
 dialog-gallery = Web-Galerie
 dialog-folder-note = Ordnerbeschreibung
-dialog-folder-manager = Ordner der Bibliothek
 dialog-movie = Film
 dialog-about = Über AlbumCraft
 dialog-online-maps = Karten
@@ -81,9 +80,6 @@ gallery-make = Ordner wählen und erstellen…
 
 folder-note-intro = Eine kurze Beschreibung, die unter dem Ordnernamen angezeigt wird:
 
-folders-intro = Die Bibliothek zeigt die Fotos dieser Ordner und ihrer Unterordner dort, wo sie liegen: Nichts wird kopiert oder verschoben.
-folders-import-hint = Um Fotos von einer Speicherkarte oder Kamera zu kopieren, verwenden Sie Importieren.
-folders-none = (noch keine – stattdessen werden Beispielfotos angezeigt)
 
 # $fade and $motion are "yes" or "no"
 movie-intro = { $n ->
@@ -152,6 +148,11 @@ settings-folders-intro = Die Bibliothek zeigt die Fotos dieser Ordner und ihrer 
 settings-folders-none = Noch keine Ordner: Stattdessen werden Beispielfotos angezeigt.
 settings-folders-remove-hint = Diesen Ordner nicht mehr anzeigen (seine Fotos und Ihre Notizen dazu bleiben erhalten)
 settings-folders-rescan-hint = Jetzt nach neuen, geänderten und gelöschten Fotos suchen
+settings-excluded-title = Left out folders
+settings-excluded-intro = Folders inside a library folder that are not shown, with everything under them (for example Screenshots).
+settings-excluded-none = Nothing is left out.
+settings-excluded-add = Leave out a folder
+settings-excluded-remove-hint = Show this folder again
 
 settings-edit-opens = Die Registerkarte Bearbeiten öffnet sich mit
 settings-edit-basic = Einfach: Korrekturen mit einem Klick und Werkzeuge
@@ -300,7 +301,6 @@ bar-import = Importieren
 bar-import-hint = Fotos von einer Speicherkarte, Kamera oder aus einem Ordner in Ihre Bibliothek kopieren
 bar-folders = Ordner
 bar-folders-hint = Die in der Bibliothek angezeigten Ordner, dort wo sie liegen (nichts wird kopiert)
-bar-appearance = Darstellung: { $mode } (zum Wechseln klicken)
 bar-size-hint = Größe der Fotos
 bar-picks-hint = Nur Favoriten anzeigen
 bar-hide-rejects = Abgelehnte Fotos ausblenden
@@ -1231,6 +1231,10 @@ movie-ffmpeg-failed =
     { $tail }
 root-already = Dieser Ordner ist bereits in der Bibliothek.
 root-inside = Dieser Ordner ist bereits in der Bibliothek, in { $outer }.
+root-excluded = That folder is inside { $folder }, which is left out of the library.
+exclude-is-root = That is a library folder: remove it instead.
+exclude-outside = That folder is not inside a library folder.
+exclude-already = That folder is already left out.
 online-tile-bad = eine Kartenkachel konnte nicht gelesen werden: { $error }
 online-map-down = Online-Karte nicht erreichbar ({ $error })
 online-search-down = Die Online-Suche ist nicht erreichbar ({ $error }).

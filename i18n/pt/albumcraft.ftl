@@ -44,7 +44,6 @@ dialog-rename-album = Renomear álbum
 dialog-tags = Tags e pessoas
 dialog-gallery = Galeria web
 dialog-folder-note = Descrição da pasta
-dialog-folder-manager = Pastas da biblioteca
 dialog-movie = Filme
 dialog-about = Sobre o AlbumCraft
 dialog-online-maps = Mapas
@@ -81,9 +80,6 @@ gallery-make = Escolher a pasta e criar…
 
 folder-note-intro = Uma breve descrição mostrada abaixo do nome da pasta:
 
-folders-intro = A biblioteca mostra as fotos dessas pastas e de suas subpastas onde elas estão: nada é copiado nem movido.
-folders-import-hint = Para copiar fotos de um cartão de memória ou de uma câmera, use Importar.
-folders-none = (nenhuma por enquanto: fotos de exemplo são mostradas no lugar)
 
 # $fade and $motion are "yes" or "no"
 movie-intro = { $n ->
@@ -152,6 +148,11 @@ settings-folders-intro = A biblioteca mostra as fotos dessas pastas e de suas su
 settings-folders-none = Nenhuma pasta ainda: fotos de exemplo são mostradas no lugar.
 settings-folders-remove-hint = Deixar de mostrar esta pasta (as fotos dela e as suas anotações sobre elas são mantidas)
 settings-folders-rescan-hint = Procurar agora fotos novas, alteradas e excluídas
+settings-excluded-title = Left out folders
+settings-excluded-intro = Folders inside a library folder that are not shown, with everything under them (for example Screenshots).
+settings-excluded-none = Nothing is left out.
+settings-excluded-add = Leave out a folder
+settings-excluded-remove-hint = Show this folder again
 
 settings-edit-opens = A aba Editar abre em
 settings-edit-basic = Básico: correções com um clique e ferramentas
@@ -300,7 +301,6 @@ bar-import = Importar
 bar-import-hint = Copiar fotos de um cartão de memória, de uma câmera ou de uma pasta para a sua biblioteca
 bar-folders = Pastas
 bar-folders-hint = As pastas mostradas na biblioteca, onde elas estão (nada é copiado)
-bar-appearance = Aparência: { $mode } (clique para mudar)
 bar-size-hint = Tamanho das fotos
 bar-picks-hint = Mostrar somente as fotos escolhidas
 bar-hide-rejects = Ocultar as fotos rejeitadas
@@ -1231,6 +1231,10 @@ movie-ffmpeg-failed =
     { $tail }
 root-already = Esta pasta já está na biblioteca.
 root-inside = Esta pasta já está na biblioteca, dentro de { $outer }.
+root-excluded = That folder is inside { $folder }, which is left out of the library.
+exclude-is-root = That is a library folder: remove it instead.
+exclude-outside = That folder is not inside a library folder.
+exclude-already = That folder is already left out.
 online-tile-bad = não foi possível ler um bloco de mapa: { $error }
 online-map-down = Mapa online inacessível ({ $error })
 online-search-down = A busca online está inacessível ({ $error }).

@@ -325,7 +325,7 @@ impl App {
             ui.close();
         }
         if ui.button(tr!("menu-folders")).clicked() {
-            self.dialog = Some(Dialog::FolderManager);
+            self.open_settings(crate::settings_view::SettingsSection::Folders);
             ui.close();
         }
         if ui.button(tr!("menu-scan")).clicked() {
