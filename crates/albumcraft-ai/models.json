@@ -6,7 +6,7 @@
       "about": "Find pictures by describing them, in English (OpenCLIP ViT-B/32, trained on LAION-2B).",
       "licence": "MIT",
       "version": 1,
-      "release": "models-1",
+      "release": "model-1",
       "files": [
         {
           "name": "clip-vit-b32-image-1.onnx",
@@ -55,7 +55,7 @@
       "about": "Find pictures by describing them, in your language (SigLIP 2 ViT-B/32 at 256 px, by Google).",
       "licence": "Apache 2.0",
       "version": 1,
-      "release": "models-1",
+      "release": "model-1",
       "files": [
         {
           "name": "siglip2-b32-image-1.onnx",
