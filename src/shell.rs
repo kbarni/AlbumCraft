@@ -306,13 +306,7 @@ impl App {
                         // icon only when the window is narrow (a longer language needs the room)
                         let folders = if wide >= 760.0 { pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false) } else { icon_btn(ui, icons::FOLDER, &tr!("bar-folders")) };
                         if folders.on_hover_text(tr!("bar-folders-hint")).clicked() {
-                            self.dialog = Some(Dialog::FolderManager);
-                        }
-                        use crate::theme::Mode;
-                        let mode = Mode::from_name(&self.store.theme);
-                        if icon_btn(ui, mode.icon(), &tr!("bar-appearance", mode = mode.label())).clicked() {
-                            self.store.theme = mode.next().name().into();
-                            self.dirty = true;
+                            self.open_settings(crate::settings_view::SettingsSection::Folders);
                         }
                         ui.add_space(4.0);
                         if wide > 980.0 {
@@ -937,7 +931,7 @@ impl App {
                         self.rescan();
                     }
                     if pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false).on_hover_text(tr!("empty-folders-hint")).clicked() {
-                        self.dialog = Some(Dialog::FolderManager);
+                        self.open_settings(crate::settings_view::SettingsSection::Folders);
                     }
                 });
             } else if matches!(self.source, Source::Library) && !self.searching() && !self.scanning {

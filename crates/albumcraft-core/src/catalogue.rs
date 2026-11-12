@@ -105,12 +105,17 @@ impl Catalogue {
     /// The folders inside these roots, as a scan would give them, and the details known for
     /// their pictures. At most `limit` pictures.
     pub fn within(self, roots: &[String], limit: usize) -> (Vec<ScannedFolder>, KnownDetails) {
+        self.within_except(roots, &[], limit)
+    }
+
+    /// `within`, leaving out the `excluded` folders and everything under them.
+    pub fn within_except(self, roots: &[String], excluded: &[String], limit: usize) -> (Vec<ScannedFolder>, KnownDetails) {
         let roots = library::distinct_roots(roots);
         let mut scanned = vec![];
         let mut known = vec![];
         let mut count = 0usize;
         for f in self.folders {
-            if !roots.iter().any(|r| Path::new(&f.path).starts_with(r)) || f.files.is_empty() {
+            if !roots.iter().any(|r| Path::new(&f.path).starts_with(r)) || f.files.is_empty() || library::is_excluded(Path::new(&f.path), excluded) {
                 continue;
             }
             if count.saturating_add(f.files.len()) > limit {

@@ -3,7 +3,6 @@
 //! Style after PhotoCraft's "Studio" themes: flat surfaces, hairline borders, rounded controls and a
 //! single blue accent. Never hard-code a UI colour in a view; add a token here instead.
 
-use crate::icons;
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -147,20 +146,6 @@ impl Mode {
             Mode::System => crate::i18n::tr!("theme-system"),
             Mode::Light => crate::i18n::tr!("theme-light"),
             Mode::Dark => crate::i18n::tr!("theme-dark"),
-        }
-    }
-    pub fn next(self) -> Mode {
-        match self {
-            Mode::System => Mode::Light,
-            Mode::Light => Mode::Dark,
-            Mode::Dark => Mode::System,
-        }
-    }
-    pub fn icon(self) -> &'static str {
-        match self {
-            Mode::System => icons::DESKTOP,
-            Mode::Light => icons::LIGHT_MODE,
-            Mode::Dark => icons::DARK_MODE,
         }
     }
 }

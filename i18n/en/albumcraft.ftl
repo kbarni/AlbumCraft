@@ -46,7 +46,6 @@ dialog-rename-album = Rename album
 dialog-tags = Tags and people
 dialog-gallery = Web gallery
 dialog-folder-note = Folder description
-dialog-folder-manager = Library folders
 dialog-movie = Movie
 dialog-about = About AlbumCraft
 dialog-online-maps = Maps
@@ -83,9 +82,6 @@ gallery-make = Choose folder and make…
 
 folder-note-intro = A short description shown under the folder name:
 
-folders-intro = The library shows the pictures in these folders and their subfolders, where they are: nothing is copied or moved.
-folders-import-hint = To copy pictures from a memory card or a camera, use Import.
-folders-none = (none yet — sample pictures are shown instead)
 
 # $fade and $motion are "yes" or "no"
 movie-intro = { $n ->
@@ -154,6 +150,11 @@ settings-folders-intro = The library shows the pictures in these folders and the
 settings-folders-none = No folders yet: sample pictures are shown instead.
 settings-folders-remove-hint = Stop showing this folder (its pictures and your notes on them are kept)
 settings-folders-rescan-hint = Look for new, changed and removed pictures now
+settings-excluded-title = Left out folders
+settings-excluded-intro = Folders inside a library folder that are not shown, with everything under them (for example Screenshots).
+settings-excluded-none = Nothing is left out.
+settings-excluded-add = Leave out a folder
+settings-excluded-remove-hint = Show this folder again
 
 settings-edit-opens = The Edit tab opens on
 settings-edit-basic = Basic: one-click fixes and tools
@@ -302,7 +303,6 @@ bar-import = Import
 bar-import-hint = Copy pictures from a memory card, a camera or a folder into your library
 bar-folders = Folders
 bar-folders-hint = The folders shown in the library, where they are (nothing is copied)
-bar-appearance = Appearance: { $mode } (click to change)
 bar-size-hint = Picture size
 bar-picks-hint = Show only picks
 bar-hide-rejects = Hide rejected pictures
@@ -1235,6 +1235,10 @@ movie-ffmpeg-failed =
     { $tail }
 root-already = That folder is already in the library.
 root-inside = That folder is already in the library, as part of { $outer }.
+root-excluded = That folder is inside { $folder }, which is left out of the library.
+exclude-is-root = That is a library folder: remove it instead.
+exclude-outside = That folder is not inside a library folder.
+exclude-already = That folder is already left out.
 online-tile-bad = a map tile could not be read: { $error }
 online-map-down = Online map not reachable ({ $error })
 online-search-down = The online search is not reachable ({ $error }).

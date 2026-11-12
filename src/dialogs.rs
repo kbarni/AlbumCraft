@@ -26,7 +26,6 @@ impl App {
             Dialog::Tag { .. } => tr!("dialog-tags"),
             Dialog::Gallery { .. } => tr!("dialog-gallery"),
             Dialog::FolderNote { .. } => tr!("dialog-folder-note"),
-            Dialog::FolderManager => tr!("dialog-folder-manager"),
             Dialog::Movie { .. } => tr!("dialog-movie"),
             Dialog::About => tr!("dialog-about"),
             Dialog::OnlineMaps => tr!("dialog-online-maps"),
@@ -163,41 +162,6 @@ impl App {
                             close = true;
                         }
                         if ui.button(tr!("button-cancel")).clicked() {
-                            close = true;
-                        }
-                    });
-                }
-                Dialog::FolderManager => {
-                    ui.label(tr!("folders-intro"));
-                    ui.weak(tr!("folders-import-hint"));
-                    ui.add_space(4.0);
-                    let mut remove = None;
-                    if self.store.roots.is_empty() {
-                        ui.weak(tr!("folders-none"));
-                    }
-                    for (i, r) in self.store.roots.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{} {r}", icons::FOLDER));
-                            if ui.small_button(tr!("button-remove")).clicked() {
-                                remove = Some(i);
-                            }
-                        });
-                    }
-                    if let Some(i) = remove.filter(|&i| i < self.store.roots.len()) {
-                        let path = self.store.roots.remove(i);
-                        self.dirty = true;
-                        self.rescan();
-                        self.undoable(tr!("removed-root", path = path.as_str()), Undo::Root { at: i, path });
-                    }
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        if ui.button(format!("{} {}", icons::ADD, tr!("add-folder"))).clicked() {
-                            self.add_library_folder();
-                        }
-                        if ui.button(format!("{} {}", icons::REFRESH, tr!("scan-again"))).clicked() {
-                            self.rescan();
-                        }
-                        if ui.button(tr!("button-close")).clicked() {
                             close = true;
                         }
                     });

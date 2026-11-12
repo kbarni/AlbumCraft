@@ -212,7 +212,6 @@ pub enum Dialog {
     /// Make a web gallery of the tray.
     Gallery { title: String, style: crate::gallery::Style, size: u32, captions: bool },
     FolderNote { path: String, text: String },
-    FolderManager,
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
     About,
@@ -688,7 +687,7 @@ impl App {
         } else {
             // the folders as the last scan found them, at once; the scan then brings what changed
             if !app.store.roots.is_empty() {
-                app.lib.cached(app.store.roots.clone());
+                app.lib.cached(app.store.roots.clone(), app.store.excluded.clone());
             }
             app.rescan();
             app.lib.tidy();
@@ -716,7 +715,7 @@ impl App {
 
     pub fn rescan(&mut self) {
         self.scanning = true;
-        self.lib.scan(self.store.roots.clone(), self.store.imported_ini.clone());
+        self.lib.scan(self.store.roots.clone(), self.store.excluded.clone(), self.store.imported_ini.clone());
     }
 
     /// Keep what is known about the pictures for the next start (the catalogue cache): at most
@@ -1890,6 +1889,20 @@ impl App {
         if let Some(dir) = rfd::FileDialog::new().set_title(crate::i18n::tr!("choose-folder-dialog")).pick_folder() {
             let s = dir.to_string_lossy().to_string();
             match self.store.add_root(&s) {
+                Ok(()) => {
+                    self.dirty = true;
+                    self.rescan();
+                }
+                Err(e) => self.toast(e),
+            }
+        }
+    }
+
+    /// Pick a folder inside a library folder to leave out of the library.
+    pub fn add_excluded_folder(&mut self) {
+        let start = self.store.roots.first().cloned().unwrap_or_default();
+        if let Some(dir) = rfd::FileDialog::new().set_title(crate::i18n::tr!("choose-folder-dialog")).set_directory(start).pick_folder() {
+            match self.store.add_excluded(&dir.to_string_lossy()) {
                 Ok(()) => {
                     self.dirty = true;
                     self.rescan();

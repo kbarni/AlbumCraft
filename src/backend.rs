@@ -55,10 +55,10 @@ pub trait Library {
     /// Look for pictures in these folders; the result arrives as `Done::Scan`.
     /// `ini_done`: folders whose `.picasa.ini` was brought in already; for the others the scan
     /// reads that file (read only, never written) and sends what it holds along.
-    fn scan(&self, roots: Vec<String>, ini_done: Vec<String>);
+    fn scan(&self, roots: Vec<String>, excluded: Vec<String>, ini_done: Vec<String>);
     /// What the last scan found in these folders, from the catalogue cache, to show until the
     /// scan's result arrives; it arrives as `Done::Cached` (nothing when there is no cache).
-    fn cached(&self, roots: Vec<String>);
+    fn cached(&self, roots: Vec<String>, excluded: Vec<String>);
     /// Keep what the window knows about the pictures for the next start: in the background, or
     /// before returning when `now` (the window closes).
     fn save_catalogue(&self, cat: crate::catalogue::Catalogue, now: bool);
@@ -200,11 +200,11 @@ impl Library for LocalLibrary {
         });
     }
 
-    fn scan(&self, roots: Vec<String>, ini_done: Vec<String>) {
+    fn scan(&self, roots: Vec<String>, excluded: Vec<String>, ini_done: Vec<String>) {
         let send = self.sender();
         std::thread::spawn(move || {
             let (found, truncated, inis) = std::panic::catch_unwind(|| {
-                let (found, truncated) = library::scan_roots(&roots, library::SCAN_LIMIT);
+                let (found, truncated) = library::scan_roots_except(&roots, &excluded, library::SCAN_LIMIT);
                 let done: std::collections::HashSet<&str> = ini_done.iter().map(String::as_str).collect();
                 let inis: Vec<(String, IniFolder)> = found
                     .iter()
@@ -218,13 +218,13 @@ impl Library for LocalLibrary {
         });
     }
 
-    fn cached(&self, roots: Vec<String>) {
+    fn cached(&self, roots: Vec<String>, excluded: Vec<String>) {
         let send = self.sender();
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
             let found = std::panic::catch_unwind(|| {
                 let cat = crate::catalogue::load_from(&crate::catalogue::path()?)?;
-                Some(cat.within(&roots, library::SCAN_LIMIT))
+                Some(cat.within_except(&roots, &excluded, library::SCAN_LIMIT))
             });
             if let Ok(Some((folders, known))) = found
                 && !folders.is_empty()
@@ -428,7 +428,7 @@ mod tests {
         // a missing picture still gets an answer, so the window never waits forever
         lib.request(Job::Big { id: 1, key: "/no/such/picture.jpg".into() }, true);
         assert!(matches!(next(&rx), Done::Big { id: 1, img: None, .. }));
-        lib.scan(vec!["/no/such/folder".into()], vec![]);
+        lib.scan(vec!["/no/such/folder".into()], vec![], vec![]);
         assert!(matches!(next(&rx), Done::Scan(found, false, inis) if found.is_empty() && inis.is_empty()));
         assert!(lib.pictures()(&key, 50).is_some_and(|i| i.width().max(i.height()) == 50));
         assert!(lib.camera_info(&key).is_none() && lib.source_dims("/no/such/picture.jpg").is_none());

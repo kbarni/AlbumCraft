@@ -91,7 +91,7 @@ fn call(name: &str, args: &Value, cfg: &Config, headless: &mut Option<Headless>)
     let h = match headless.take() {
         Some(mut h) => match crate::library::Store::load_from(&cfg.library) {
             crate::library::Loaded::Store(s) => {
-                let rescan = s.roots != h.store.roots;
+                let rescan = s.roots != h.store.roots || s.excluded != h.store.excluded;
                 h.store = *s;
                 if rescan {
                     commands::Host::rescan(&mut h);

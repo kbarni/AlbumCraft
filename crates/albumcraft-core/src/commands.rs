@@ -1430,7 +1430,7 @@ impl Host for Headless {
         self.index.get(key).copied()
     }
     fn rescan(&mut self) {
-        let (found, _) = library::scan_roots(&self.store.roots, library::SCAN_LIMIT);
+        let (found, _) = library::scan_roots_except(&self.store.roots, &self.store.excluded, library::SCAN_LIMIT);
         self.set_library(found);
     }
     fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>> {
