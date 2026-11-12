@@ -653,6 +653,29 @@ impl App {
                 && i.pointer.interact_pos().is_some_and(|p| clip.contains(p));
             (i.stable_dt.min(0.1), i.pointer.delta().y, held, started)
         });
+        // Two fingers on a touchpad come as wheel events in points (a wheel's are in lines). The
+        // system adds no momentum on Linux and Windows (macOS does, and sends it on), so the
+        // speed of the fingers is kept here and carried on with once they stop.
+        let (finger, notch) = ui.input(|i| {
+            let mut finger = 0.0;
+            let mut notch = false;
+            for e in &i.raw.events {
+                if let egui::Event::MouseWheel { unit, delta, .. } = e {
+                    if *unit == egui::MouseWheelUnit::Point { finger += delta.y } else { notch = true }
+                }
+            }
+            (finger, notch)
+        });
+        if !cfg!(target_os = "macos") && !self.grid_pan && clip.contains(ui.input(|i| i.pointer.hover_pos()).unwrap_or_default()) {
+            if notch {
+                self.grid_vel = 0.0;
+            } else if finger != 0.0 {
+                let v = finger * WHEEL_GAIN / dt.max(0.001);
+                self.grid_vel = self.grid_vel * 0.5 + v * 0.5;
+                ui.ctx().request_repaint();
+                return;
+            }
+        }
         if started {
             self.grid_pan = true;
             self.grid_vel = 0.0;
