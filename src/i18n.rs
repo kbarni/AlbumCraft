@@ -335,5 +335,6 @@ mod tests {
         let list = available();
         assert_eq!(list.first().map(|l| l.0.as_str()), Some("en"));
         assert!(list.iter().any(|(code, name)| code == "fr" && name == "Français"), "{list:?}");
+        assert!(list.iter().any(|(code, name)| code == "de" && name == "Deutsch"), "{list:?}");
     }
 }
