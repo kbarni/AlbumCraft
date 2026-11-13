@@ -12,7 +12,7 @@
 #
 # Needs cargo; nfpm for the .deb (https://nfpm.goreleaser.com); appimagetool for the AppImage
 # (downloaded into $CARGO_TARGET_DIR, checksum-pinned, when it isn't on the PATH). Build on an
-# old distribution (CI: Ubuntu 22.04, glibc 2.35) so the binary runs on newer ones. Optional:
+# old distribution (CI: Ubuntu 24.04, glibc 2.39, the oldest the ONNX Runtime library allows) so the binary runs on newer ones. Optional:
 # desktop-file-validate and appstreamcli check the metadata, zsyncmake writes the .zsync.
 set -euo pipefail
 # shellcheck source=../common.sh

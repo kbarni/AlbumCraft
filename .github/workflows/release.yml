@@ -44,8 +44,9 @@ jobs:
 
   linux:
     needs: version
-    # The oldest supported Ubuntu, so the binary runs on any distribution with glibc >= 2.35.
-    runs-on: ubuntu-22.04
+    # Ubuntu 24.04: the prebuilt ONNX Runtime (AI features) needs glibc 2.38 and GCC 13's libstdc++,
+    # so the packages run on Ubuntu 24.04, Debian 13 and newer (the Flatpak brings its own runtime).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build dependencies and packaging tools
