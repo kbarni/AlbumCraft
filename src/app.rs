@@ -232,7 +232,7 @@ pub enum Dialog {
     RenameAlbum { idx: usize, name: String },
     Tag { tags: String, people: String },
     /// Make a web gallery of the tray.
-    Gallery { title: String, style: crate::gallery::Style, size: u32, captions: bool },
+    Gallery { title: String },
     FolderNote { path: String, text: String },
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
@@ -2031,7 +2031,7 @@ impl App {
     /// Open the web-gallery dialog for the tray, titled after what is shown.
     pub fn open_gallery_dialog(&mut self) {
         let title = self.tray_title();
-        self.dialog = Some(Dialog::Gallery { title, style: crate::gallery::Style::Light, size: 1280, captions: true });
+        self.dialog = Some(Dialog::Gallery { title });
     }
 
     pub fn make_gallery(&mut self, ids: Vec<usize>, opts: crate::gallery::Options) {

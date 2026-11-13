@@ -257,6 +257,9 @@ pub struct Store {
     pub analysis_paused: bool,
     /// The search pack the user chose (a pack id); empty: the one for the interface's language.
     pub search_pack: String,
+    /// Last used web gallery theme, layout, picture size and captions.
+    #[serde(deserialize_with = "or_default")]
+    pub gallery: crate::gallery::GallerySettings,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -313,6 +316,7 @@ impl Default for Store {
             export_quality: 90,
             analysis_paused: false,
             search_pack: String::new(),
+            gallery: Default::default(),
         }
     }
 }

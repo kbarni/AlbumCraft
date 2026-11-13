@@ -6,7 +6,7 @@
 use crate::decor::Decor;
 use crate::develop::Adjust;
 use crate::collage::{Format, Gradient, ShapeKind, Style as CollageStyle};
-use crate::gallery::Style;
+use crate::gallery::{Layout, Theme};
 use crate::i18n::tr;
 use crate::imaging::{Effect, EditOp};
 use crate::looks::Look;
@@ -154,11 +154,24 @@ pub fn wb_preset(name: &str) -> String {
     }
 }
 
-pub fn gallery_style(s: &Style) -> String {
-    match s {
-        Style::Light => tr!("gallery-style-light"),
-        Style::Dark => tr!("gallery-style-dark"),
-        Style::Masonry => tr!("gallery-style-masonry"),
+pub fn gallery_theme(t: &Theme) -> String {
+    match t {
+        Theme::Paper => tr!("gallery-theme-paper"),
+        Theme::Night => tr!("gallery-theme-night"),
+        Theme::Museum => tr!("gallery-theme-museum"),
+        Theme::Darkroom => tr!("gallery-theme-darkroom"),
+        Theme::Instant => tr!("gallery-theme-instant"),
+        Theme::Ocean => tr!("gallery-theme-ocean"),
+        Theme::Vintage => tr!("gallery-theme-vintage"),
+        Theme::Blossom => tr!("gallery-theme-blossom"),
+    }
+}
+
+pub fn gallery_layout(l: &Layout) -> String {
+    match l {
+        Layout::Grid => tr!("gallery-layout-grid"),
+        Layout::Masonry => tr!("gallery-layout-masonry"),
+        Layout::Rows => tr!("gallery-layout-rows"),
     }
 }
 
