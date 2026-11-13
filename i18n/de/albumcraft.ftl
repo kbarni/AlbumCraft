@@ -520,11 +520,37 @@ move-filter = Ordner filtern
 move-other = Anderer Ordner…
 move-none = Kein anderer Ordner der Bibliothek passt.
 files-renamed = { $from } in { $to } umbenannt.
+folder-trash = Ordner in den Papierkorb legen…
+trash-folder-question = { $n ->
+    [one] Den Ordner { $name } mit allem darin (1 Foto, { $size }) in den Papierkorb legen?
+   *[other] Den Ordner { $name } mit allem darin ({ $count } Fotos, { $size }) in den Papierkorb legen?
+}
+dialog-delete-forever = Endgültig löschen?
+delete-forever-question = { $n ->
+    [one] Dieses Element konnte nicht in den Papierkorb (sein Laufwerk hat keinen, etwa ein Netzlaufwerk). Endgültig löschen? Es kann nicht wiederhergestellt werden.
+   *[other] Diese { $n } Elemente konnten nicht in den Papierkorb (ihr Laufwerk hat keinen, etwa ein Netzlaufwerk). Endgültig löschen? Sie können nicht wiederhergestellt werden.
+}
+delete-forever-button = Endgültig löschen
+delete-forever-keep = Behalten
+task-move-across = { $n ->
+    [one] { $n } Element wird auf ein anderes Laufwerk verschoben
+   *[other] { $n } Elemente werden auf ein anderes Laufwerk verschoben
+}
+task-trash-folder = { $name } wird in den Papierkorb gelegt
+task-delete = { $n ->
+    [one] { $n } Element wird gelöscht
+   *[other] { $n } Elemente werden gelöscht
+}
+moved-across = { $n ->
+    [one] { $n } Element auf ein anderes Laufwerk verschoben.
+   *[other] { $n } Elemente auf ein anderes Laufwerk verschoben.
+}
+fail-move = Die Dateien konnten nicht verschoben werden: unerwarteter Fehler.
+fail-delete = Die Dateien konnten nicht gelöscht werden: unerwarteter Fehler.
 files-moved = { $n ->
     [one] { $name } nach { $folder } verschoben.
    *[other] { $count } Fotos nach { $folder } verschoben.
 }
-files-moved-back = An den alten Platz zurückgelegt.
 files-more-problems = …und { $n } weitere.
 trash-question-chosen = { $n ->
     [one] Dieses Foto ({ $size }) in den Papierkorb legen?
@@ -1362,9 +1388,15 @@ move-missing = { $path } ist nicht mehr da.
 move-into-itself = Ein Ordner kann nicht in sich selbst verschoben werden.
 move-no-folder = Der Ordner { $path } existiert nicht.
 move-taken = { $name } gibt es dort schon.
-move-other-disk = { $path } liegt auf einem anderen Laufwerk: AlbumCraft verschiebt Fotos und Ordner nur innerhalb desselben Laufwerks.
 move-failed = { $path } konnte nicht verschoben werden: { $error }
 move-outside = { $path } ist nicht in der Bibliothek: Wählen Sie einen Ordner innerhalb eines Bibliotheksordners.
+move-stopped = Angehalten: { $path } wurde nicht verschoben.
+move-original-left = { $to } wurde kopiert, aber das Original { $path } konnte nicht entfernt werden ({ $error }): Jetzt gibt es beide.
+deleted-for-good = { $n ->
+    [one] { $n } Element endgültig gelöscht.
+   *[other] { $n } Elemente endgültig gelöscht.
+}
+deleted-stopped = Vor dem Ende angehalten.
 online-tile-bad = eine Kartenkachel konnte nicht gelesen werden: { $error }
 online-map-down = Online-Karte nicht erreichbar ({ $error })
 online-search-down = Die Online-Suche ist nicht erreichbar ({ $error }).

@@ -251,6 +251,10 @@ pub enum Dialog {
     /// "Move these pictures to the trash?" (by key: a scan may come in between); `rejects`:
     /// they are the library's rejected pictures.
     Trash { keys: Vec<String>, bytes: u64, rejects: bool },
+    /// "Move this folder and everything in it to the trash?" (`pictures`: how many it shows).
+    TrashFolder { path: String, pictures: usize, bytes: u64 },
+    /// The trash refused these (a disk without one): delete them for good?
+    DeleteForever { paths: Vec<String> },
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
@@ -477,6 +481,8 @@ pub struct App {
     pub box_select: Option<BoxSelect>,
     /// The task whose end makes the library scan again (pictures moved to the trash).
     pub rescan_after: Option<u64>,
+    /// Library folders to take off the list when their task (to the trash, deleted) ends well.
+    pub roots_after: Vec<(u64, String)>,
     pub scroll_to_folder: Option<usize>,
     /// Scroll the library to this picture (after coming back from the editor).
     pub scroll_to_photo: Option<usize>,
@@ -660,6 +666,7 @@ impl App {
             reveal: None,
             box_select: None,
             rescan_after: None,
+            roots_after: vec![],
             scroll_to_folder: None,
             scroll_to_photo: None,
             grid_pan: false,
@@ -2191,6 +2198,12 @@ impl App {
                 }
                 Done::Toast(m) => self.toast(m),
                 Done::ThumbsForgotten(keys) => self.thumbs_forgotten(keys),
+                Done::Moved(done) => self.moved_across(done),
+                Done::NotTrashed(paths) => {
+                    if self.dialog.is_none() {
+                        self.dialog = Some(Dialog::DeleteForever { paths });
+                    }
+                }
                 Done::Dropped(keys) => {
                     // not made: asked for again when the picture is drawn again
                     for key in keys {
@@ -2246,6 +2259,13 @@ impl App {
                         self.tasks.retain(|t| t.id != id);
                         // a download may have ended
                         self.packs_at = f64::NEG_INFINITY;
+                        if report.ok {
+                            for (_, path) in self.roots_after.iter().filter(|(t, _)| *t == id) {
+                                crate::commands::forget_root(&mut self.store, path);
+                                self.dirty = true;
+                            }
+                        }
+                        self.roots_after.retain(|(t, _)| *t != id);
                         if self.rescan_after == Some(id) {
                             self.rescan_after = None;
                             self.rescan();

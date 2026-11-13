@@ -520,11 +520,37 @@ move-filter = Filtra le cartelle
 move-other = Altra cartella…
 move-none = Nessun'altra cartella della libreria corrisponde.
 files-renamed = { $from } rinominato in { $to }.
+folder-trash = Sposta la cartella nel cestino…
+trash-folder-question = { $n ->
+    [one] Spostare nel cestino la cartella { $name } con tutto ciò che contiene (1 foto, { $size })?
+   *[other] Spostare nel cestino la cartella { $name } con tutto ciò che contiene ({ $count } foto, { $size })?
+}
+dialog-delete-forever = Eliminare definitivamente?
+delete-forever-question = { $n ->
+    [one] Questo elemento non è potuto andare nel cestino (il suo disco non ne ha, per esempio un'unità di rete). Eliminarlo definitivamente? Non si potrà recuperare.
+   *[other] Questi { $n } elementi non sono potuti andare nel cestino (il loro disco non ne ha, per esempio un'unità di rete). Eliminarli definitivamente? Non si potranno recuperare.
+}
+delete-forever-button = Elimina definitivamente
+delete-forever-keep = Tienili
+task-move-across = { $n ->
+    [one] Spostamento di { $n } elemento su un altro disco
+   *[other] Spostamento di { $n } elementi su un altro disco
+}
+task-trash-folder = Spostamento di { $name } nel cestino
+task-delete = { $n ->
+    [one] Eliminazione di { $n } elemento
+   *[other] Eliminazione di { $n } elementi
+}
+moved-across = { $n ->
+    [one] { $n } elemento spostato su un altro disco.
+   *[other] { $n } elementi spostati su un altro disco.
+}
+fail-move = Impossibile spostare i file: errore imprevisto.
+fail-delete = Impossibile eliminare i file: errore imprevisto.
 files-moved = { $n ->
     [one] { $name } spostato in { $folder }.
    *[other] { $count } foto spostate in { $folder }.
 }
-files-moved-back = Rimesso al suo posto.
 files-more-problems = …e altri { $n }.
 trash-question-chosen = { $n ->
     [one] Spostare nel cestino questa foto ({ $size })?
@@ -1362,9 +1388,15 @@ move-missing = { $path } non c'è più.
 move-into-itself = Una cartella non può essere spostata dentro sé stessa.
 move-no-folder = La cartella { $path } non esiste.
 move-taken = { $name } esiste già lì.
-move-other-disk = { $path } è su un altro disco: AlbumCraft sposta foto e cartelle solo all'interno dello stesso disco.
 move-failed = Impossibile spostare { $path }: { $error }
 move-outside = { $path } non è nella libreria: scegli una cartella dentro una cartella della libreria.
+move-stopped = Interrotto: { $path } non è stato spostato.
+move-original-left = { $to } è stato copiato, ma l'originale { $path } non si è potuto rimuovere ({ $error }): ora ci sono entrambi.
+deleted-for-good = { $n ->
+    [one] { $n } elemento eliminato definitivamente.
+   *[other] { $n } elementi eliminati definitivamente.
+}
+deleted-stopped = Interrotto prima della fine.
 online-tile-bad = non è stato possibile leggere una tessera di mappa: { $error }
 online-map-down = Mappa online non raggiungibile ({ $error })
 online-search-down = La ricerca online non è raggiungibile ({ $error }).

@@ -81,9 +81,16 @@ pub trait Library {
     fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, opts: crate::export::Options, with_location: bool);
     /// Move these picture files to the system's trash (`library::move_to_trash`).
     fn trash(&self, task: Task, files: Vec<String>);
-    /// Move or rename a picture file or a folder on disk (`files::move_path`: one rename on the
-    /// same disk, never over something already there). Quick: answered directly.
+    /// Move or rename a picture file or a folder on disk (`files::move_path`, never over
+    /// something already there). Quick on the same disk; to another disk use `move_across`.
     fn move_path(&self, from: &str, to: &str) -> Result<(), String>;
+    /// `to` is on the same disk as `from` (`files::same_disk`).
+    fn same_disk(&self, from: &str, to: &str) -> bool;
+    /// Move files or folders to another disk (copied, checked, then the originals removed), as a
+    /// task: `Done::Moved` says what moved, then `Done::Report` ends the task.
+    fn move_across(&self, task: Task, pairs: Vec<(String, String)>);
+    /// Delete files or folders for good (what the trash refused), as a task.
+    fn delete_permanently(&self, task: Task, paths: Vec<String>);
     /// Forget the cached thumbnails of these pictures, off the window's thread; then
     /// `Done::ThumbsForgotten` says to ask for them again.
     fn forget_thumbs(&self, keys: Vec<String>);
@@ -367,11 +374,49 @@ impl Library for LocalLibrary {
     }
 
     fn trash(&self, task: Task, files: Vec<String>) {
-        self.run_task(task, tr!("fail-trash"), move |step| library::move_to_trash(&files, step));
+        let send = self.sender();
+        self.run_task(task, tr!("fail-trash"), move |step| {
+            let t = library::trash_files(&files, step);
+            if !t.refused.is_empty() {
+                send(Done::NotTrashed(t.refused.clone()));
+            }
+            t.report()
+        });
     }
 
     fn move_path(&self, from: &str, to: &str) -> Result<(), String> {
         crate::files::move_path(from, to)
+    }
+
+    fn same_disk(&self, from: &str, to: &str) -> bool {
+        crate::files::same_disk(from, to)
+    }
+
+    fn move_across(&self, task: Task, pairs: Vec<(String, String)>) {
+        let send = self.sender();
+        self.run_task(task, tr!("fail-move"), move |step| {
+            let (mut done, mut failed) = (vec![], vec![]);
+            let n = pairs.len();
+            for (i, (from, to)) in pairs.into_iter().enumerate() {
+                // progress in thousandths of each item, so one big folder moves the bar too
+                let r = crate::files::move_with(&from, &to, &|d, total| step(i * 1000 + (d.saturating_mul(1000) / total.max(1)) as usize, n * 1000));
+                match r {
+                    Ok(()) => done.push((from, to)),
+                    Err(e) => failed.push(e),
+                }
+            }
+            let report = if failed.is_empty() {
+                library::Report::done(tr!("moved-across", n = done.len()))
+            } else {
+                library::Report::failed(format!("{}\n{}", tr!("moved-across", n = done.len()), failed.join("\n")))
+            };
+            send(Done::Moved(done));
+            report
+        });
+    }
+
+    fn delete_permanently(&self, task: Task, paths: Vec<String>) {
+        self.run_task(task, tr!("fail-delete"), move |step| library::delete_permanently(&paths, step));
     }
 
     fn forget_thumbs(&self, keys: Vec<String>) {

@@ -520,11 +520,37 @@ move-filter = Filtrer les dossiers
 move-other = Autre dossier…
 move-none = Aucun autre dossier de la bibliothèque ne correspond.
 files-renamed = { $from } renommé en { $to }.
+folder-trash = Mettre le dossier à la corbeille…
+trash-folder-question = { $n ->
+    [one] Mettre à la corbeille le dossier { $name } et tout ce qu'il contient (1 photo, { $size }) ?
+   *[other] Mettre à la corbeille le dossier { $name } et tout ce qu'il contient ({ $count } photos, { $size }) ?
+}
+dialog-delete-forever = Supprimer définitivement ?
+delete-forever-question = { $n ->
+    [one] Cet élément n'a pas pu aller à la corbeille (son disque n'en a pas, par exemple un lecteur réseau). Le supprimer définitivement ? Il ne pourra pas être récupéré.
+   *[other] Ces { $n } éléments n'ont pas pu aller à la corbeille (leur disque n'en a pas, par exemple un lecteur réseau). Les supprimer définitivement ? Ils ne pourront pas être récupérés.
+}
+delete-forever-button = Supprimer définitivement
+delete-forever-keep = Les garder
+task-move-across = { $n ->
+    [one] Déplacement de { $n } élément vers un autre disque
+   *[other] Déplacement de { $n } éléments vers un autre disque
+}
+task-trash-folder = Mise à la corbeille de { $name }
+task-delete = { $n ->
+    [one] Suppression de { $n } élément
+   *[other] Suppression de { $n } éléments
+}
+moved-across = { $n ->
+    [one] { $n } élément déplacé vers un autre disque.
+   *[other] { $n } éléments déplacés vers un autre disque.
+}
+fail-move = Impossible de déplacer les fichiers : erreur inattendue.
+fail-delete = Impossible de supprimer les fichiers : erreur inattendue.
 files-moved = { $n ->
     [one] { $name } déplacé dans { $folder }.
    *[other] { $count } photos déplacées dans { $folder }.
 }
-files-moved-back = Remis à sa place.
 files-more-problems = …et { $n } de plus.
 trash-question-chosen = { $n ->
     [one] Mettre cette photo ({ $size }) à la corbeille ?
@@ -1362,9 +1388,15 @@ move-missing = { $path } n'est plus là.
 move-into-itself = Un dossier ne peut pas être déplacé dans lui-même.
 move-no-folder = Le dossier { $path } n'existe pas.
 move-taken = { $name } existe déjà à cet endroit.
-move-other-disk = { $path } est sur un autre disque : AlbumCraft ne déplace les photos et les dossiers que sur le même disque.
 move-failed = Impossible de déplacer { $path } : { $error }
 move-outside = { $path } n'est pas dans la bibliothèque : choisissez un dossier à l'intérieur d'un dossier de la bibliothèque.
+move-stopped = Arrêté : { $path } n'a pas été déplacé.
+move-original-left = { $to } a été copié, mais l'original { $path } n'a pas pu être supprimé ({ $error }) : les deux sont là maintenant.
+deleted-for-good = { $n ->
+    [one] { $n } élément supprimé définitivement.
+   *[other] { $n } éléments supprimés définitivement.
+}
+deleted-stopped = Arrêté avant la fin.
 online-tile-bad = une tuile de carte n'a pas pu être lue : { $error }
 online-map-down = Carte en ligne inaccessible ({ $error })
 online-search-down = La recherche en ligne est inaccessible ({ $error }).

@@ -15,6 +15,19 @@ fn name_of(path: &str) -> String {
     Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string())
 }
 
+/// "Renamed a to b." / "Moved 3 pictures to Trip."
+fn moved_text(done: &[(String, String)], renamed: bool) -> String {
+    match done {
+        [(from, to)] if renamed => tr!("files-renamed", from = name_of(from), to = name_of(to)),
+        [(from, to), ..] => {
+            let n = done.len();
+            let folder = Path::new(to).parent().map(|p| name_of(&p.to_string_lossy())).unwrap_or_default();
+            tr!("files-moved", n = n, count = crate::app::fmt_count(n), name = name_of(from), folder = folder)
+        }
+        [] => String::new(),
+    }
+}
+
 /// What a Move dialog moves.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Moving {
@@ -167,6 +180,10 @@ impl App {
             self.remove_folder_from_library(&f.path);
             ui.close();
         }
+        if ui.button(tr!("folder-trash")).clicked() {
+            self.ask_trash_folder(&f.path);
+            ui.close();
+        }
     }
 
     /// Open the dialog for a folder's caption and description.
@@ -259,7 +276,17 @@ impl App {
     /// Move or rename on disk, tell the user how it went (with Undo). Returns the first
     /// problem when nothing moved.
     pub fn move_files(&mut self, pairs: Vec<(String, String)>, renamed: bool) -> Result<(), String> {
-        let m = crate::commands::move_on_disk(self, &pairs);
+        // to another disk: copied in the background, as a task
+        let (near, far): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|(a, b)| self.lib.same_disk(a, b));
+        if !far.is_empty() {
+            let n = far.len();
+            let task = self.start_task(tr!("task-move-across", n = n));
+            self.lib.move_across(task, far);
+            if near.is_empty() {
+                return Ok(());
+            }
+        }
+        let m = crate::commands::move_on_disk(self, &near);
         if m.done.is_empty() {
             return Err(m.failed.first().cloned().unwrap_or_default());
         }
@@ -271,28 +298,67 @@ impl App {
             }
             self.error(lines.join("\n"));
         }
-        let text = match m.done.as_slice() {
-            [(from, to)] if renamed => tr!("files-renamed", from = name_of(from), to = name_of(to)),
-            [(from, to), ..] => {
-                let n = m.done.len();
-                let folder = Path::new(to).parent().map(|p| name_of(&p.to_string_lossy())).unwrap_or_default();
-                tr!("files-moved", n = n, count = crate::app::fmt_count(n), name = name_of(from), folder = folder)
-            }
-            [] => String::new(),
-        };
+        let text = moved_text(&m.done, renamed);
         self.undoable(text, Undo::Moved(m.done));
         Ok(())
+    }
+
+    /// Files or folders were moved to another disk in the background: the notes follow them.
+    pub fn moved_across(&mut self, done: Vec<(String, String)>) {
+        if done.is_empty() {
+            return;
+        }
+        for (from, to) in &done {
+            self.store.moved(from, to);
+        }
+        crate::commands::Host::moved(self, &done);
+        self.rescan();
+        let text = moved_text(&done, false);
+        self.undoable(text, Undo::Moved(done));
     }
 
     /// Put moved files back (Undo).
     pub fn move_back(&mut self, done: Vec<(String, String)>) {
         let back: Vec<(String, String)> = done.into_iter().rev().map(|(a, b)| (b, a)).collect();
-        let m = crate::commands::move_on_disk(self, &back);
-        if m.failed.is_empty() {
-            self.toast(tr!("files-moved-back"));
-        } else {
-            self.error(m.failed.into_iter().take(5).collect::<Vec<_>>().join("\n"));
+        if let Err(e) = self.move_files(back, false) {
+            self.error(e);
         }
+    }
+
+    /// Ask before moving a folder and everything in it to the trash.
+    pub fn ask_trash_folder(&mut self, path: &str) {
+        let inside = |p: &str| Path::new(p).starts_with(path);
+        let ids: Vec<usize> = self.folders.iter().filter(|f| inside(&f.path)).flat_map(|f| f.photos.iter().copied()).collect();
+        let bytes = ids.iter().filter_map(|&id| self.photos.get(id)).map(|p| p.bytes).sum();
+        self.dialog = Some(Dialog::TrashFolder { path: path.to_string(), pictures: ids.len(), bytes });
+    }
+
+    /// Move a folder to the trash (confirmed); a library folder leaves the list when it worked.
+    pub fn trash_folder(&mut self, path: String) {
+        let task = self.start_task(tr!("task-trash-folder", name = name_of(&path)));
+        self.rescan_after = Some(task.id);
+        if self.store.roots.iter().any(|r| Path::new(r) == Path::new(&path)) {
+            self.roots_after.push((task.id, path.clone()));
+        }
+        self.selection.clear();
+        self.tray_set = None;
+        self.list_pick = None;
+        self.lib.trash(task, vec![path]);
+    }
+
+    /// Delete for good what the trash refused (confirmed).
+    pub fn delete_forever(&mut self, paths: Vec<String>) {
+        let n = paths.len();
+        let task = self.start_task(tr!("task-delete", n = n));
+        self.rescan_after = Some(task.id);
+        for p in &paths {
+            if self.store.roots.iter().any(|r| Path::new(r) == Path::new(p)) {
+                self.roots_after.push((task.id, p.clone()));
+            }
+        }
+        self.selection.clear();
+        self.tray_set = None;
+        self.lib.delete_permanently(task, paths);
     }
 
     /// The Rename dialog's content; true when it is done.

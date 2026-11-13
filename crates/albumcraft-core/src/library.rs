@@ -1310,25 +1310,32 @@ pub struct Trashed {
     pub moved: usize,
     /// "file name: why" for each file left where it was.
     pub failed: Vec<String>,
+    /// The paths of those the trash refused (a disk without one, a network share…): they can
+    /// still be deleted for good if the user wants (`delete_permanently`).
+    pub refused: Vec<String>,
     pub stopped: bool,
 }
 
 /// Move these files to the system's trash (see `move_to_trash`).
 pub fn trash_files(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Trashed {
-    let mut t = Trashed { moved: 0, failed: vec![], stopped: false };
+    let mut t = Trashed { moved: 0, failed: vec![], refused: vec![], stopped: false };
     for (i, f) in files.iter().enumerate() {
         if !step(i, files.len()) {
             t.stopped = true;
             break;
         }
         let name = f.rsplit(['/', '\\']).next().unwrap_or(f);
-        if f.starts_with(SAMPLE_PREFIX) || !Path::new(f).is_file() {
+        // a picture file or a folder
+        if f.starts_with(SAMPLE_PREFIX) || std::fs::symlink_metadata(f).is_err() {
             t.failed.push(format!("{name}: not found"));
             continue;
         }
         match trash_one(Path::new(f)) {
             Ok(()) => t.moved += 1,
-            Err(e) => t.failed.push(format!("{name}: {e}")),
+            Err(e) => {
+                t.failed.push(format!("{name}: {e}"));
+                t.refused.push(f.clone());
+            }
         }
     }
     t
@@ -1401,6 +1408,39 @@ fn into_home_trash(file: &Path, trash: &Path) -> Option<Result<(), String>> {
     Some(Err("no free name in the trash".into()))
 }
 
+/// Delete these files or folders for good (no trash: they can't be brought back), after the user
+/// confirmed it; for what the trash refused. `step` as for `move_to_trash`.
+pub fn delete_permanently(paths: &[String], step: &dyn Fn(usize, usize) -> bool) -> Report {
+    let (mut deleted, mut failed, mut stopped) = (0usize, vec![], false);
+    for (i, p) in paths.iter().enumerate() {
+        if !step(i, paths.len()) {
+            stopped = true;
+            break;
+        }
+        let path = Path::new(p);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.clone());
+        let Ok(m) = std::fs::symlink_metadata(path).map_err(|_| ()).and_then(|m| if p.starts_with(SAMPLE_PREFIX) { Err(()) } else { Ok(m) }) else {
+            failed.push(format!("{name}: not found"));
+            continue;
+        };
+        let done = if m.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+        match done {
+            Ok(()) => deleted += 1,
+            Err(e) => failed.push(format!("{name}: {e}")),
+        }
+    }
+    let mut text: String = crate::msg!("deleted-for-good", "Deleted {n} {n:item|items} for good.", n = deleted).into();
+    if stopped {
+        text.push('\n');
+        text.push_str(&String::from(crate::msg!("deleted-stopped", "Stopped before the end.")));
+    }
+    for f in failed.iter().take(10) {
+        text.push_str("\n• ");
+        text.push_str(f);
+    }
+    if failed.is_empty() { Report::done(text) } else { Report::failed(text) }
+}
+
 impl Trashed {
     pub fn report(&self) -> Report {
         let (moved, failed, stopped) = (self.moved, &self.failed, self.stopped);
@@ -1450,6 +1490,12 @@ pub enum Done {
     Dropped(Vec<String>),
     /// A short progress note for the toast.
     Toast(String),
+    /// Files or folders moved to another disk in the background (`Library::move_across`):
+    /// (old path, new path) of those moved (the task's report says why others were not).
+    Moved(Vec<(String, String)>),
+    /// The trash refused these files or folders (`Trashed::refused`): the window asks whether to
+    /// delete them for good.
+    NotTrashed(Vec<String>),
     /// The cached thumbnails of these pictures were removed (`Library::forget_thumbs`): the
     /// window asks for them again.
     ThumbsForgotten(Vec<String>),

@@ -139,6 +139,12 @@ pub fn remove_folder(host: &mut dyn Host, path: &str) -> Result<Option<usize>, S
     Ok(at)
 }
 
+/// Before a folder goes to the trash: a library folder is taken off the list (it would be
+/// missing at every scan after).
+pub fn forget_root(store: &mut Store, path: &str) {
+    store.roots.retain(|r| Path::new(r) != Path::new(path));
+}
+
 /// Set a folder's caption and / or description (empty clears it).
 pub fn set_folder_text(store: &mut Store, path: &str, caption: Option<&str>, description: Option<&str>) {
     for (map, text) in [(&mut store.folder_captions, caption), (&mut store.folder_notes, description)] {
@@ -410,6 +416,22 @@ Call `rescan` afterwards to see the new pictures in the library.",
             name: "trash_pictures",
             description: "Move picture files to the system's trash: they are removed from their folders, and the user can get them back from the trash until it is emptied. Ask the user first, then call with confirm: true.",
             schema: || keys_schema(json!({ "confirm": { "type": "boolean", "description": "Must be true: the user agreed to move these files to the trash" } })),
+        },
+        Spec {
+            name: "trash_folder",
+            description: "Move a folder of the library, with everything in it, to the system's trash. Ask the user first, then call with confirm: true. A library folder is also taken off the library's list.",
+            schema: || json!({ "type": "object", "properties": {
+                "path": { "type": "string", "description": "The folder, as listed by list_folders" },
+                "confirm": { "type": "boolean", "description": "Must be true: the user agreed to move this folder to the trash" }
+            }, "required": ["path", "confirm"] }),
+        },
+        Spec {
+            name: "delete_permanently",
+            description: "Delete pictures or library folders for good, without the trash: they can't be brought back. Only for what the trash refused (`not_moved` of trash_pictures / trash_folder, e.g. on a network drive). Ask the user first, saying it can't be undone, then call with confirm: true.",
+            schema: || json!({ "type": "object", "properties": {
+                "paths": { "type": "array", "items": { "type": "string" }, "description": "Picture keys or library folders" },
+                "confirm": { "type": "boolean", "description": "Must be true: the user agreed to delete these for good" }
+            }, "required": ["paths", "confirm"] }),
         },
         Spec {
             name: "rename_picture",
@@ -1419,7 +1441,39 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let files: Vec<String> = chosen.iter().map(|&id| host.photos()[id].key.clone()).collect();
             let done = library::trash_files(&files, &|_, _| true);
             host.rescan();
-            now(json!({ "moved": done.moved, "not_moved": done.failed, "message": done.report().text }))
+            now(json!({ "moved": done.moved, "not_moved": done.failed, "refused_by_trash": done.refused, "message": done.report().text }))
+        }
+        "trash_folder" => {
+            let path = library_dir(host, str_arg(args, "path")?)?;
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: the folder and everything in it go to the system's trash".into());
+            }
+            let done = library::trash_files(std::slice::from_ref(&path), &|_, _| true);
+            if done.moved > 0 {
+                forget_root(host.store_mut(), &path);
+            }
+            host.rescan();
+            now(json!({ "moved": done.moved, "not_moved": done.failed, "refused_by_trash": done.refused, "message": done.report().text }))
+        }
+        "delete_permanently" => {
+            let paths = strings(args, "paths")?;
+            if paths.is_empty() {
+                return Err("`paths` is empty".into());
+            }
+            for p in &paths {
+                if host.find(p).is_none() {
+                    library_dir(host, p)?;
+                }
+            }
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: these are deleted for good and can't be brought back".into());
+            }
+            for p in &paths {
+                forget_root(host.store_mut(), p);
+            }
+            let r = library::delete_permanently(&paths, &|_, _| true);
+            host.rescan();
+            if r.ok { now(json!({ "message": r.text })) } else { Err(r.text) }
         }
         "rename_picture" => {
             let id = one(host, str_arg(args, "key")?)?;
@@ -1881,6 +1935,10 @@ mod tests {
         call(&mut h, "remove_folder", json!({ "path": summer })).unwrap();
         assert_eq!(h.photos().len(), 1);
         assert!(Path::new(&summer).join("dawn.jpg").is_file());
+        // deleting for good (the real trash is not used in tests)
+        let last = h.photos()[0].key.clone();
+        call(&mut h, "delete_permanently", json!({ "paths": [last], "confirm": true })).unwrap();
+        assert!(!Path::new(&last).exists() && h.photos().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2053,6 +2111,11 @@ mod tests {
             ("trash_rejected", json!({ "keys": [k], "confirm": true })),
             ("set_sort_order", json!({ "order": "colour" })),
             ("trash_pictures", json!({ "keys": [k] })),
+            ("trash_folder", json!({ "path": dir.join("pics").to_string_lossy() })),
+            ("trash_folder", json!({ "path": "/no/such/folder", "confirm": true })),
+            ("delete_permanently", json!({ "paths": [k] })),
+            ("delete_permanently", json!({ "paths": [], "confirm": true })),
+            ("delete_permanently", json!({ "paths": ["/etc/passwd"], "confirm": true })),
             ("trash_pictures", json!({ "keys": [k], "confirm": "yes" })),
             ("rename_picture", json!({ "key": k, "name": "a/b" })),
             ("rename_picture", json!({ "key": k, "name": "" })),

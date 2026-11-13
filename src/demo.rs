@@ -41,6 +41,10 @@ impl App {
                     let name = self.folders[0].name.clone();
                     self.dialog = Some(Dialog::Rename { path: path.clone(), folder: true, name, error: String::new() });
                 }
+                "trashfolder" => self.ask_trash_folder(&path.clone()),
+                "deleteforever" => {
+                    self.dialog = Some(Dialog::DeleteForever { paths: vec!["//nas/photos/2019/Trip".into(), "//nas/photos/2019/IMG_0042.jpg".into()] });
+                }
                 "movefolder" => {
                     self.dialog = Some(Dialog::MoveTo { what: crate::file_actions::Moving::Folder(path.clone()), filter: String::new(), error: String::new() });
                 }

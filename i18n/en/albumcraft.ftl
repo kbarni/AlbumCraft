@@ -525,11 +525,37 @@ move-filter = Filter folders
 move-other = Other folder…
 move-none = No other folder of the library matches.
 files-renamed = Renamed { $from } to { $to }.
+folder-trash = Move folder to the trash…
+trash-folder-question = { $n ->
+    [one] Move the folder { $name } and everything in it (1 picture, { $size }) to the trash?
+   *[other] Move the folder { $name } and everything in it ({ $count } pictures, { $size }) to the trash?
+}
+dialog-delete-forever = Delete for good?
+delete-forever-question = { $n ->
+    [one] This item could not go to the trash (its disk has none, for example a network drive). Delete it for good? It can't be brought back.
+   *[other] These { $n } items could not go to the trash (their disk has none, for example a network drive). Delete them for good? They can't be brought back.
+}
+delete-forever-button = Delete for good
+delete-forever-keep = Keep them
+task-move-across = { $n ->
+    [one] Moving { $n } item to another disk
+   *[other] Moving { $n } items to another disk
+}
+task-trash-folder = Moving { $name } to the trash
+task-delete = { $n ->
+    [one] Deleting { $n } item
+   *[other] Deleting { $n } items
+}
+moved-across = { $n ->
+    [one] Moved { $n } item to another disk.
+   *[other] Moved { $n } items to another disk.
+}
+fail-move = Could not move the files: unexpected error.
+fail-delete = Could not delete the files: unexpected error.
 files-moved = { $n ->
     [one] Moved { $name } to { $folder }.
    *[other] Moved { $count } pictures to { $folder }.
 }
-files-moved-back = Put back where it was.
 files-more-problems = …and { $n } more.
 trash-question-chosen = { $n ->
     [one] Move this picture ({ $size }) to the trash?
@@ -1368,9 +1394,15 @@ move-missing = { $path } is not there any more.
 move-into-itself = A folder can't be moved into itself.
 move-no-folder = The folder { $path } doesn't exist.
 move-taken = { $name } already exists there.
-move-other-disk = { $path } is on another disk: AlbumCraft only moves pictures and folders within the same disk.
 move-failed = Could not move { $path }: { $error }
 move-outside = { $path } is not in the library: choose a folder inside a library folder.
+move-stopped = Stopped: { $path } was not moved.
+move-original-left = { $to } was copied, but the original { $path } could not be removed ({ $error }): both are there now.
+deleted-for-good = { $n ->
+    [one] Deleted { $n } item for good.
+   *[other] Deleted { $n } items for good.
+}
+deleted-stopped = Stopped before the end.
 online-tile-bad = a map tile could not be read: { $error }
 online-map-down = Online map not reachable ({ $error })
 online-search-down = The online search is not reachable ({ $error }).

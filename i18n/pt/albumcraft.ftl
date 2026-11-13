@@ -520,11 +520,37 @@ move-filter = Filtrar pastas
 move-other = Outra pasta…
 move-none = Nenhuma outra pasta da biblioteca corresponde.
 files-renamed = { $from } renomeado para { $to }.
+folder-trash = Mover a pasta para a lixeira…
+trash-folder-question = { $n ->
+    [one] Mover para a lixeira a pasta { $name } com tudo o que contém (1 foto, { $size })?
+   *[other] Mover para a lixeira a pasta { $name } com tudo o que contém ({ $count } fotos, { $size })?
+}
+dialog-delete-forever = Excluir definitivamente?
+delete-forever-question = { $n ->
+    [one] Este item não pôde ir para a lixeira (o disco dele não tem, por exemplo uma unidade de rede). Excluí-lo definitivamente? Ele não poderá ser recuperado.
+   *[other] Estes { $n } itens não puderam ir para a lixeira (o disco deles não tem, por exemplo uma unidade de rede). Excluí-los definitivamente? Eles não poderão ser recuperados.
+}
+delete-forever-button = Excluir definitivamente
+delete-forever-keep = Mantê-los
+task-move-across = { $n ->
+    [one] Movendo { $n } item para outro disco
+   *[other] Movendo { $n } itens para outro disco
+}
+task-trash-folder = Movendo { $name } para a lixeira
+task-delete = { $n ->
+    [one] Excluindo { $n } item
+   *[other] Excluindo { $n } itens
+}
+moved-across = { $n ->
+    [one] { $n } item movido para outro disco.
+   *[other] { $n } itens movidos para outro disco.
+}
+fail-move = Não foi possível mover os arquivos: erro inesperado.
+fail-delete = Não foi possível excluir os arquivos: erro inesperado.
 files-moved = { $n ->
     [one] { $name } movido para { $folder }.
    *[other] { $count } fotos movidas para { $folder }.
 }
-files-moved-back = Devolvido ao seu lugar.
 files-more-problems = …e mais { $n }.
 trash-question-chosen = { $n ->
     [one] Mover esta foto ({ $size }) para a lixeira?
@@ -1362,9 +1388,15 @@ move-missing = { $path } não está mais lá.
 move-into-itself = Uma pasta não pode ser movida para dentro de si mesma.
 move-no-folder = A pasta { $path } não existe.
 move-taken = { $name } já existe lá.
-move-other-disk = { $path } está em outro disco: o AlbumCraft só move fotos e pastas dentro do mesmo disco.
 move-failed = Não foi possível mover { $path }: { $error }
 move-outside = { $path } não está na biblioteca: escolha uma pasta dentro de uma pasta da biblioteca.
+move-stopped = Interrompido: { $path } não foi movido.
+move-original-left = { $to } foi copiado, mas o original { $path } não pôde ser removido ({ $error }): agora os dois estão lá.
+deleted-for-good = { $n ->
+    [one] { $n } item excluído definitivamente.
+   *[other] { $n } itens excluídos definitivamente.
+}
+deleted-stopped = Interrompido antes do fim.
 online-tile-bad = não foi possível ler um bloco de mapa: { $error }
 online-map-down = Mapa online inacessível ({ $error })
 online-search-down = A busca online está inacessível ({ $error }).

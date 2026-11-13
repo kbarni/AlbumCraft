@@ -33,7 +33,8 @@ impl App {
             Dialog::About => tr!("dialog-about"),
             Dialog::OnlineMaps => tr!("dialog-online-maps"),
             Dialog::PrintReview { .. } => tr!("dialog-print-review"),
-            Dialog::Trash { .. } => tr!("dialog-trash"),
+            Dialog::Trash { .. } | Dialog::TrashFolder { .. } => tr!("dialog-trash"),
+            Dialog::DeleteForever { .. } => tr!("dialog-delete-forever"),
             Dialog::Settings { .. } => tr!("settings-title"),
         };
         let targets = self.targets();
@@ -275,6 +276,47 @@ impl App {
                             close = true;
                         }
                         if ui.button(tr!("button-cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::TrashFolder { path, pictures, bytes } => {
+                    let name = std::path::Path::new(path.as_str()).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+                    let (n, count, size) = (*pictures, crate::app::fmt_count(*pictures), crate::library::fmt_bytes(*bytes));
+                    ui.label(format!("{}\n\n{}", tr!("trash-folder-question", name = name, n = n, count = count, size = size), tr!("trash-explain")));
+                    ui.add_space(8.0);
+                    // no Enter here: this one removes files
+                    ui.horizontal(|ui| {
+                        if ui.button(tr!("trash-move")).clicked() {
+                            let path = std::mem::take(path);
+                            self.trash_folder(path);
+                            close = true;
+                        }
+                        if ui.button(tr!("button-cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::DeleteForever { paths } => {
+                    let n = paths.len();
+                    ui.label(tr!("delete-forever-question", n = n));
+                    ui.add_space(4.0);
+                    for p in paths.iter().take(6) {
+                        ui.label(egui::RichText::new(format!("• {p}")).weak());
+                    }
+                    if n > 6 {
+                        let more = n - 6;
+                        ui.label(egui::RichText::new(tr!("files-more-problems", n = more)).weak());
+                    }
+                    ui.add_space(8.0);
+                    // no Enter here: nothing brings these back
+                    ui.horizontal(|ui| {
+                        if ui.button(egui::RichText::new(tr!("delete-forever-button")).color(crate::theme::t().reject)).clicked() {
+                            let paths = std::mem::take(paths);
+                            self.delete_forever(paths);
+                            close = true;
+                        }
+                        if ui.button(tr!("delete-forever-keep")).clicked() {
                             close = true;
                         }
                     });
