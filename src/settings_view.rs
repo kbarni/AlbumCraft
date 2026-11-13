@@ -6,7 +6,7 @@ use crate::app::*;
 use crate::i18n::{self, tr};
 use crate::icons;
 use crate::library::{BarStyle, Cache, fmt_bytes};
-use crate::theme::Mode;
+use crate::theme::{Mode, t};
 use eframe::egui::{self, RichText};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -117,7 +117,7 @@ impl App {
                             SettingsSection::Export => self.settings_export(ui),
                             SettingsSection::Maps => self.settings_maps(ui),
                             SettingsSection::Storage => self.settings_storage(ui),
-                            SettingsSection::Ai => settings_ai(ui),
+                            SettingsSection::Ai => self.settings_ai(ui),
                         }
                     });
                 });
@@ -394,22 +394,114 @@ impl App {
     }
 }
 
-fn settings_ai(ui: &mut egui::Ui) {
-    note(ui, &tr!("settings-ai-soon"));
-    ui.add_space(4.0);
-    for (title, text) in [
-        (tr!("settings-ai-faces"), tr!("settings-ai-faces-text")),
-        (tr!("settings-ai-search"), tr!("settings-ai-search-text")),
-        (tr!("settings-ai-tags"), tr!("settings-ai-tags-text")),
-    ] {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(title).strong());
-            ui.label(text);
-        });
+impl App {
+    fn settings_ai(&mut self, ui: &mut egui::Ui) {
+        note(ui, &tr!("settings-ai-intro"));
+        if !crate::ai::runtime::available() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(tr!("settings-ai-unavailable")).color(t().bad));
+        }
+
+        group(ui, &tr!("settings-ai-networks"));
+        let now = ui.input(|i| i.time);
+        if now - self.packs_at > 1.0 {
+            self.packs_at = now;
+            self.packs = self.lib.model_packs();
+        }
+        if self.packs.is_empty() {
+            ui.label(tr!("settings-ai-soon"));
+            ui.add_space(2.0);
+            for (title, text) in [
+                (tr!("settings-ai-faces"), tr!("settings-ai-faces-text")),
+                (tr!("settings-ai-search"), tr!("settings-ai-search-text")),
+                (tr!("settings-ai-tags"), tr!("settings-ai-tags-text")),
+            ] {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(title).strong());
+                    ui.label(text);
+                });
+                ui.add_space(2.0);
+            }
+        }
+        let downloading = |id: &str, tasks: &[RunningTask]| tasks.iter().any(|t| t.label == download_label(id));
+        let (mut download, mut remove) = (None, None);
+        for p in &self.packs {
+            let pack = &p.pack;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(&pack.title).strong());
+                ui.label(RichText::new(tr!("settings-ai-pack-size", size = fmt_bytes(pack.bytes()), licence = pack.licence.as_str())).size(12.0).weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if p.installed {
+                        if ui.button(tr!("settings-ai-remove")).on_hover_text(tr!("settings-ai-remove-hint")).clicked() {
+                            remove = Some(pack.id.clone());
+                        }
+                        ui.label(RichText::new(format!("{} {}", icons::CHECK, tr!("settings-ai-downloaded"))).size(12.0).color(t().good));
+                    } else if downloading(&pack.id, &self.tasks) {
+                        ui.spinner();
+                        ui.label(RichText::new(tr!("settings-ai-downloading")).size(12.0).weak());
+                    } else if ui.add_enabled(crate::ai::runtime::available(), egui::Button::new(tr!("settings-ai-download"))).clicked() {
+                        download = Some(pack.id.clone());
+                    }
+                });
+            });
+            if !pack.about.is_empty() {
+                note(ui, &pack.about);
+            }
+            ui.add_space(6.0);
+        }
+        if let Some(id) = download {
+            self.download_pack(&id);
+        }
+        if let Some(id) = remove {
+            if let Err(e) = self.lib.remove_pack(&id) {
+                self.error(tr!("settings-ai-remove-failed", error = e.to_string()));
+            }
+            self.packs_at = f64::NEG_INFINITY;
+        }
+
+        // with more than one search pack on this computer, which one searches
+        let search: Vec<(String, String)> = self.packs.iter().filter(|p| p.installed && p.pack.search.is_some()).map(|p| (p.pack.id.clone(), p.pack.title.clone())).collect();
+        if search.len() > 1 {
+            group(ui, &tr!("settings-ai-search-uses"));
+            let choice = &mut self.store.search_pack;
+            let mut changed = ui.radio_value(choice, String::new(), tr!("settings-ai-search-auto")).on_hover_text(tr!("settings-ai-search-auto-hint")).changed();
+            for (id, title) in search {
+                changed |= ui.radio_value(choice, id, title).changed();
+            }
+            if changed {
+                self.dirty = true;
+                self.smart.recheck();
+            }
+        }
+
+        group(ui, &tr!("settings-ai-analysis"));
+        note(ui, &tr!("settings-ai-analysis-text"));
         ui.add_space(2.0);
+        let a = self.analysis;
+        ui.label(if a.active() {
+            let (done, total) = (fmt_count(a.done), fmt_count(a.total));
+            if a.paused { tr!("settings-ai-progress-paused", n = a.total, done = done, total = total) } else { tr!("settings-ai-progress", n = a.total, done = done, total = total) }
+        } else if self.packs.iter().any(|p| p.installed) {
+            tr!("settings-ai-all-analysed")
+        } else {
+            tr!("settings-ai-nothing")
+        });
+        if ui.checkbox(&mut self.store.analysis_paused, tr!("settings-ai-pause")).changed() {
+            self.dirty = true;
+        }
     }
-    ui.add_space(6.0);
-    note(ui, &tr!("settings-ai-local"));
+
+    /// Download a pack of networks, as a task in the status bar.
+    pub fn download_pack(&mut self, id: &str) {
+        let task = self.start_task(download_label(id));
+        self.lib.download_pack(task, id.to_string());
+    }
+}
+
+/// The status bar's label of a pack's download (also how a running download is recognised).
+fn download_label(id: &str) -> String {
+    let title = crate::ai::models::manifest().pack(id).map(|p| p.title.as_str()).unwrap_or(id);
+    tr!("settings-ai-download-task", pack = title)
 }
 
 /// `path` is the folder `root` or inside it.

@@ -1,8 +1,8 @@
 [workspace]
 # The desktop app (this package) and the libraries it is built from; see "Code layout" in CLAUDE.md.
-members = [".", "crates/albumcraft-edit", "crates/albumcraft-core"]
+members = [".", "crates/albumcraft-edit", "crates/albumcraft-core", "crates/albumcraft-ai"]
 # plain `cargo build` / `cargo test` (as CI runs them) cover every crate
-default-members = [".", "crates/albumcraft-edit", "crates/albumcraft-core"]
+default-members = [".", "crates/albumcraft-edit", "crates/albumcraft-core", "crates/albumcraft-ai"]
 resolver = "3"
 
 [workspace.package]
@@ -12,7 +12,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kbarni/AlbumCraft"
 
 [workspace.dependencies]
-albumcraft-core = { path = "crates/albumcraft-core" }
+albumcraft-ai = { path = "crates/albumcraft-ai", default-features = false }
+albumcraft-core = { path = "crates/albumcraft-core", default-features = false }
 albumcraft-edit = { path = "crates/albumcraft-edit" }
 ab_glyph = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -34,6 +35,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+
+[features]
+default = ["onnx"]
+# ONNX Runtime linked in, to run the networks of the AI features (see crates/albumcraft-ai).
+# `cargo build --no-default-features` builds the app without it.
+onnx = ["albumcraft-core/onnx"]
 
 [dependencies]
 albumcraft-core.workspace = true

@@ -1,0 +1,105 @@
+{
+  "packs": [
+    {
+      "id": "search-light",
+      "title": "Smart search: Light",
+      "about": "Find pictures by describing them, in English (OpenCLIP ViT-B/32, trained on LAION-2B).",
+      "licence": "MIT",
+      "version": 1,
+      "release": "model-1",
+      "files": [
+        {
+          "name": "clip-vit-b32-image-1.onnx",
+          "size": 89008320,
+          "sha256": "9e908d3e4dd4e66a653cbda998866f2a4c6f9ce58f241686ab7e49ab1c2ff32b"
+        },
+        {
+          "name": "clip-vit-b32-text-1.onnx",
+          "size": 127373312,
+          "sha256": "362ba5e06c96dcb5ebb5e5f204a8b725f45c84084dcb57d970ed810ca905adcd"
+        },
+        {
+          "name": "clip-tokenizer-1.json",
+          "size": 2224041,
+          "sha256": "b556ac8c99757ffb677208af34bc8c6721572114111a6e0aaf5fa69ff0b8d842"
+        }
+      ],
+      "search": {
+        "model": "clip-vit-b32-laion2b-1",
+        "image": "clip-vit-b32-image-1.onnx",
+        "text": "clip-vit-b32-text-1.onnx",
+        "tokenizer": "clip-tokenizer-1.json",
+        "dim": 512,
+        "size": 224,
+        "mean": [
+          0.48145466,
+          0.4578275,
+          0.40821073
+        ],
+        "std": [
+          0.26862954,
+          0.26130258,
+          0.27577711
+        ],
+        "context": 77,
+        "pad_id": 0,
+        "prompt": "a photo of {}",
+        "lowercase": true,
+        "multilingual": false,
+        "min_score": 0.2
+      }
+    },
+    {
+      "id": "search-multilingual",
+      "title": "Smart search: Multilingual",
+      "about": "Find pictures by describing them, in your language (SigLIP 2 ViT-B/32 at 256 px, by Google).",
+      "licence": "Apache 2.0",
+      "version": 1,
+      "release": "model-1",
+      "files": [
+        {
+          "name": "siglip2-b32-image-1.onnx",
+          "size": 133113783,
+          "sha256": "a0ed8a9efd136e7ee8663de6ffc910ff615d9defeff51ed9ef8d5f9f2d8919b0"
+        },
+        {
+          "name": "siglip2-b32-text-1.onnx",
+          "size": 368354136,
+          "sha256": "a3649ebad0d76ee1ada25573f0e1c5447af1e7f2d55b9aba4c3971df8d4af20a"
+        },
+        {
+          "name": "siglip2-tokenizer-1.json",
+          "size": 34362885,
+          "sha256": "220c63d496e0c14e63eb656c91e0215e926202e4c74b1f089e09f1920d779b04"
+        }
+      ],
+      "search": {
+        "model": "siglip2-b32-256-1",
+        "image": "siglip2-b32-image-1.onnx",
+        "text": "siglip2-b32-text-1.onnx",
+        "tokenizer": "siglip2-tokenizer-1.json",
+        "dim": 768,
+        "size": 256,
+        "squash": true,
+        "mean": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "std": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "context": 64,
+        "pad_id": 0,
+        "prompt": "{}",
+        "lowercase": true,
+        "no_punctuation": true,
+        "multilingual": true,
+        "min_score": 0.07,
+        "text_margin": 0.025
+      }
+    }
+  ]
+}

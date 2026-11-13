@@ -96,6 +96,21 @@ impl App {
                         ui.text_edit_singleline(people);
                         ui.end_row();
                     });
+                    // proposed tags: a click puts one in the field
+                    let (proposed, not) = self.proposal_chips(ui, &targets);
+                    if let Some(tag) = proposed {
+                        let have = tags.split(',').any(|t| t.trim().eq_ignore_ascii_case(&tag));
+                        if !have {
+                            if !tags.trim().is_empty() {
+                                tags.push_str(", ");
+                            }
+                            tags.push_str(&tag);
+                        }
+                    }
+                    if let Some(tag) = not {
+                        self.not_this_tag(&targets, &tag);
+                    }
+                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         if ui.button(tr!("tags-add")).clicked() || enter {
                             let split = |s: &str| -> Vec<String> {
@@ -108,6 +123,7 @@ impl App {
                                     if !m.tags.contains(x) {
                                         m.tags.push(x.clone());
                                     }
+                                    m.not_tags.retain(|n| !n.eq_ignore_ascii_case(x));
                                 }
                                 for x in &p {
                                     if !m.people.contains(x) {

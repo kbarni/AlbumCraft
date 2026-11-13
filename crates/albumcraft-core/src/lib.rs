@@ -8,6 +8,9 @@
 
 pub use albumcraft_edit::{decor, develop, looks, steps};
 
+pub use albumcraft_ai as ai;
+
+pub mod analysis;
 pub mod catalogue;
 pub mod commands;
 pub mod control;
@@ -30,4 +33,7 @@ pub mod collage;
 pub mod print;
 pub mod raw;
 pub mod slides;
+pub mod smart_search;
+pub mod tag_proposals;
 pub mod thumbcache;
+pub mod vocabulary;

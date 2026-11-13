@@ -438,6 +438,22 @@ impl App {
                     {
                         t.stop.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
+                    if self.analysis.active() {
+                        ui.separator();
+                        let a = self.analysis;
+                        let (done, total) = (fmt_count(a.done), fmt_count(a.total));
+                        if a.paused {
+                            ui.label(RichText::new(tr!("status-analysis-paused", done = done, total = total)).size(12.0).weak());
+                        } else {
+                            ui.add(egui::ProgressBar::new(a.done as f32 / a.total.max(1) as f32).desired_width(120.0));
+                            ui.label(RichText::new(tr!("status-analysis", done = done, total = total)).size(12.0));
+                        }
+                        let (label, hint) = if a.paused { (tr!("status-analysis-resume"), tr!("status-analysis-resume-hint")) } else { (tr!("status-analysis-pause"), tr!("status-analysis-pause-hint")) };
+                        if ui.small_button(label).on_hover_text(hint).clicked() {
+                            self.store.analysis_paused = !a.paused;
+                            self.dirty = true;
+                        }
+                    }
                     if self.using_samples {
                         ui.separator();
                         ui.label(
@@ -716,6 +732,10 @@ impl App {
             if ui.button(tr!("ctx-slideshow")).clicked() {
                 let list = self.visible_flat();
                 self.start_slideshow(list, id);
+                ui.close();
+            }
+            if self.smart.pack.is_some() && !self.photos[id].is_sample() && ui.button(format!("{} {}", icons::SEARCH, tr!("ctx-more-like-this"))).on_hover_text(tr!("ctx-more-like-this-hint")).clicked() {
+                self.more_like_this(id);
                 ui.close();
             }
             ui.separator();

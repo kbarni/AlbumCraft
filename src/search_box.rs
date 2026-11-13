@@ -162,6 +162,10 @@ impl App {
                             SearchTerm::Tag(n) => (icons::TAG, n),
                             SearchTerm::Place(n) => (icons::LOCATION, n),
                             SearchTerm::Person(n) => (icons::PERSON, n),
+                            SearchTerm::Like(key) => {
+                                let name = self.key_index.get(key).and_then(|&id| self.photos.get(id)).map(|p| p.name.clone()).unwrap_or_else(|| std::path::Path::new(key).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+                                (icons::SEARCH, &tr!("search-like-chip", name = name))
+                            }
                         };
                         let chip = egui::Button::new(RichText::new(format!("{icon} {name} {}", icons::CLOSE)).size(12.0)).fill(t().select_bg).corner_radius(10);
                         if ui.add(chip).on_hover_text(tr!("search-remove-hint")).clicked() {
@@ -253,6 +257,7 @@ impl App {
                         Suggestion::Term(SearchTerm::Tag(n), c) => (tr!("search-kind-tags"), icons::TAG, n.clone(), Some(*c)),
                         Suggestion::Term(SearchTerm::Place(n), c) => (tr!("nav-places"), icons::LOCATION, n.clone(), Some(*c)),
                         Suggestion::Term(SearchTerm::Person(n), c) => (tr!("nav-people"), icons::PERSON, n.clone(), Some(*c)),
+                        Suggestion::Term(SearchTerm::Like(n), c) => (tr!("search-similar-title"), icons::SEARCH, n.clone(), Some(*c)),
                         Suggestion::Album(a, c) => (tr!("nav-albums"), icons::ALBUM, self.store.albums.get(*a).map(|a| a.name.clone()).unwrap_or_default(), Some(*c)),
                         Suggestion::Folder(f, c) => (tr!("nav-folders"), icons::FOLDER, self.folders.get(*f).map(|f| f.name.clone()).unwrap_or_default(), Some(*c)),
                     };

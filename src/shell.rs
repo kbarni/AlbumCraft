@@ -81,6 +81,8 @@ enum Step {
 }
 /// The height of a folder's header before it was drawn once (name line and spacing).
 const HEADER_H: f32 = 48.0;
+/// Where the height of the "Looks like" header is kept among the folder headers' heights.
+const LOOKS_LIKE_HEADER: usize = usize::MAX;
 
 /// The grid's layout, kept between frames (`App::grid_rows`).
 pub struct GridCache {
@@ -763,9 +765,13 @@ impl App {
                         let Some(rows) = cache.layout.get(gi) else { break };
                         let (left, top) = (ui.cursor().left(), ui.cursor().top());
                         // a header not drawn yet is taken to be one line high
-                        let head = folder.map_or(0.0, |fi| cache.header_h.get(&fi).copied().unwrap_or(HEADER_H) + GAP);
+                        let head = match folder {
+                            Head::Folder(fi) => cache.header_h.get(fi).copied().unwrap_or(HEADER_H) + GAP,
+                            Head::LooksLike => cache.header_h.get(&LOOKS_LIKE_HEADER).copied().unwrap_or(HEADER_H) + GAP,
+                            Head::Plain => 0.0,
+                        };
                         let total = head + rows.height + 14.0;
-                        if folder.is_some() && to_folder == *folder {
+                        if folder.folder().is_some() && to_folder == folder.folder() {
                             ui.scroll_to_rect(Rect::from_min_size(Pos2::new(left, top), egui::vec2(width, head.max(1.0))), Some(egui::Align::TOP));
                         }
                         if let Some(k) = to_photo.and_then(|id| ids.iter().position(|&x| x == id))
@@ -784,9 +790,16 @@ impl App {
                             ui.add_space(total);
                             continue;
                         }
-                        if let Some(fi) = folder {
-                            let r = self.group_header(ui, *fi, ids);
-                            cache.header_h.insert(*fi, r.rect.height());
+                        match folder {
+                            Head::Folder(fi) => {
+                                let r = self.group_header(ui, *fi, ids);
+                                cache.header_h.insert(*fi, r.rect.height());
+                            }
+                            Head::LooksLike => {
+                                let r = self.looks_like_header(ui, ids);
+                                cache.header_h.insert(LOOKS_LIKE_HEADER, r.rect.height());
+                            }
+                            Head::Plain => {}
                         }
                         let body = ui.cursor().top();
                         let n = rows.rows.len();
@@ -1152,7 +1165,7 @@ mod tests {
     /// shape. Up and down go to the picture above or below, also across folders.
     #[test]
     fn arrow_keys_follow_the_rows() {
-        let groups: Rc<Vec<Group>> = Rc::new(vec![(Some(0), vec![0, 1, 2, 3, 4]), (Some(1), vec![5, 6, 7])]);
+        let groups: Rc<Vec<Group>> = Rc::new(vec![(Head::Folder(0), vec![0, 1, 2, 3, 4]), (Head::Folder(1), vec![5, 6, 7])]);
         let rows = |n: usize, rows: Vec<(usize, usize, f32)>| GroupRows { aspects: vec![1.0; n], tops: vec![0.0; rows.len()], height: 0.0, rows };
         let cache = GridCache {
             groups: groups.clone(),

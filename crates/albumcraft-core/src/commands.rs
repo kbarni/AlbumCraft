@@ -38,6 +38,10 @@ pub trait Host {
     /// The GPS positions stored in the picture files, by key (None: the file has none). Pictures
     /// not looked at yet may be missing.
     fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>>;
+    /// How far the background analysis of the library is (only the window runs it).
+    fn analysis(&self) -> Option<crate::analysis::Progress> {
+        None
+    }
 }
 
 /// The position to use for a picture: the place set by the user, else the file's GPS.
@@ -417,6 +421,51 @@ Call `rescan` afterwards to see the new pictures in the library.",
             name: "remove_location",
             description: "Remove the location of pictures, including the GPS position stored in the file (hidden, the file is not changed). With back_to_file, forget the location set in AlbumCraft and use the file's own GPS position again.",
             schema: || keys_schema(json!({ "back_to_file": { "type": "boolean", "default": false, "required": false } })),
+        },
+        Spec {
+            name: "ai_status",
+            description: "The AI features (faces, smart search, tag proposals; everything is computed on the user's computer): whether this build can run networks, the packs of networks that can be downloaded with their size, licence and whether they are installed, and how far the background analysis of the library is (only while the AlbumCraft window is open).",
+            schema: || json!({ "type": "object", "properties": {} }),
+        },
+        Spec {
+            name: "download_model_pack",
+            description: "Download a pack of networks for the AI features (see ai_status for the packs and their sizes) from AlbumCraft's own releases; continues a download that was cut. Nothing about the user or the pictures is sent. Ask the user first: packs are 10 to 400 MB.",
+            schema: || json!({ "type": "object", "properties": { "pack": { "type": "string", "description": "The pack's id, from ai_status" } }, "required": ["pack"] }),
+        },
+        Spec {
+            name: "remove_model_pack",
+            description: "Remove a downloaded pack of networks from the computer. What was computed with it is kept.",
+            schema: || json!({ "type": "object", "properties": { "pack": { "type": "string" } }, "required": ["pack"] }),
+        },
+        Spec {
+            name: "semantic_search",
+            description: "Find pictures by describing what is in them (\"group photo sailing\", \"red car in the snow\", \"autumn forest\"), ranked best first; computed on the user's computer with the smart search pack (see ai_status; it must be downloaded, and only pictures already analysed are found). Without `limit`, only the matches close to the best one are given. Scores rank pictures of one search; they are not probabilities. Use search_photos for names, tags, captions, people and places.",
+            schema: || {
+                json!({ "type": "object", "properties": {
+                    "text": { "type": "string", "description": "What the pictures show, in a few words" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "How many pictures to give, best first (default: the good matches)" }
+                }, "required": ["text"] })
+            },
+        },
+        Spec {
+            name: "similar_pictures",
+            description: "Pictures that look like a given one (same scene, subject or event), best first, from the smart search pack's analysis (see ai_status). Without `limit`, only the close ones are given.",
+            schema: || {
+                json!({ "type": "object", "properties": {
+                    "key": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 2000 }
+                }, "required": ["key"] })
+            },
+        },
+        Spec {
+            name: "propose_tags",
+            description: "Tags proposed for pictures (for several, the tags most of them would get), best first, at most five: the user's own tags of the pictures that look alike or are in the same folder or place, and a built-in vocabulary (beach, wedding, dog, sunset…) in the user's language. From the smart search pack's analysis (see ai_status). Nothing is added: tag_photos adds the ones to keep. `partial`: the built-in vocabulary is still being prepared (a minute after the first call); ask again later for more.",
+            schema: || json!({ "type": "object", "properties": { "keys": { "type": "array", "items": { "type": "string" } } }, "required": ["keys"] }),
+        },
+        Spec {
+            name: "pause_analysis",
+            description: "Pause (or resume) the background analysis of the library by the AI features. What is analysed is kept.",
+            schema: || json!({ "type": "object", "properties": { "paused": { "type": "boolean" } }, "required": ["paused"] }),
         },
         Spec {
             name: "find_place",
@@ -945,6 +994,87 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 })))
             })))
         }
+        "ai_status" => {
+            let packs: Vec<Value> = crate::analysis::packs()
+                .iter()
+                .map(|p| json!({ "id": p.pack.id, "title": p.pack.title, "about": p.pack.about, "licence": p.pack.licence, "version": p.pack.version, "bytes": p.pack.bytes(), "installed": p.installed }))
+                .collect();
+            let analysis = host.analysis().map(|a| json!({ "analysed": a.done, "to_analyse": a.total, "running": a.active() && !a.paused }));
+            let search = crate::smart_search::active(&host.store().search_pack, &host.store().language).map(|p| p.id.clone());
+            now(json!({ "can_run_networks": crate::ai::runtime::available(), "packs": packs, "analysis_paused": host.store().analysis_paused, "analysis": analysis, "search_pack": search }))
+        }
+        "download_model_pack" => {
+            let id = str_arg(args, "pack")?.to_string();
+            if !crate::analysis::packs().iter().any(|p| p.pack.id == id) {
+                return Err(format!("no pack is named {id:?} (see ai_status)"));
+            }
+            Ok(Outcome::Later(Box::new(move || {
+                let report = crate::analysis::download_pack(&id, &|_, _| true);
+                if report.ok { Ok(Reply::json(json!({ "downloaded": id, "message": report.text }))) } else { Err(report.text) }
+            })))
+        }
+        "remove_model_pack" => {
+            let id = str_arg(args, "pack")?;
+            crate::analysis::remove_pack(id)?;
+            now(json!({ "removed": id }))
+        }
+        "propose_tags" => {
+            let ids = ids(host, args)?;
+            let store = host.store();
+            let pack = crate::smart_search::active(&store.search_pack, &store.language)
+                .ok_or("tag proposals need a search pack: none is downloaded (see ai_status and download_model_pack)")?;
+            let set = |_: &str, m: &library::Meta| crate::geo::effective(m.place.as_ref(), None);
+            let photos = host.photos();
+            let targets: Vec<crate::tag_proposals::Picture> = ids.iter().filter_map(|&i| photos.get(i)).map(|p| crate::tag_proposals::picture_of(store, &p.key, set)).collect();
+            let examples = std::sync::Arc::new(crate::tag_proposals::examples_of(store, 0, set));
+            let files: Vec<crate::geo::FileStamp> = photos.iter().filter(|p| !p.is_sample()).map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
+            let files = std::sync::Arc::new(files);
+            Ok(Outcome::Later(Box::new(move || {
+                let dir = crate::smart_search::vectors_dir()?;
+                let got = crate::tag_proposals::propose(pack, &files, &dir, &examples, &targets)?;
+                let tags: Vec<Value> = got.tags.iter().map(|p| json!({ "tag": p.tag, "score": (f64::from(p.score) * 100.0).round() / 100.0 })).collect();
+                Ok(Reply::json(json!({ "tags": tags, "partial": got.partial, "analysed": !got.not_analysed, "pack": pack.id })))
+            })))
+        }
+        "semantic_search" | "similar_pictures" => {
+            let query = if name == "semantic_search" {
+                let text = str_arg(args, "text")?.trim();
+                if text.is_empty() {
+                    return Err("`text` is empty".into());
+                }
+                crate::smart_search::Query::Text(text.chars().take(500).collect())
+            } else {
+                let key = str_arg(args, "key")?;
+                one(host, key)?;
+                crate::smart_search::Query::Like(key.to_string())
+            };
+            let limit = opt_u64(args, "limit")?.map(|n| n.clamp(1, crate::smart_search::MAX_HITS as u64) as usize);
+            let store = host.store();
+            let pack = crate::smart_search::active(&store.search_pack, &store.language)
+                .ok_or("smart search needs a search pack: none is downloaded (see ai_status and download_model_pack)")?;
+            let files: Vec<crate::geo::FileStamp> = host.photos().iter().filter(|p| !p.is_sample()).map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
+            let files = std::sync::Arc::new(files);
+            Ok(Outcome::Later(Box::new(move || {
+                let dir = crate::smart_search::vectors_dir()?;
+                let hits = crate::smart_search::search(pack, &files, &dir, &query)?;
+                let n = limit.unwrap_or_else(|| crate::smart_search::cut(pack, &hits, &query));
+                let analysed = crate::smart_search::analysed(pack, &files, &dir)?;
+                let pictures: Vec<Value> = hits
+                    .iter()
+                    .take(n)
+                    .map(|h| {
+                        let name = std::path::Path::new(&h.key).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        json!({ "key": h.key, "name": name, "score": (f64::from(h.score) * 1000.0).round() / 1000.0 })
+                    })
+                    .collect();
+                Ok(Reply::json(json!({ "pictures": pictures, "more": hits.len().saturating_sub(n), "pack": pack.id, "analysed": analysed, "library": files.len() })))
+            })))
+        }
+        "pause_analysis" => {
+            let paused = opt_bool(args, "paused")?.ok_or("`paused` (true or false) is required")?;
+            host.store_mut().analysis_paused = paused;
+            now(json!({ "paused": paused }))
+        }
         "set_sort_order" => {
             let order = match str_arg(args, "order")? {
                 "name" => library::Sort::Name,
@@ -1448,7 +1578,7 @@ impl Host for Headless {
 pub fn read_only(name: &str) -> bool {
     matches!(
         name,
-        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place"
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place" | "semantic_search" | "similar_pictures" | "propose_tags" | "ai_status"
     )
 }
 
@@ -1619,6 +1749,20 @@ mod tests {
     }
 
     #[test]
+    fn ai_status_and_pause() {
+        let (dir, mut h, _) = fixture("ai");
+        let Ok(Outcome::Now(reply)) = run(&mut h, "ai_status", &json!({})) else { panic!("ai_status answers at once") };
+        let status = reply.value;
+        assert_eq!(status["can_run_networks"], crate::ai::runtime::available());
+        assert_eq!(status["packs"].as_array().map(Vec::len), Some(crate::ai::models::manifest().packs.len()));
+        // without a window nothing is analysed; the pause is kept for the window
+        assert!(status["analysis"].is_null() && status["analysis_paused"] == false);
+        assert!(run(&mut h, "pause_analysis", &json!({ "paused": true })).is_ok());
+        assert!(h.store.analysis_paused);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn bad_input_is_an_error_not_a_crash() {
         let (dir, mut h, keys) = fixture("bad");
         let k = &keys[0];
@@ -1650,6 +1794,17 @@ mod tests {
             ("show_on_map", json!({ "keys": [] })),
             ("email_pictures", json!({ "keys": [] })),
             ("trash_rejected", json!({})),
+            ("download_model_pack", json!({})),
+            ("download_model_pack", json!({ "pack": "../../no-such-pack" })),
+            ("remove_model_pack", json!({ "pack": "no-such-pack" })),
+            ("pause_analysis", json!({})),
+            ("pause_analysis", json!({ "paused": "yes" })),
+            ("semantic_search", json!({})),
+            ("propose_tags", json!({ "keys": [] })),
+            ("propose_tags", json!({ "keys": ["/no/such.jpg"] })),
+            ("semantic_search", json!({ "text": "   " })),
+            ("semantic_search", json!({ "text": "snow", "limit": "ten" })),
+            ("similar_pictures", json!({ "key": "/no/such/picture.jpg" })),
             ("trash_rejected", json!({ "confirm": "yes" })),
             ("trash_rejected", json!({ "confirm": false })),
             ("trash_rejected", json!({ "keys": [k], "confirm": true })),

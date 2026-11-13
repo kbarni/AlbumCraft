@@ -13,8 +13,28 @@ use std::sync::{Arc, Mutex};
 
 pub use crate::theme::t;
 
-/// One group of the library list: its folder (None for an album, a person, Picks) and pictures.
-pub type Group = (Option<usize>, Vec<usize>);
+/// One group of the library list: what heads it and its pictures.
+pub type Group = (Head, Vec<usize>);
+
+/// What a group of the library list is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Head {
+    /// The pictures of a folder (by index), under its header.
+    Folder(usize),
+    /// An album, a person, Picks: no header.
+    Plain,
+    /// Pictures found by smart search, best first, under a "Looks like" header.
+    LooksLike,
+}
+
+impl Head {
+    pub fn folder(self) -> Option<usize> {
+        match self {
+            Head::Folder(fi) => Some(fi),
+            _ => None,
+        }
+    }
+}
 
 /// See `App::sidebar_counts`.
 pub struct SidebarCounts {
@@ -27,7 +47,7 @@ pub struct SidebarCounts {
 }
 
 /// What the library list depends on (its cache key).
-type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64);
+type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64, (u64, usize));
 
 /// A word chosen from the search suggestions: matches exactly (any letter case), where typed text
 /// matches anywhere.
@@ -37,6 +57,8 @@ pub enum SearchTerm {
     /// A place name set by the user, a city, a region or a country.
     Place(String),
     Person(String),
+    /// Pictures like this one (its key), ranked by smart search ("More like this").
+    Like(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -483,6 +505,18 @@ pub struct App {
     pub slide: Option<Slideshow>,
     /// Bytes on disk of the thumbnail and map tile caches, for Settings (None until measured).
     pub cache_sizes: Option<(u64, u64)>,
+    /// How far the background analysis of the library (AI features) is.
+    pub analysis: crate::analysis::Progress,
+    /// The pause last told to the library (it follows `Store.analysis_paused`).
+    analysis_paused: bool,
+    /// The packs of networks and whether each is downloaded, for Settings (looked up again
+    /// about once a second while shown, `packs_at`).
+    pub packs: Vec<crate::analysis::PackState>,
+    /// Smart search: the pack in use, the query asked and its answer (looks_like.rs).
+    pub smart: crate::looks_like::SmartSearch,
+    /// Tag proposals (proposals.rs).
+    pub props: crate::proposals::TagProposals,
+    pub packs_at: f64,
     pub print: Option<crate::print_view::PrintState>,
     pub collage: Option<Box<crate::collage_view::CollageState>>,
     pub dialog: Option<Dialog>,
@@ -665,6 +699,12 @@ impl App {
             },
             slide: None,
             cache_sizes: None,
+            analysis: Default::default(),
+            analysis_paused: false,
+            smart: Default::default(),
+            props: Default::default(),
+            packs: vec![],
+            packs_at: f64::NEG_INFINITY,
             export: None,
             print: None,
             collage: None,
@@ -783,6 +823,9 @@ impl App {
                 self.source = Source::Library;
             }
         self.geo.start_index(&self.photos, &*self.lib);
+        if !samples {
+            self.lib.analyse(self.photos.iter().map(|p| (p.key.clone(), p.modified, p.bytes)).collect());
+        }
     }
 
     /// Picture numbers are positions in `photos` and change with every scan. Everything that
@@ -1021,6 +1064,8 @@ impl App {
                     SearchTerm::Tag(t) => m.is_some_and(|m| m.tags.iter().any(|x| x.eq_ignore_ascii_case(t))),
                     SearchTerm::Person(t) => m.is_some_and(|m| m.people.iter().any(|x| x.eq_ignore_ascii_case(t))),
                     SearchTerm::Place(t) => places.iter().any(|x| x.eq_ignore_ascii_case(t)),
+                    // the ranking chooses those (looks_like.rs)
+                    SearchTerm::Like(_) => true,
                 };
                 if !ok {
                     return false;
@@ -1073,7 +1118,7 @@ impl App {
         let mut cache = self.list_cache.borrow_mut();
         let sort = self.store.sort;
         let taken_rev = if sort == library::Sort::Taken { self.taken_rev } else { 0 };
-        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev);
+        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev, (self.smart.rev, self.smart.shown));
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();
@@ -1089,34 +1134,45 @@ impl App {
         let words: Vec<String> = self.search.to_lowercase().split_whitespace().map(str::to_string).collect();
         let hay = if words.is_empty() { Rc::new(vec![]) } else { self.search_hay() };
         let shown = |id: &usize| self.matches(*id, &words, &hay);
-        match &self.source {
+        // pictures like a chosen one: only those, best first
+        if matches!(self.smart_query(), Some(crate::smart_search::Query::Like(_))) {
+            let ids = self.looks_like_ids(|id| self.in_source(id) && shown(&id)).unwrap_or_default();
+            return vec![(Head::LooksLike, ids)];
+        }
+        let mut groups: Vec<Group> = match &self.source {
             Source::Library => self
                 .folders
                 .iter()
                 .enumerate()
-                .map(|(fi, f)| (Some(fi), f.photos.iter().copied().filter(shown).collect::<Vec<_>>()))
+                .map(|(fi, f)| (Head::Folder(fi), f.photos.iter().copied().filter(shown).collect::<Vec<_>>()))
                 .filter(|(_, v)| !v.is_empty())
                 .collect(),
+            // as arranged in the album
             Source::Album(i) => {
-                let ids = self
-                    .store
-                    .albums
-                    .get(*i)
-                    .map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).filter(shown).collect())
-                    .unwrap_or_default();
-                vec![(None, ids)]
+                vec![(Head::Plain, self.store.albums.get(*i).map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).filter(shown).collect()).unwrap_or_default())]
             }
-            Source::Person(name) => {
-                let ids = (0..self.photos.len())
-                    .filter(|&id| self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name)))
-                    .filter(shown)
-                    .collect();
-                vec![(None, ids)]
+            _ => vec![(Head::Plain, (0..self.photos.len()).filter(|&id| self.in_source(id)).filter(shown).collect())],
+        };
+        // typed text: below what matches it word for word, what looks like it
+        if !words.is_empty() {
+            let exact: HashSet<usize> = groups.iter().flat_map(|(_, v)| v.iter().copied()).collect();
+            let no_words: Vec<String> = vec![];
+            let looks = self.looks_like_ids(|id| !exact.contains(&id) && self.in_source(id) && self.matches(id, &no_words, &hay));
+            if let Some(ids) = looks.filter(|v| !v.is_empty()) {
+                groups.push((Head::LooksLike, ids));
             }
-            Source::Picks => {
-                let ids = (0..self.photos.len()).filter(|&id| self.is_picked(id)).filter(shown).collect();
-                vec![(None, ids)]
-            }
+        }
+        groups
+    }
+
+    /// The picture belongs to what the list shows (the library, the album, the person, Picks).
+    fn in_source(&self, id: usize) -> bool {
+        match &self.source {
+            Source::Library => id < self.photos.len(),
+            // few pictures are asked about (the ranked ones), an album is short
+            Source::Album(i) => self.photos.get(id).is_some_and(|p| self.store.albums.get(*i).is_some_and(|a| a.keys.contains(&p.key))),
+            Source::Person(name) => self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name)),
+            Source::Picks => self.is_picked(id),
         }
     }
 
@@ -1127,13 +1183,13 @@ impl App {
             library::Sort::Name => {}
             library::Sort::Taken => {
                 let when = |id: &usize| self.taken.get(id).copied().or_else(|| Some(self.photos.get(*id)?.modified)).unwrap_or(0);
-                for (_, ids) in groups.iter_mut() {
+                for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h)) {
                     ids.sort_by_cached_key(when);
                 }
             }
             library::Sort::Rating => {
                 let rating = |id: &usize| std::cmp::Reverse(self.meta(*id).map(|m| m.rating).unwrap_or(0));
-                for (_, ids) in groups.iter_mut() {
+                for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h)) {
                     ids.sort_by_key(rating);
                 }
             }
@@ -2153,6 +2209,9 @@ impl App {
                 }
                 Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
                 Done::CacheSizes { thumbs, tiles } => self.cache_sizes = Some((thumbs, tiles)),
+                Done::Analysis(progress) => self.analysis = progress,
+                Done::LooksLike(query, found) => self.on_looks_like(query, found),
+                Done::TagProposals(n, found) => self.on_tag_proposals(n, found),
                 Done::Progress { task, done, total } => {
                     if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
                         (t.done, t.total) = (done, total);
@@ -2161,6 +2220,8 @@ impl App {
                 Done::Report(report) => {
                     if let Some(id) = report.task {
                         self.tasks.retain(|t| t.id != id);
+                        // a download may have ended
+                        self.packs_at = f64::NEG_INFINITY;
                         if self.rescan_after == Some(id) {
                             self.rescan_after = None;
                             self.rescan();
@@ -2300,8 +2361,13 @@ impl eframe::App for App {
         self.geo_tick();
         library::trace_since("frame: geo", t0, 30);
         self.run_control_requests();
+        if self.analysis_paused != self.store.analysis_paused {
+            self.analysis_paused = self.store.analysis_paused;
+            self.lib.pause_analysis(self.analysis_paused);
+        }
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
+        self.smart_search_tick(ctx, now);
         let closing = ctx.input(|i| i.viewport().close_requested());
         // every change to the library's notes sets `dirty`: rebuild the cached lists once after
         // it (not on every frame until the save), and remember that there is something to save
@@ -2416,6 +2482,9 @@ impl crate::commands::Host for App {
     }
     fn file_gps(&mut self) -> &std::collections::HashMap<String, Option<crate::geo::LatLon>> {
         &self.geo.file_gps
+    }
+    fn analysis(&self) -> Option<crate::analysis::Progress> {
+        Some(self.analysis)
     }
 }
 

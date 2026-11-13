@@ -22,7 +22,15 @@ crates/albumcraft-edit/src/   the edit pipeline only: no files, no threads of it
   looks.rs         preset looks
   steps.rs         changing an edit list: one adjustment, look, straighten, perspective, crop per picture
   decor.rs         Effects tab: vignette, borders, shadow, text
+crates/albumcraft-ai/src/     what the AI features share; depends on no other crate of the workspace
+  runtime.rs       running a network file (ONNX Runtime through `ort`, Cargo feature `onnx`)
+  models.rs        the packs of networks (built-in models.json); download.rs: fetching one, checked
+  store.rs         what was found in each picture: files of fixed-size records, only added to
+  search.rs        the search networks: picture and text to vectors, int8 vectors, ranking
 crates/albumcraft-core/src/   everything without a window (native: desktop app, later the server)
+  analysis.rs      the background analysis of the library (Analysis, on the Pool's background queue); the packs
+  smart_search.rs  smart search: the pack in use, ranking by text or by a picture
+  tag_proposals.rs tags proposed from the search vectors; vocabulary.rs: the built-in words
   library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool
   catalogue.rs     the catalogue cache: what the last scan found, shown at once at the next start
   imaging.rs       reading picture files (load_source, oriented_dims) on top of the edit pipeline
@@ -43,6 +51,8 @@ src/                          the egui app (binary `albumcraft`)
   edit_view.rs     editor UI, compare modes; slideshow_view.rs: the full-screen slideshow
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
   search_box.rs    the library's search box and its suggestions
+  looks_like.rs    smart search in the window: the "Looks like" section and "More like this"
+  proposals.rs     tag proposals in the window (info panel, Tags dialog)
   info_panel.rs    editor's info panel (properties, EXIF, location map, tags)
   import_view.rs   Import view (copy from a card, camera or folder into a new library folder)
   online.rs        map tiles as textures (adds to core's online.rs)
@@ -69,7 +79,8 @@ People trust AlbumCraft with years of stars, captions, tags and edits. A malform
 ### Product rules
 
 1. **Originals are never modified.** Edits, stars, captions, tags, people, albums and locations live in `library.json` (`Store`/`Meta`), keyed by file path. Export writes new files and never overwrites an existing one.
-1b. **No network unless the user allowed it.** Only `online.rs` connects, and only when `Store.online_maps == Some(true)`; everything must keep working offline (built-in map and city list).
+1b. **No network unless the user allowed it.** Only `online.rs` connects, and only when `Store.online_maps == Some(true)`; everything must keep working offline (built-in map and city list). The one other connection is `ai::download`: a pack of networks, when the user asks for it, from the project's own releases only (a pack names a release and file names, never an address), checked against the size and SHA-256 built into the program.
+1c. **AI features compute on this computer.** No picture, face or search text leaves it. Networks are optional downloads with a permissive licence, shown before downloading; never put network files in the repository or the installers. What the networks find is derived data (`<data dir>/AlbumCraft/analysis/`, can be made again); what the user decides (names, corrections, accepted tags) goes in `library.json`. Analysis runs only on the `Pool`'s background queue and reads the unedited picture.
 2. **`.picasa.ini` files are read once per folder and never written** (`Store.imported_ini`).
 3. **Clean-room.** Other programs may be studied for behaviour and look only; never copy their code, assets or texts, and don't name them in the docs or user-facing text. Supported foreign file formats (such as `.picasa.ini`) are described as file formats. Third-party assets must be permissively licensed, with their license next to them; demo images are generated (`imaging::sample_image`) or public domain, never personal photos.
 4. **Keep it simple, intuitive and fast.** Avoid bloat; features that help organize photos are welcome when they stay easy to use. One obvious way to do each thing; no setting that does nothing. Decoding and rendering go through the `Pool`; the UI thread never decodes pictures or blocks on slow I/O. Edits are computed on the 1400 px preview and at full size only for zoom/export. Don't walk the whole library and allocate per photo every frame: cache derived lists (groups, search results, people) and rebuild them when their inputs change. Check heavy operations on a 24 MP picture in release.

@@ -75,7 +75,7 @@ impl App {
             }
             self.open_collage(shot_view == "sheet");
         }
-        if shot_view == "props" {
+        if shot_view == "props" || shot_view == "proposals" {
             // a temporary folder with one photo carrying camera information
             let dir = std::env::temp_dir().join("albumcraft-props-demo");
             let _ = std::fs::create_dir_all(&dir);
@@ -91,6 +91,14 @@ impl App {
                     self.open_editor(0);
                     self.store.info_open = true;
                     self.edit.tag_buf = "o".into();
+                    if shot_view == "proposals" {
+                        // proposed tags (fixed: the demo picture is not analysed)
+                        self.edit.tag_buf.clear();
+                        for section in ["properties", "location"] {
+                            self.store.info_sections.insert(section.into(), false);
+                        }
+                        self.props.demo(["Architecture", "Tower", "Town square", "Sightseeing"].iter().map(|t| crate::tag_proposals::Proposal { tag: t.to_string(), score: 0.6 }).collect());
+                    }
                 }
             }
         }
@@ -182,6 +190,29 @@ impl App {
                     self.type_map_search("bord");
                 }
             }
+        }
+        if shot_view == "looks" || shot_view == "similar" {
+            // smart search with a fixed ranking: "sea" typed (the pictures tagged Sea match it
+            // word for word, those that look like it follow), or the pictures like the first
+            let tagged = [0usize, 2, 4];
+            for &id in &tagged {
+                if let Some(p) = self.photos.get(id) {
+                    self.store.meta.entry(p.key.clone()).or_default().tags = vec!["Sea".into()];
+                }
+            }
+            let ranked = [1usize, 5, 7, 3, 8, 12, 6, 20, 15, 22];
+            let hits: Vec<crate::smart_search::Hit> =
+                ranked.iter().enumerate().filter_map(|(i, &id)| self.photos.get(id).map(|p| crate::smart_search::Hit { key: p.key.clone(), score: 0.31 - i as f32 * 0.012 })).collect();
+            let query = if shot_view == "looks" {
+                self.search = "sea".into();
+                crate::smart_search::Query::Text("sea".into())
+            } else {
+                let key = self.photos.first().map(|p| p.key.clone()).unwrap_or_default();
+                self.search_terms = vec![SearchTerm::Like(key.clone())];
+                crate::smart_search::Query::Like(key)
+            };
+            self.smart.demo("search-light", query, hits, 6);
+            self.analysis = crate::analysis::Progress { done: 1240, total: 18300, paused: false };
         }
         if shot_view == "search" {
             // places in Scotland and Spain, a few tags, "sc" typed, one tag already chosen
@@ -297,6 +328,31 @@ impl App {
             self.set_edit_photo(12);
             let ok = list == [3, 7, 12] && self.selection.len() == 3;
             eprintln!("open check: {}", if ok { "kept" } else { "LOST" });
+        }
+        if shot_view == "analysis" || shot_view == "packs" {
+            // the background analysis under way, as the status bar and Settings show it
+            self.analysis = crate::analysis::Progress { done: 1240, total: 18300, paused: std::env::var("ALBUMCRAFT_SHOT_PAUSED").is_ok() };
+        }
+        if shot_view == "packs" {
+            // Settings › AI features with packs to download (sample entries: no pack is published yet)
+            use crate::ai::models::{ModelFile, Pack};
+            let pack = |id: &str, title: &str, about: &str, licence: &str, size: u64| Pack {
+                id: id.into(),
+                title: title.into(),
+                about: about.into(),
+                licence: licence.into(),
+                version: 1,
+                release: "models-1".into(),
+                files: vec![ModelFile { name: format!("{id}.onnx"), size, sha256: "0".repeat(64) }],
+                search: None,
+            };
+            self.packs = vec![
+                crate::analysis::PackState { pack: pack("faces", "Faces", "Finds faces and groups them by person; you name the groups.", "Apache 2.0", 9 << 20), installed: true },
+                crate::analysis::PackState { pack: pack("search-light", "Smart search: Light", "Find pictures by describing them, in English.", "MIT", 218 << 20), installed: false },
+                crate::analysis::PackState { pack: pack("search-multilingual", "Smart search: Multilingual", "Find pictures by describing them, in your language.", "Apache 2.0", 511 << 20), installed: false },
+            ];
+            self.packs_at = f64::INFINITY;
+            self.dialog = Some(Dialog::Settings { section: crate::settings_view::SettingsSection::Ai });
         }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);

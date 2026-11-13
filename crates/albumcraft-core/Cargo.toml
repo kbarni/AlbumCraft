@@ -7,7 +7,13 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["onnx"]
+# ONNX Runtime linked in (see crates/albumcraft-ai).
+onnx = ["albumcraft-ai/onnx"]
+
 [dependencies]
+albumcraft-ai.workspace = true
 albumcraft-edit.workspace = true
 ab_glyph.workspace = true
 chrono.workspace = true

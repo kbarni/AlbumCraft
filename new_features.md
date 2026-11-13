@@ -97,6 +97,19 @@ Guiding rule: keep the app simple to use and fast. Heavy work stays in the backg
 4. Command layer + MCP server.
 5. Later: tag suggestions, then face recognition on the same model runtime; GPU (only if measured slow), print ordering.
 
+## AI features (2026-11-10; phase A done 2026-11-11)
+
+Faces grouped by person, search by describing a picture, tag proposals; all computed on the user's computer, with networks downloaded only when the user asks. This replaces the runtime and model choices of "Tag suggestions" below (its interface notes stay valid).
+
+| Phase | Content | Status |
+|---|---|---|
+| A | `albumcraft-ai` crate with ONNX Runtime (`ort`, static), download of packs of networks, background analysis queue, analysis files | done 2026-11-11 |
+| B | Picture vectors with the Light pack (OpenCLIP ViT-B/32: MobileCLIP's weights are research-only); "Looks like" search; similar pictures; MCP commands (`semantic_search`, `similar_pictures`); the Multilingual pack (SigLIP 2 B/32-256) and the choice between them | code done 2026-11-12; packs published on release `model-1` |
+| C | Tag proposals (the user's own tags, a built-in vocabulary, per-tag classifiers) | done 2026-11-12 (vocabulary of 218 words, its vectors made on the user's computer) |
+| D | Faces: detection (YuNet, bundled), automatic grouping (SFace), People view, names in search; then corrections and import of existing face regions | |
+| E | Stacks and near-duplicates, events, face-aware framing, clutter filter | |
+| F | Text in pictures, captions on demand, subject mask, retouch | |
+
 ## Tag suggestions (planned, 2026-11-07)
 
 Suggest tags for a picture; never add them without the user's click.
@@ -178,6 +191,8 @@ Low / clean-up:
 - 2026-11-12: version 0.5.0 (interface languages: English, French, German, Spanish, Italian, Portuguese (Brazil), with dates, numbers and sizes in the language; the Settings dialog; the Export view with signature, creator and copyright; the full-screen viewer; manual slideshow advance; compact bar or tray; smoother library scrolling; Email attachment names for Thunderbird).
 - Collage left open: no free resizing of a picture in the pile; text only on instant frames (no title text on collages); no per-picture crop inside a mosaic cell (always the middle); the preview uses thumbnails (sharp previews when there are at most 6 pictures).
 - Next: narrow windows (below ~1000 px the photo tray and the editor's bottom bar overlap, the search box covers the title); crop corner handles; "Remove crop" that Undo can take back. Later: phase 5 (tag suggestions, face recognition, GPU only if measured slow, print ordering).
+- 2026-11-11, AI features phase A (`feature/ai-infrastructure`): new crate `albumcraft-ai` (ONNX Runtime through `ort` 2.0.0-rc.15, linked statically, Cargo feature `onnx`; packs of networks listed in a built-in `models.json` and downloaded from the project's releases, resumable, size and SHA-256 checked; results in files of fixed-size records under `<data dir>/AlbumCraft/analysis/`, keyed by path, date and size, repaired after a cut-off write); a background queue in the `Pool` (runs only when nothing else waits, at most two workers) and `analysis::Analysis` feeding it; "Analysing pictures n / m" with Pause in the status bar; Settings › AI features lists the packs with size, licence, Download / Remove; commands `ai_status`, `download_model_pack`, `remove_model_pack`, `pause_analysis`. Checked with a 100-byte network written by hand in the tests (runs on every CI system) and a local web server for the downloads.
+- AI phase A left open: no network is published yet, so `models.json` is empty, nothing is analysed and the first-start question is not asked (it comes with the first pack, phase B). **The prebuilt ONNX Runtime needs glibc 2.38 / GCC 13's libstdc++**: the CI gate (Ubuntu 24.04) is fine, but the release's Linux job on Ubuntu 22.04 can no longer link it; to decide before the next release: build the Linux packages on 24.04 (they then need Ubuntu 24.04 / Debian 13 or newer; the Flatpak is not concerned) or build ONNX Runtime from source on 22.04. To check on the first CI run: the Windows build (the library may need the Visual C++ runtime `msvcp140.dll` on the user's computer) and macOS. Not built: sizes of the analysis files in Settings, removing results of pictures that left the library, matching results when files move.
 
 ### Menu trim (done 2026-11-10)
 
