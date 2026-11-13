@@ -81,6 +81,12 @@ pub trait Library {
     fn export(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, dir: PathBuf, opts: crate::export::Options, with_location: bool);
     /// Move these picture files to the system's trash (`library::move_to_trash`).
     fn trash(&self, task: Task, files: Vec<String>);
+    /// Move or rename a picture file or a folder on disk (`files::move_path`: one rename on the
+    /// same disk, never over something already there). Quick: answered directly.
+    fn move_path(&self, from: &str, to: &str) -> Result<(), String>;
+    /// Forget the cached thumbnails of these pictures, off the window's thread; then
+    /// `Done::ThumbsForgotten` says to ask for them again.
+    fn forget_thumbs(&self, keys: Vec<String>);
     /// Small copies of these pictures, attached to a new message in the mail program
     /// (`mail::email`).
     fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, opts: crate::export::Options);
@@ -362,6 +368,20 @@ impl Library for LocalLibrary {
 
     fn trash(&self, task: Task, files: Vec<String>) {
         self.run_task(task, tr!("fail-trash"), move |step| library::move_to_trash(&files, step));
+    }
+
+    fn move_path(&self, from: &str, to: &str) -> Result<(), String> {
+        crate::files::move_path(from, to)
+    }
+
+    fn forget_thumbs(&self, keys: Vec<String>) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            for k in &keys {
+                crate::thumbcache::forget(k);
+            }
+            send(Done::ThumbsForgotten(keys));
+        });
     }
 
     fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, opts: crate::export::Options) {

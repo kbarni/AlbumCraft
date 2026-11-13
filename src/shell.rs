@@ -186,7 +186,14 @@ fn chip_with_flag(ui: &mut egui::Ui, label: &str, on: bool, flag: bool) -> egui:
 
 /// One row of the sidebar.
 fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
+    nav_row_with(ui, icon, label, None, count, selected)
+}
+
+/// A row of the sidebar, with a dimmed second line under the label when `sub` is given (a
+/// folder's caption).
+fn nav_row_with(ui: &mut egui::Ui, icon: &str, label: &str, sub: Option<&str>, count: Option<usize>, selected: bool) -> egui::Response {
+    let h = if sub.is_some() { 44.0 } else { 32.0 };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
     if !ui.is_rect_visible(rect) {
         return resp;
     }
@@ -200,8 +207,21 @@ fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, sel
     if !icon.is_empty() {
         p.text(Pos2::new(rect.left() + 18.0, rect.center().y), egui::Align2::CENTER_CENTER, icon, egui::FontId::proportional(15.0), color);
     }
-    let galley = p.layout(label.to_string(), egui::FontId::proportional(13.5), color, rect.width() - 80.0);
-    p.galley(Pos2::new(rect.left() + 36.0, rect.center().y - galley.size().y / 2.0), galley, color);
+    let wrap = rect.width() - 80.0;
+    let galley = p.layout(label.to_string(), egui::FontId::proportional(13.5), color, wrap);
+    match sub {
+        Some(sub) => {
+            // one line each: the label, then the caption cut short
+            let mut job = egui::text::LayoutJob::simple_singleline(sub.to_string(), egui::FontId::proportional(11.5), t().text_weak);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(wrap);
+            let small = p.layout_job(job);
+            let top = rect.center().y - (galley.size().y + small.size().y) / 2.0;
+            let gh = galley.size().y;
+            p.galley(Pos2::new(rect.left() + 36.0, top), galley, color);
+            p.galley(Pos2::new(rect.left() + 36.0, top + gh), small, t().text_weak);
+        }
+        None => p.galley(Pos2::new(rect.left() + 36.0, rect.center().y - galley.size().y / 2.0), galley, color),
+    }
     if let Some(n) = count {
         p.text(
             Pos2::new(rect.right() - 10.0, rect.center().y),
@@ -499,12 +519,14 @@ impl App {
                             .show(ui, |ui| {
                                 for &fi in fis {
                                     let Some(f) = self.folders.get(fi) else { continue };
-                                    let r = nav_row(ui, icons::FOLDER, &f.name.clone(), Some(f.photos.len()), current_folder == Some(fi) && self.source == Source::Library);
+                                    let sub = self.store.folder_captions.get(&f.path).map(String::as_str);
+                                    let r = nav_row_with(ui, icons::FOLDER, &f.name.clone(), sub, Some(f.photos.len()), current_folder == Some(fi) && self.source == Source::Library);
                                     if r.clicked() {
                                         self.source = Source::Library;
                                         self.scroll_to_folder = Some(fi);
                                         self.pick_set(TraySet::Folder(fi));
                                     }
+                                    r.context_menu(|ui| self.folder_menu(ui, fi));
                                     r.on_hover_text(&self.folders[fi].path);
                                 }
                             });
@@ -792,7 +814,8 @@ impl App {
                         }
                         match folder {
                             Head::Folder(fi) => {
-                                let r = self.group_header(ui, *fi, ids);
+                                let h = cache.header_h.get(fi).copied().unwrap_or(HEADER_H);
+                                let r = self.group_header(ui, *fi, ids, h);
                                 cache.header_h.insert(*fi, r.rect.height());
                             }
                             Head::LooksLike => {
@@ -969,9 +992,16 @@ impl App {
         });
     }
 
-    fn group_header(&mut self, ui: &mut egui::Ui, fi: usize, ids: &[usize]) -> egui::Response {
+    /// A folder's header in the grid: name, date and count, its buttons, caption and description.
+    /// `h`: its height at the last frame (where a right-click opens the folder's menu).
+    fn group_header(&mut self, ui: &mut egui::Ui, fi: usize, ids: &[usize], h: f32) -> egui::Response {
         let f = self.folders[fi].clone();
         let note = self.store.folder_notes.get(&f.path).cloned();
+        let cap = self.store.folder_captions.get(&f.path).cloned();
+        // behind the header's own buttons, which are added after it and so come first
+        let area = Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), h));
+        let back = ui.interact(area, egui::Id::new(("folder_head", fi)), Sense::click());
+        back.context_menu(|ui| self.folder_menu(ui, fi));
         let inner = ui.vertical(|ui| {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
@@ -982,15 +1012,18 @@ impl App {
                         self.start_slideshow(ids.to_vec(), ids[0]);
                     }
                     if icon_btn(ui, icons::EDIT, &tr!("folder-edit-hint")).clicked() {
-                        self.dialog = Some(Dialog::FolderNote { path: f.path.clone(), text: note.clone().unwrap_or_default() });
+                        self.edit_folder_texts(&f.path);
                     }
                     if icon_btn(ui, icons::MAP, &tr!("folder-map-hint")).clicked() {
                         self.show_set_on_map(f.name.clone(), ids);
                     }
                 });
             });
+            if let Some(c) = &cap {
+                ui.label(RichText::new(c).size(14.0).color(t().text));
+            }
             if let Some(n) = &note {
-                ui.label(RichText::new(n).size(13.0).color(t().text));
+                ui.label(RichText::new(n).size(13.0).color(t().text_weak));
             }
             ui.add_space(4.0);
         });

@@ -43,7 +43,6 @@ dialog-new-album = Álbum nuevo
 dialog-rename-album = Cambiar el nombre del álbum
 dialog-tags = Etiquetas y personas
 dialog-gallery = Galería web
-dialog-folder-note = Descripción de la carpeta
 dialog-movie = Película
 dialog-about = Acerca de AlbumCraft
 dialog-online-maps = Mapas
@@ -82,7 +81,6 @@ gallery-size-large = Grande (2048 píxeles, para pantallas grandes)
 gallery-captions = Mostrar los pies de foto
 gallery-make = Elegir la carpeta y crear…
 
-folder-note-intro = Una breve descripción que se muestra bajo el nombre de la carpeta:
 
 
 # $fade and $motion are "yes" or "no"
@@ -368,7 +366,7 @@ empty-add = Añadir una carpeta
 empty-add-hint = Mostrar las fotos de una carpeta donde están, sin copiarlas
 
 folder-play-hint = Reproducir esta carpeta como presentación
-folder-edit-hint = Cambiar la descripción
+folder-edit-hint = Cambiar la leyenda y la descripción
 folder-map-hint = Mostrar esta carpeta en el mapa
 tile-pick-hint = Elegir (P)
 tile-reject-hint = Rechazar (X)
@@ -482,6 +480,56 @@ ctx-tags = Etiquetas y personas…
 ctx-location = Definir el lugar…
 ctx-export = Exportar…
 ctx-show-file = Mostrar en el administrador de archivos
+ctx-open-default = Abrir con el programa predeterminado
+ctx-open-with = Abrir con…
+ctx-open-with-menu = Abrir con
+ctx-copy-path = Copiar la ruta
+ctx-rename = Cambiar el nombre…
+ctx-move = Mover a una carpeta…
+ctx-trash = Mover a la papelera…
+notice-copied-path = { $n ->
+    [one] Ruta copiada.
+   *[other] { $n } rutas copiadas.
+}
+notice-open-failed = No se pudo abrir el programa: { $error }
+folder-select = Seleccionar esta carpeta
+folder-texts = Leyenda y descripción…
+folder-open = Abrir en el administrador de archivos
+folder-refresh = Actualizar las miniaturas
+folder-refresh-hint = Volver a crear las miniaturas de esta carpeta a partir de los archivos
+folder-refreshing = Se están volviendo a crear las miniaturas de { $name }.
+folder-move = Mover a…
+folder-remove = Quitar de la biblioteca
+folder-remove-hint = Los archivos y sus notas no se modifican.
+removed-folder = Se ha quitado { $path } de la biblioteca. Sus archivos y sus notas no se han modificado.
+dialog-folder-texts = Leyenda y descripción
+folder-caption-label = Leyenda (una línea, bajo el nombre de la carpeta):
+folder-description-label = Descripción (encima de las fotos de la carpeta):
+dialog-rename-picture = Cambiar el nombre de la foto
+dialog-rename-folder = Cambiar el nombre de la carpeta
+rename-label = Nombre nuevo:
+rename-keeps-ext = Se conserva la extensión .{ $ext }.
+rename-button = Cambiar el nombre
+dialog-move = Mover a una carpeta
+move-pictures-into = { $n ->
+    [one] Mover { $name } a:
+   *[other] Mover las { $count } fotos a:
+}
+move-folder-into = Mover la carpeta { $name } a:
+move-filter = Filtrar carpetas
+move-other = Otra carpeta…
+move-none = Ninguna otra carpeta de la biblioteca coincide.
+files-renamed = Se ha cambiado { $from } a { $to }.
+files-moved = { $n ->
+    [one] Se ha movido { $name } a { $folder }.
+   *[other] Se han movido { $count } fotos a { $folder }.
+}
+files-moved-back = Se ha devuelto a su sitio.
+files-more-problems = …y { $n } más.
+trash-question-chosen = { $n ->
+    [one] ¿Mover a la papelera esta foto ({ $size })?
+   *[other] ¿Mover a la papelera estas { $count } fotos ({ $size })?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1303,6 +1351,20 @@ root-excluded = That folder is inside { $folder }, which is left out of the libr
 exclude-is-root = That is a library folder: remove it instead.
 exclude-outside = That folder is not inside a library folder.
 exclude-already = That folder is already left out.
+name-empty = Escriba un nombre.
+name-bad-char = Un nombre no puede contener { $char }.
+name-dot = Un nombre no puede terminar en punto.
+name-long = Ese nombre es demasiado largo.
+move-no-parent = { $path } no tiene carpeta.
+move-no-name = { $path } no tiene nombre.
+move-sample = Las fotos de ejemplo no se pueden mover ni cambiar de nombre.
+move-missing = { $path } ya no está.
+move-into-itself = Una carpeta no se puede mover dentro de sí misma.
+move-no-folder = La carpeta { $path } no existe.
+move-taken = Ya existe { $name } allí.
+move-other-disk = { $path } está en otro disco: AlbumCraft solo mueve fotos y carpetas dentro del mismo disco.
+move-failed = No se pudo mover { $path }: { $error }
+move-outside = { $path } no está en la biblioteca: elija una carpeta dentro de una carpeta de la biblioteca.
 online-tile-bad = no se pudo leer una tesela de mapa: { $error }
 online-map-down = Mapa en línea no accesible ({ $error })
 online-search-down = La búsqueda en línea no es accesible ({ $error }).

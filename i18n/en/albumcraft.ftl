@@ -45,7 +45,6 @@ dialog-new-album = New album
 dialog-rename-album = Rename album
 dialog-tags = Tags and people
 dialog-gallery = Web gallery
-dialog-folder-note = Folder description
 dialog-movie = Movie
 dialog-about = About AlbumCraft
 dialog-online-maps = Maps
@@ -84,7 +83,6 @@ gallery-size-large = Large (2048 pixels, for big screens)
 gallery-captions = Show captions
 gallery-make = Choose folder and make…
 
-folder-note-intro = A short description shown under the folder name:
 
 
 # $fade and $motion are "yes" or "no"
@@ -372,7 +370,7 @@ empty-add = Add a folder
 empty-add-hint = Show the pictures of a folder where they are, without copying them
 
 folder-play-hint = Play this folder as a slideshow
-folder-edit-hint = Edit description
+folder-edit-hint = Edit caption and description
 folder-map-hint = Show this folder on the map
 tile-pick-hint = Pick (P)
 tile-reject-hint = Reject (X)
@@ -487,6 +485,56 @@ ctx-tags = Tags and people…
 ctx-location = Set location…
 ctx-export = Export…
 ctx-show-file = Show in file manager
+ctx-open-default = Open in default program
+ctx-open-with = Open with…
+ctx-open-with-menu = Open with
+ctx-copy-path = Copy path
+ctx-rename = Rename…
+ctx-move = Move to folder…
+ctx-trash = Move to the trash…
+notice-copied-path = { $n ->
+    [one] Copied the path.
+   *[other] Copied { $n } paths.
+}
+notice-open-failed = Could not open the program: { $error }
+folder-select = Select this folder
+folder-texts = Caption and description…
+folder-open = Open in file manager
+folder-refresh = Refresh thumbnails
+folder-refresh-hint = Make this folder's thumbnails again from the files
+folder-refreshing = Making the thumbnails of { $name } again.
+folder-move = Move to…
+folder-remove = Remove from library
+folder-remove-hint = The files and your notes on them are not touched.
+removed-folder = Took { $path } out of the library. Its files and your notes on them are untouched.
+dialog-folder-texts = Caption and description
+folder-caption-label = Caption (one line, shown under the folder's name):
+folder-description-label = Description (shown above the folder's pictures):
+dialog-rename-picture = Rename picture
+dialog-rename-folder = Rename folder
+rename-label = New name:
+rename-keeps-ext = The extension .{ $ext } stays.
+rename-button = Rename
+dialog-move = Move to folder
+move-pictures-into = { $n ->
+    [one] Move { $name } into:
+   *[other] Move the { $count } pictures into:
+}
+move-folder-into = Move the folder { $name } into:
+move-filter = Filter folders
+move-other = Other folder…
+move-none = No other folder of the library matches.
+files-renamed = Renamed { $from } to { $to }.
+files-moved = { $n ->
+    [one] Moved { $name } to { $folder }.
+   *[other] Moved { $count } pictures to { $folder }.
+}
+files-moved-back = Put back where it was.
+files-more-problems = …and { $n } more.
+trash-question-chosen = { $n ->
+    [one] Move this picture ({ $size }) to the trash?
+   *[other] Move these { $count } pictures ({ $size }) to the trash?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1309,6 +1357,20 @@ root-excluded = That folder is inside { $folder }, which is left out of the libr
 exclude-is-root = That is a library folder: remove it instead.
 exclude-outside = That folder is not inside a library folder.
 exclude-already = That folder is already left out.
+name-empty = Type a name.
+name-bad-char = A name can't contain { $char }.
+name-dot = A name can't end with a dot.
+name-long = That name is too long.
+move-no-parent = { $path } has no folder.
+move-no-name = { $path } has no name.
+move-sample = Sample pictures can't be moved or renamed.
+move-missing = { $path } is not there any more.
+move-into-itself = A folder can't be moved into itself.
+move-no-folder = The folder { $path } doesn't exist.
+move-taken = { $name } already exists there.
+move-other-disk = { $path } is on another disk: AlbumCraft only moves pictures and folders within the same disk.
+move-failed = Could not move { $path }: { $error }
+move-outside = { $path } is not in the library: choose a folder inside a library folder.
 online-tile-bad = a map tile could not be read: { $error }
 online-map-down = Online map not reachable ({ $error })
 online-search-down = The online search is not reachable ({ $error }).

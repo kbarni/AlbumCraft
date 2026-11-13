@@ -43,7 +43,6 @@ dialog-new-album = Novo álbum
 dialog-rename-album = Renomear álbum
 dialog-tags = Tags e pessoas
 dialog-gallery = Galeria web
-dialog-folder-note = Descrição da pasta
 dialog-movie = Filme
 dialog-about = Sobre o AlbumCraft
 dialog-online-maps = Mapas
@@ -82,7 +81,6 @@ gallery-size-large = Grande (2048 pixels, para telas grandes)
 gallery-captions = Mostrar as legendas
 gallery-make = Escolher a pasta e criar…
 
-folder-note-intro = Uma breve descrição mostrada abaixo do nome da pasta:
 
 
 # $fade and $motion are "yes" or "no"
@@ -368,7 +366,7 @@ empty-add = Adicionar uma pasta
 empty-add-hint = Mostrar as fotos de uma pasta onde elas estão, sem copiá-las
 
 folder-play-hint = Reproduzir esta pasta como apresentação
-folder-edit-hint = Alterar a descrição
+folder-edit-hint = Alterar a legenda e a descrição
 folder-map-hint = Mostrar esta pasta no mapa
 tile-pick-hint = Escolher (P)
 tile-reject-hint = Rejeitar (X)
@@ -482,6 +480,56 @@ ctx-tags = Tags e pessoas…
 ctx-location = Definir o local…
 ctx-export = Exportar…
 ctx-show-file = Mostrar no gerenciador de arquivos
+ctx-open-default = Abrir no programa padrão
+ctx-open-with = Abrir com…
+ctx-open-with-menu = Abrir com
+ctx-copy-path = Copiar o caminho
+ctx-rename = Renomear…
+ctx-move = Mover para uma pasta…
+ctx-trash = Mover para a lixeira…
+notice-copied-path = { $n ->
+    [one] Caminho copiado.
+   *[other] { $n } caminhos copiados.
+}
+notice-open-failed = Não foi possível abrir o programa: { $error }
+folder-select = Selecionar esta pasta
+folder-texts = Legenda e descrição…
+folder-open = Abrir no gerenciador de arquivos
+folder-refresh = Atualizar as miniaturas
+folder-refresh-hint = Refazer as miniaturas desta pasta a partir dos arquivos
+folder-refreshing = As miniaturas de { $name } estão sendo refeitas.
+folder-move = Mover para…
+folder-remove = Remover da biblioteca
+folder-remove-hint = Os arquivos e as suas anotações sobre eles não são alterados.
+removed-folder = { $path } foi tirada da biblioteca. Os arquivos e as suas anotações sobre eles estão intactos.
+dialog-folder-texts = Legenda e descrição
+folder-caption-label = Legenda (uma linha, abaixo do nome da pasta):
+folder-description-label = Descrição (acima das fotos da pasta):
+dialog-rename-picture = Renomear a foto
+dialog-rename-folder = Renomear a pasta
+rename-label = Novo nome:
+rename-keeps-ext = A extensão .{ $ext } é mantida.
+rename-button = Renomear
+dialog-move = Mover para uma pasta
+move-pictures-into = { $n ->
+    [one] Mover { $name } para:
+   *[other] Mover as { $count } fotos para:
+}
+move-folder-into = Mover a pasta { $name } para:
+move-filter = Filtrar pastas
+move-other = Outra pasta…
+move-none = Nenhuma outra pasta da biblioteca corresponde.
+files-renamed = { $from } renomeado para { $to }.
+files-moved = { $n ->
+    [one] { $name } movido para { $folder }.
+   *[other] { $count } fotos movidas para { $folder }.
+}
+files-moved-back = Devolvido ao seu lugar.
+files-more-problems = …e mais { $n }.
+trash-question-chosen = { $n ->
+    [one] Mover esta foto ({ $size }) para a lixeira?
+   *[other] Mover estas { $count } fotos ({ $size }) para a lixeira?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1303,6 +1351,20 @@ root-excluded = That folder is inside { $folder }, which is left out of the libr
 exclude-is-root = That is a library folder: remove it instead.
 exclude-outside = That folder is not inside a library folder.
 exclude-already = That folder is already left out.
+name-empty = Digite um nome.
+name-bad-char = Um nome não pode conter { $char }.
+name-dot = Um nome não pode terminar com ponto.
+name-long = Esse nome é longo demais.
+move-no-parent = { $path } não tem pasta.
+move-no-name = { $path } não tem nome.
+move-sample = As fotos de exemplo não podem ser movidas nem renomeadas.
+move-missing = { $path } não está mais lá.
+move-into-itself = Uma pasta não pode ser movida para dentro de si mesma.
+move-no-folder = A pasta { $path } não existe.
+move-taken = { $name } já existe lá.
+move-other-disk = { $path } está em outro disco: o AlbumCraft só move fotos e pastas dentro do mesmo disco.
+move-failed = Não foi possível mover { $path }: { $error }
+move-outside = { $path } não está na biblioteca: escolha uma pasta dentro de uma pasta da biblioteca.
 online-tile-bad = não foi possível ler um bloco de mapa: { $error }
 online-map-down = Mapa online inacessível ({ $error })
 online-search-down = A busca online está inacessível ({ $error }).

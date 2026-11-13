@@ -30,6 +30,10 @@ pub trait Host {
     /// Files or folders were moved on disk, (old path, new path), and the notes followed them;
     /// a rescan comes next (the window keeps its thumbnails and selection across it).
     fn moved(&mut self, _pairs: &[(String, String)]) {}
+    /// Move or rename a file or folder on disk (see `files::move_path`).
+    fn move_path(&mut self, from: &str, to: &str) -> Result<(), String> {
+        crate::files::move_path(from, to)
+    }
     /// Show a picture in the editor (only with a window).
     fn show(&mut self, _id: usize) -> Result<(), String> {
         Err("the AlbumCraft window isn't open".into())
@@ -93,7 +97,7 @@ pub fn move_on_disk(host: &mut dyn Host, pairs: &[(String, String)]) -> Moves {
         if from == to {
             continue;
         }
-        match crate::files::move_path(from, to) {
+        match host.move_path(from, to) {
             Ok(()) => {
                 host.store_mut().moved(from, to);
                 m.done.push((from.clone(), to.clone()));

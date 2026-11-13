@@ -127,6 +127,10 @@ pub enum Undo {
     Root { at: usize, path: String },
     /// Edits cleared from pictures (by key).
     Edits(Vec<(String, Vec<EditOp>)>),
+    /// A folder left out of the library (`Store.excluded`).
+    Excluded(String),
+    /// Files or folders moved or renamed on disk: (old path, new path).
+    Moved(Vec<(String, String)>),
 }
 
 /// Background work the user watches: see `App::start_task`.
@@ -233,13 +237,20 @@ pub enum Dialog {
     Tag { tags: String, people: String },
     /// Make a web gallery of the tray.
     Gallery { title: String },
-    FolderNote { path: String, text: String },
+    /// A folder's caption (one line) and description.
+    FolderNote { path: String, caption: String, text: String },
+    /// Rename a picture file (`folder` false, by key) or a folder (by path) on disk; `error`
+    /// says why the last try failed.
+    Rename { path: String, folder: bool, name: String, error: String },
+    /// Move pictures or a folder into another folder of the library.
+    MoveTo { what: crate::file_actions::Moving, filter: String, error: String },
     /// Make a movie of the tray (`hd` = 1920×1080, else 1280×720).
     Movie { hd: bool },
     About,
     /// Print review: (picture, name, pixels per inch, grade 0 bad / 1 good / 2 best).
-    /// "Move the rejected pictures to the trash?" (by key: a scan may come in between).
-    TrashRejects { keys: Vec<String>, bytes: u64 },
+    /// "Move these pictures to the trash?" (by key: a scan may come in between); `rejects`:
+    /// they are the library's rejected pictures.
+    Trash { keys: Vec<String>, bytes: u64, rejects: bool },
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
@@ -410,6 +421,8 @@ pub struct App {
     pub folders: Vec<Folder>,
     pub key_index: HashMap<String, usize>,
     pub using_samples: bool,
+    /// "Open with" programs by kind of picture, looked up once (`open_with::programs_for`).
+    pub programs: HashMap<&'static str, Vec<crate::open_with::Program>>,
     pub scanning: bool,
 
     pub thumb_base: HashMap<usize, RgbaImage>,
@@ -613,6 +626,7 @@ impl App {
             folders: vec![],
             key_index: HashMap::new(),
             using_samples: false,
+            programs: HashMap::new(),
             scanning: false,
             thumb_base: HashMap::new(),
             thumbs: HashMap::new(),
@@ -1921,6 +1935,15 @@ impl App {
                     self.rescan();
                 }
             }
+            Undo::Excluded(path) => {
+                let before = self.store.excluded.len();
+                self.store.excluded.retain(|e| *e != path);
+                if self.store.excluded.len() != before {
+                    self.dirty = true;
+                    self.rescan();
+                }
+            }
+            Undo::Moved(done) => self.move_back(done),
             Undo::Edits(list) => {
                 for (key, edits) in list {
                     if let Some(&id) = self.key_index.get(&key) {
@@ -1993,7 +2016,7 @@ impl App {
         }
         let bytes = rejects.iter().map(|p| p.bytes).sum();
         let keys = rejects.iter().map(|p| p.key.clone()).collect();
-        self.dialog = Some(Dialog::TrashRejects { keys, bytes });
+        self.dialog = Some(Dialog::Trash { keys, bytes, rejects: true });
     }
 
     /// Move these files to the trash in the background; the library is scanned again after.
@@ -2167,6 +2190,7 @@ impl App {
                     }
                 }
                 Done::Toast(m) => self.toast(m),
+                Done::ThumbsForgotten(keys) => self.thumbs_forgotten(keys),
                 Done::Dropped(keys) => {
                     // not made: asked for again when the picture is drawn again
                     for key in keys {
@@ -2350,6 +2374,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.demo_input(ctx, raw);
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::theme::apply(ctx, crate::theme::Mode::from_name(&self.store.theme), false);
         let t0 = std::time::Instant::now();
@@ -2465,6 +2493,13 @@ impl crate::commands::Host for App {
     }
     fn rescan(&mut self) {
         App::rescan(self);
+    }
+    fn moved(&mut self, pairs: &[(String, String)]) {
+        self.dirty = true;
+        self.paths_moved(pairs);
+    }
+    fn move_path(&mut self, from: &str, to: &str) -> Result<(), String> {
+        self.lib.move_path(from, to)
     }
     fn show(&mut self, id: usize) -> Result<(), String> {
         if id >= self.photos.len() {

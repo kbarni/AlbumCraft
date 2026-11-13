@@ -788,9 +788,7 @@ mod moved_tests {
         let j = |parts: &[&str]| parts.iter().collect::<PathBuf>().to_string_lossy().to_string();
         let (trip, tripx, other) = (j(&["/p", "trip"]), j(&["/p", "tripx"]), j(&["/p", "2024", "trip"]));
         let a = j(&["/p", "trip", "a.jpg"]);
-        let mut s = Store::default();
-        s.roots = vec![j(&["/p"])];
-        s.excluded = vec![j(&["/p", "trip", "raw"])];
+        let mut s = Store { roots: vec![j(&["/p"])], excluded: vec![j(&["/p", "trip", "raw"])], ..Default::default() };
         s.meta.insert(a.clone(), Meta { caption: "a".into(), ..Default::default() });
         s.meta.insert(j(&["/p", "tripx", "b.jpg"]), Meta { caption: "b".into(), ..Default::default() });
         s.albums.push(Album { name: "best".into(), keys: vec![a.clone()] });
@@ -1452,6 +1450,9 @@ pub enum Done {
     Dropped(Vec<String>),
     /// A short progress note for the toast.
     Toast(String),
+    /// The cached thumbnails of these pictures were removed (`Library::forget_thumbs`): the
+    /// window asks for them again.
+    ThumbsForgotten(Vec<String>),
     File { key: String, dim: u32, img: Option<RgbaImage> },
     /// (photo id, key, shown size and date taken) for each picture of a `Job::Dims`.
     Dims(Vec<FoundDims>),

@@ -25,12 +25,15 @@ impl App {
             Dialog::RenameAlbum { .. } => tr!("dialog-rename-album"),
             Dialog::Tag { .. } => tr!("dialog-tags"),
             Dialog::Gallery { .. } => tr!("dialog-gallery"),
-            Dialog::FolderNote { .. } => tr!("dialog-folder-note"),
+            Dialog::FolderNote { .. } => tr!("dialog-folder-texts"),
+            Dialog::Rename { folder: true, .. } => tr!("dialog-rename-folder"),
+            Dialog::Rename { .. } => tr!("dialog-rename-picture"),
+            Dialog::MoveTo { .. } => tr!("dialog-move"),
             Dialog::Movie { .. } => tr!("dialog-movie"),
             Dialog::About => tr!("dialog-about"),
             Dialog::OnlineMaps => tr!("dialog-online-maps"),
             Dialog::PrintReview { .. } => tr!("dialog-print-review"),
-            Dialog::TrashRejects { .. } => tr!("dialog-trash"),
+            Dialog::Trash { .. } => tr!("dialog-trash"),
             Dialog::Settings { .. } => tr!("settings-title"),
         };
         let targets = self.targets();
@@ -187,23 +190,31 @@ impl App {
                         }
                     });
                 }
-                Dialog::FolderNote { path, text } => {
-                    ui.label(tr!("folder-note-intro"));
-                    ui.text_edit_multiline(text);
+                Dialog::FolderNote { path, caption, text } => {
+                    ui.label(tr!("folder-caption-label"));
+                    ui.add(egui::TextEdit::singleline(caption).desired_width(f32::INFINITY));
+                    ui.add_space(4.0);
+                    ui.label(tr!("folder-description-label"));
+                    ui.add(egui::TextEdit::multiline(text).desired_width(f32::INFINITY));
                     ui.horizontal(|ui| {
                         if ui.button(tr!("button-save")).clicked() {
-                            if text.trim().is_empty() {
-                                self.store.folder_notes.remove(path.as_str());
-                            } else {
-                                self.store.folder_notes.insert(path.clone(), text.trim().to_string());
-                            }
+                            crate::commands::set_folder_text(&mut self.store, path, Some(caption.as_str()), Some(text.as_str()));
                             self.dirty = true;
+                            self.list_rev += 1;
                             close = true;
                         }
                         if ui.button(tr!("button-cancel")).clicked() {
                             close = true;
                         }
                     });
+                }
+                Dialog::Rename { path, folder, name, error } => {
+                    let path = path.clone();
+                    close = self.rename_dialog(ui, &path, *folder, name, error, enter);
+                }
+                Dialog::MoveTo { what, filter, error } => {
+                    let what = what.clone();
+                    close = self.move_dialog(ui, &what, filter, error);
                 }
                 Dialog::Movie { hd } => {
                     let list = if targets.len() > 1 { targets.clone() } else { self.visible_flat() };
@@ -250,9 +261,10 @@ impl App {
                         }
                     });
                 }
-                Dialog::TrashRejects { keys, bytes } => {
+                Dialog::Trash { keys, bytes, rejects } => {
                     let n = keys.len();
-                    let question = tr!("trash-question", n = n, count = crate::app::fmt_count(n), size = crate::library::fmt_bytes(*bytes));
+                    let (count, size) = (crate::app::fmt_count(n), crate::library::fmt_bytes(*bytes));
+                    let question = if *rejects { tr!("trash-question", n = n, count = count, size = size) } else { tr!("trash-question-chosen", n = n, count = count, size = size) };
                     ui.label(format!("{question}\n\n{}", tr!("trash-explain")));
                     ui.add_space(8.0);
                     // no Enter here: this one removes files

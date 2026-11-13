@@ -43,7 +43,6 @@ dialog-new-album = Neues Album
 dialog-rename-album = Album umbenennen
 dialog-tags = Stichwörter und Personen
 dialog-gallery = Web-Galerie
-dialog-folder-note = Ordnerbeschreibung
 dialog-movie = Film
 dialog-about = Über AlbumCraft
 dialog-online-maps = Karten
@@ -82,7 +81,6 @@ gallery-size-large = Groß (2048 Pixel, für große Bildschirme)
 gallery-captions = Bildunterschriften anzeigen
 gallery-make = Ordner wählen und erstellen…
 
-folder-note-intro = Eine kurze Beschreibung, die unter dem Ordnernamen angezeigt wird:
 
 
 # $fade and $motion are "yes" or "no"
@@ -368,7 +366,7 @@ empty-add = Ordner hinzufügen
 empty-add-hint = Die Fotos eines Ordners dort anzeigen, wo sie liegen, ohne sie zu kopieren
 
 folder-play-hint = Diesen Ordner als Diashow abspielen
-folder-edit-hint = Beschreibung ändern
+folder-edit-hint = Bildunterschrift und Beschreibung ändern
 folder-map-hint = Diesen Ordner auf der Karte anzeigen
 tile-pick-hint = Als Favorit markieren (P)
 tile-reject-hint = Ablehnen (X)
@@ -482,6 +480,56 @@ ctx-tags = Stichwörter und Personen…
 ctx-location = Ort festlegen…
 ctx-export = Exportieren…
 ctx-show-file = Im Dateimanager anzeigen
+ctx-open-default = Mit Standardprogramm öffnen
+ctx-open-with = Öffnen mit…
+ctx-open-with-menu = Öffnen mit
+ctx-copy-path = Pfad kopieren
+ctx-rename = Umbenennen…
+ctx-move = In Ordner verschieben…
+ctx-trash = In den Papierkorb legen…
+notice-copied-path = { $n ->
+    [one] Pfad kopiert.
+   *[other] { $n } Pfade kopiert.
+}
+notice-open-failed = Das Programm konnte nicht geöffnet werden: { $error }
+folder-select = Diesen Ordner auswählen
+folder-texts = Bildunterschrift und Beschreibung…
+folder-open = Im Dateimanager öffnen
+folder-refresh = Miniaturen aktualisieren
+folder-refresh-hint = Die Miniaturen dieses Ordners neu aus den Dateien erstellen
+folder-refreshing = Die Miniaturen von { $name } werden neu erstellt.
+folder-move = Verschieben nach…
+folder-remove = Aus der Bibliothek entfernen
+folder-remove-hint = Die Dateien und Ihre Notizen dazu bleiben unverändert.
+removed-folder = { $path } wurde aus der Bibliothek genommen. Die Dateien und Ihre Notizen dazu sind unverändert.
+dialog-folder-texts = Bildunterschrift und Beschreibung
+folder-caption-label = Bildunterschrift (eine Zeile, unter dem Ordnernamen):
+folder-description-label = Beschreibung (über den Fotos des Ordners):
+dialog-rename-picture = Foto umbenennen
+dialog-rename-folder = Ordner umbenennen
+rename-label = Neuer Name:
+rename-keeps-ext = Die Endung .{ $ext } bleibt erhalten.
+rename-button = Umbenennen
+dialog-move = In Ordner verschieben
+move-pictures-into = { $n ->
+    [one] { $name } verschieben nach:
+   *[other] Die { $count } Fotos verschieben nach:
+}
+move-folder-into = Den Ordner { $name } verschieben nach:
+move-filter = Ordner filtern
+move-other = Anderer Ordner…
+move-none = Kein anderer Ordner der Bibliothek passt.
+files-renamed = { $from } in { $to } umbenannt.
+files-moved = { $n ->
+    [one] { $name } nach { $folder } verschoben.
+   *[other] { $count } Fotos nach { $folder } verschoben.
+}
+files-moved-back = An den alten Platz zurückgelegt.
+files-more-problems = …und { $n } weitere.
+trash-question-chosen = { $n ->
+    [one] Dieses Foto ({ $size }) in den Papierkorb legen?
+   *[other] Diese { $count } Fotos ({ $size }) in den Papierkorb legen?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1303,6 +1351,20 @@ root-excluded = That folder is inside { $folder }, which is left out of the libr
 exclude-is-root = That is a library folder: remove it instead.
 exclude-outside = That folder is not inside a library folder.
 exclude-already = That folder is already left out.
+name-empty = Geben Sie einen Namen ein.
+name-bad-char = Ein Name darf { $char } nicht enthalten.
+name-dot = Ein Name darf nicht mit einem Punkt enden.
+name-long = Dieser Name ist zu lang.
+move-no-parent = { $path } hat keinen Ordner.
+move-no-name = { $path } hat keinen Namen.
+move-sample = Beispielfotos können nicht verschoben oder umbenannt werden.
+move-missing = { $path } ist nicht mehr da.
+move-into-itself = Ein Ordner kann nicht in sich selbst verschoben werden.
+move-no-folder = Der Ordner { $path } existiert nicht.
+move-taken = { $name } gibt es dort schon.
+move-other-disk = { $path } liegt auf einem anderen Laufwerk: AlbumCraft verschiebt Fotos und Ordner nur innerhalb desselben Laufwerks.
+move-failed = { $path } konnte nicht verschoben werden: { $error }
+move-outside = { $path } ist nicht in der Bibliothek: Wählen Sie einen Ordner innerhalb eines Bibliotheksordners.
 online-tile-bad = eine Kartenkachel konnte nicht gelesen werden: { $error }
 online-map-down = Online-Karte nicht erreichbar ({ $error })
 online-search-down = Die Online-Suche ist nicht erreichbar ({ $error }).
