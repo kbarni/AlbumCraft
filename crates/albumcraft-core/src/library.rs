@@ -201,7 +201,11 @@ pub struct Store {
     #[serde(serialize_with = "without_samples")]
     pub meta: HashMap<String, Meta>,
     pub albums: Vec<Album>,
+    /// A folder's description (by folder path), shown under its name in the picture grid.
     pub folder_notes: HashMap<String, String>,
+    /// A folder's caption (by folder path): one short line under its name in the sidebar and
+    /// beside it in the picture grid.
+    pub folder_captions: HashMap<String, String>,
     pub thumb_size: f32,
     /// Folders whose .picasa.ini was already imported once.
     pub imported_ini: Vec<String>,
@@ -290,6 +294,7 @@ impl Default for Store {
             meta: HashMap::new(),
             albums: vec![],
             folder_notes: HashMap::new(),
+            folder_captions: HashMap::new(),
             thumb_size: 120.0,
             imported_ini: vec![],
             dont_ask_end_2up: false,
@@ -643,6 +648,46 @@ impl Store {
         self.excluded.push(path.to_string());
         Ok(())
     }
+
+    /// A file or folder was moved (or renamed) on disk from `from` to `to`: everything noted
+    /// under that path (the pictures' notes and album places, folder captions and descriptions,
+    /// library and left-out folders, `.picasa.ini` already read) follows it.
+    pub fn moved(&mut self, from: &str, to: &str) {
+        let new_path = |k: &str| -> Option<String> {
+            let rest = Path::new(k).strip_prefix(from).ok()?;
+            Some(if rest.as_os_str().is_empty() { to.to_string() } else { Path::new(to).join(rest).to_string_lossy().into_owned() })
+        };
+        fn rekey<V>(m: &mut HashMap<String, V>, f: &dyn Fn(&str) -> Option<String>) {
+            let hit: Vec<String> = m.keys().filter(|k| f(k).is_some()).cloned().collect();
+            for k in hit {
+                if let (Some(n), Some(v)) = (f(&k), m.remove(&k)) {
+                    m.insert(n, v);
+                }
+            }
+        }
+        fn relist(v: &mut [String], f: &dyn Fn(&str) -> Option<String>) {
+            for k in v.iter_mut() {
+                if let Some(n) = f(k) {
+                    *k = n;
+                }
+            }
+        }
+        rekey(&mut self.meta, &new_path);
+        rekey(&mut self.folder_notes, &new_path);
+        rekey(&mut self.folder_captions, &new_path);
+        for a in &mut self.albums {
+            relist(&mut a.keys, &new_path);
+        }
+        relist(&mut self.roots, &new_path);
+        relist(&mut self.excluded, &new_path);
+        relist(&mut self.imported_ini, &new_path);
+    }
+
+    /// The folder is in the library: inside a library folder and not left out.
+    pub fn shows_folder(&self, dir: &str) -> bool {
+        let p = Path::new(dir);
+        self.roots.iter().any(|r| p.starts_with(r)) && !self.excluded.iter().any(|e| p.starts_with(e))
+    }
 }
 
 /// Whether `dir` is one of the excluded folders or inside one.
@@ -732,6 +777,49 @@ pub fn sample_folders() -> Vec<ScannedFolder> {
 pub fn sample_file_name(key: &str) -> String {
     let n = key.trim_start_matches(SAMPLE_PREFIX);
     format!("IMG_{:04}.JPG", 2000 + n.parse::<u32>().unwrap_or(0) * 7)
+}
+
+#[cfg(test)]
+mod moved_tests {
+    use super::*;
+
+    #[test]
+    fn notes_follow_a_moved_folder_or_file() {
+        let j = |parts: &[&str]| parts.iter().collect::<PathBuf>().to_string_lossy().to_string();
+        let (trip, tripx, other) = (j(&["/p", "trip"]), j(&["/p", "tripx"]), j(&["/p", "2024", "trip"]));
+        let a = j(&["/p", "trip", "a.jpg"]);
+        let mut s = Store::default();
+        s.roots = vec![j(&["/p"])];
+        s.excluded = vec![j(&["/p", "trip", "raw"])];
+        s.meta.insert(a.clone(), Meta { caption: "a".into(), ..Default::default() });
+        s.meta.insert(j(&["/p", "tripx", "b.jpg"]), Meta { caption: "b".into(), ..Default::default() });
+        s.albums.push(Album { name: "best".into(), keys: vec![a.clone()] });
+        s.folder_notes.insert(trip.clone(), "note".into());
+        s.folder_captions.insert(trip.clone(), "cap".into());
+        s.imported_ini.push(trip.clone());
+        s.moved(&trip, &other);
+        let a2 = j(&["/p", "2024", "trip", "a.jpg"]);
+        assert_eq!(s.meta[&a2].caption, "a");
+        assert!(!s.meta.contains_key(&a));
+        // a folder whose name only starts the same stays
+        assert_eq!(s.meta[&j(&["/p", "tripx", "b.jpg"])].caption, "b");
+        assert_eq!(s.albums[0].keys, vec![a2.clone()]);
+        assert_eq!(s.folder_notes[&other], "note");
+        assert_eq!(s.folder_captions[&other], "cap");
+        assert_eq!(s.imported_ini, vec![other.clone()]);
+        assert_eq!(s.excluded, vec![j(&["/p", "2024", "trip", "raw"])]);
+        assert_eq!(s.roots, vec![j(&["/p"])]);
+        let _ = tripx;
+        // one file
+        let a3 = j(&["/p", "2024", "trip", "beach.jpg"]);
+        s.moved(&a2, &a3);
+        assert_eq!(s.meta[&a3].caption, "a");
+        assert_eq!(s.albums[0].keys, vec![a3]);
+        // a library folder renamed
+        s.moved(&j(&["/p"]), &j(&["/q"]));
+        assert_eq!(s.roots, vec![j(&["/q"])]);
+        assert!(s.shows_folder(&j(&["/q", "2024"])) && !s.shows_folder(&j(&["/q", "2024", "trip", "raw"])) && !s.shows_folder(&j(&["/p"])));
+    }
 }
 
 #[cfg(test)]

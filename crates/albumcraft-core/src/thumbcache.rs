@@ -52,6 +52,18 @@ pub fn put(key: &str, dim: u32, img: &RgbaImage) {
     }
 }
 
+/// Forget this picture's cached thumbnails (every size), so they are made again from the file.
+pub fn forget(key: &str) {
+    let Some(d) = dir() else { return };
+    for dim in [crate::library::THUMB_DIM, crate::library::SHARP_THUMB_DIM] {
+        if let Some(base) = base(&d, key, dim) {
+            for ext in ["jpg", "png"] {
+                let _ = std::fs::remove_file(base.with_extension(ext));
+            }
+        }
+    }
+}
+
 /// Remove the least recently used thumbnails until the cache is under 80 % of `MAX_BYTES`, and
 /// leftovers of interrupted writes. Meant for a background thread at start-up.
 pub fn prune() {
