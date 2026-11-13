@@ -544,6 +544,8 @@ pub struct App {
     pub notices: Vec<Notice>,
     /// Background work shown in the status bar with its progress and a Cancel button.
     pub tasks: Vec<RunningTask>,
+    /// The check for a newer release, its prompt and a self-update (updates.rs).
+    pub updates: crate::updates::Updates,
     next_task: u64,
     /// The import view's state (only while it is open).
     pub import: Option<Box<crate::import_view::ImportState>>,
@@ -733,6 +735,7 @@ impl App {
             notices: vec![],
             tasks: vec![],
             next_task: 1,
+            updates: Default::default(),
             import: None,
             importing: None,
             show_after_scan: None,
@@ -2394,6 +2397,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self) {
+        self.start_pending_update();
+    }
+
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.demo_input(ctx, raw);
     }
@@ -2483,6 +2490,7 @@ impl eframe::App for App {
         }
         self.dialogs(&ctx);
         self.toast_ui(&ctx);
+        self.updates_ui(&ctx);
         // a change made in this frame is taken up (lists rebuilt, save planned) by the next one
         if self.dirty {
             ctx.request_repaint();

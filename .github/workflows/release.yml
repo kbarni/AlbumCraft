@@ -8,8 +8,11 @@ name: Release
 # they are kept as the run's artifacts.
 #
 #   Linux x86_64    .AppImage (+ .zsync), .deb, .flatpak, .tar.gz   packaging/linux/
-#   Windows x86_64  .msi, portable .zip                             packaging/windows/
-#   macOS arm64     .app in a .zip (ad-hoc signed)                  below
+#   Windows x64     .msi, -portable.zip                             packaging/windows/
+#   macOS arm64     .app in a .dmg (ad-hoc signed)                  below
+#
+# File names are <stem>-<version>-<os>-<arch>.<kind>, as craft-update (the update check, see
+# src/updates.rs) expects: albumcraft-0.6.0-windows-x64.msi, albumcraft-0.6.0-macos-arm64.dmg.
 on:
   push:
     tags: ["v*"]
@@ -149,8 +152,21 @@ jobs:
           cp README.md LICENSE-MIT LICENSE-APACHE NOTICE "$app/Contents/Resources/"
           # ad-hoc signature (no developer certificate): needed to run on Apple Silicon
           codesign --force --deep --sign - "$app"
-          ditto -c -k --keepParent "$app" "dist/release/AlbumCraft-${VERSION}-macos-arm64.zip"
           "$app/Contents/MacOS/albumcraft" --version
+          # a disk image with the app and a link to Applications, to drag it there; the update
+          # check installs AlbumCraft.app from its top level
+          dmg_root=dmg-root
+          mkdir -p "$dmg_root"
+          ditto "$app" "$dmg_root/$app"
+          ln -s /Applications "$dmg_root/Applications"
+          dmg="dist/release/albumcraft-${VERSION}-macos-arm64.dmg"
+          hdiutil create -volname "AlbumCraft ${VERSION}" -srcfolder "$dmg_root" -fs HFS+ -format UDZO -ov "$dmg"
+          # check it: mount it and run the app in it
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          "$mnt/$app/Contents/MacOS/albumcraft" --version
+          codesign --verify --deep "$mnt/$app"
+          hdiutil detach "$mnt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos

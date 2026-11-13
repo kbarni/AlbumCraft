@@ -4,8 +4,11 @@
 
 .DESCRIPTION
   Writes, in $env:DIST (default: dist\release):
-    albumcraft-<version>-windows-x86_64.msi   installer for all users (WiX v5)
-    albumcraft-<version>-windows-x86_64.zip   portable: unpack and run albumcraft.exe
+    albumcraft-<version>-windows-x64.msi            installer for all users (WiX v5)
+    albumcraft-<version>-windows-x64-portable.zip   portable: unpack and run albumcraft.exe
+
+  The names follow the Craft apps' convention (<stem>-<version>-<os>-<arch>), which the update
+  check (src/updates.rs, craft-update) reads to pick the file for a copy: keep them.
 
   The binary links the C runtime statically, so neither needs the Visual C++ redistributable.
   Needs Rust (MSVC toolchain), the Windows SDK (rc.exe, for the icon) and WiX v5:
@@ -67,8 +70,9 @@ $icons = [AlbumCraft.Shell]::ExtractIconEx($Exe, -1, $null, $null, 0)
 if ($icons -eq 0) { throw 'albumcraft.exe has no embedded icon: rebuild without -SkipBuild' }
 Write-Output "ok albumcraft.exe: x64 GUI program, $icons icon(s)"
 
-$Name = "albumcraft-$Version-windows-x86_64"
-$Stage = Join-Path $TargetDir "windows-package\$Name"
+$Name = "albumcraft-$Version-windows-x64"
+# the portable zip holds this one folder (its name is the zip's)
+$Stage = Join-Path $TargetDir "windows-package\$Name-portable"
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item $Exe $Stage
@@ -85,7 +89,10 @@ Invoke-Native 'wix build' {
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
 
 # ---- portable zip ------------------------------------------------------------------------------
-$Zip = Join-Path $Dist "$Name.zip"
+# portable.txt beside the exe marks a portable copy: an update replaces the files in this folder
+# (the MSI lists its files one by one, so it leaves this one out)
+Set-Content -Path (Join-Path $Stage 'portable.txt') -Value 'This copy of AlbumCraft was unpacked from the portable zip; its updates replace the files in this folder.'
+$Zip = Join-Path $Dist "$Name-portable.zip"
 Remove-Item -Force $Zip -ErrorAction SilentlyContinue
 Compress-Archive -Path $Stage -DestinationPath $Zip
 

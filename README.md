@@ -63,11 +63,11 @@ window (changes show at once); otherwise they change the library file directly.
 Download the build for your system from the
 [releases](https://github.com/kbarni/AlbumCraft/releases):
 
-- **Windows**: the `.msi` installer, or the portable `.zip` (unpack and run `albumcraft.exe`).
+- **Windows**: the `.msi` installer, or the portable `-portable.zip` (unpack and run `albumcraft.exe`).
 - **Linux**: the `.deb` for Debian, Ubuntu and their relatives (`sudo apt install ./albumcraft-….deb`),
   the `.flatpak` (`flatpak install --user albumcraft-….flatpak`), the `.AppImage` (make it
   executable and run it) or the `.tar.gz` (unpack and run `albumcraft`).
-- **macOS** (Apple Silicon): unpack the `.zip` and move `AlbumCraft.app` to Applications.
+- **macOS** (Apple Silicon): open the `.dmg` and drag `AlbumCraft.app` to Applications.
 
 The builds are not signed: on macOS, right-click the app and choose *Open* the first time; on
 Windows, choose *More info* → *Run anyway*.
@@ -106,8 +106,13 @@ contributors (human or AI); `new_features.md` is the plan and its status.
 - Map tiles (online maps only): a cache in the user cache folder (`AlbumCraft/tiles`), kept
   under 500 MB; GPS positions read from your pictures: `AlbumCraft/gps.json`. Both safe to delete.
 
-AlbumCraft makes no network connections unless you turn on **online maps** (it asks once, at the
-first start; change it later in *Settings → Maps*). Then, and only
+When it starts, AlbumCraft asks GitHub whether there is a newer release (nothing else is sent;
+turn it off in *Settings → Interface → Updates*, or check by hand from the menu). When there is
+one, it offers to download and install it, or to open the release page; nothing is installed
+unless you say so.
+
+Other than that, AlbumCraft makes no network connections unless you turn on **online maps** (it
+asks once, at the first start; change it later in *Settings → Maps*). Then, and only
 while you use the map, it downloads map pictures from OpenStreetMap and sends the places you
 search for to OpenStreetMap's search service. Your pictures and their locations are never sent.
 Without online maps, the map and place search use the built-in world map and city list.

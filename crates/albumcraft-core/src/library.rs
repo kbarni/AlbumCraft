@@ -264,6 +264,8 @@ pub struct Store {
     /// Last used web gallery theme, layout, picture size and captions.
     #[serde(deserialize_with = "or_default")]
     pub gallery: crate::gallery::GallerySettings,
+    /// Look for a newer release of AlbumCraft when it starts (Settings > Interface).
+    pub check_updates: bool,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -322,6 +324,7 @@ impl Default for Store {
             analysis_paused: false,
             search_pack: String::new(),
             gallery: Default::default(),
+            check_updates: true,
         }
     }
 }
