@@ -386,6 +386,9 @@ impl App {
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }
+        if shot_view == "update" {
+            self.offer_demo_update();
+        }
     }
 }
 

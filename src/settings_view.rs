@@ -178,6 +178,13 @@ impl App {
 
         group(ui, &tr!("settings-thumb-size"));
         changed |= ui.add(egui::Slider::new(&mut self.store.thumb_size, 64.0..=256.0).show_value(false)).changed();
+
+        group(ui, &tr!("settings-updates"));
+        changed |= ui.checkbox(&mut self.store.check_updates, tr!("settings-updates-at-start")).changed();
+        note(ui, &tr!("settings-updates-note", version = env!("CARGO_PKG_VERSION")));
+        if ui.button(tr!("settings-updates-check-now")).clicked() {
+            self.check_for_updates();
+        }
         if changed {
             self.dirty = true;
         }

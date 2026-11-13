@@ -59,6 +59,9 @@ i18n-embed = { version = "0.16.0", features = ["fluent-system", "desktop-request
 i18n-embed-fl = "0.10.1"
 rust-embed = "8.14.0"
 fluent-bundle = "0.16.0"
+# the check for a newer release at start (and Help > Check for Updates), its prompt and the
+# self-update, shared with the other Craft apps (src/updates.rs)
+craft-update = { git = "https://github.com/storytold/craft-libs", rev = "bc3e521bd37e53f2b5b4c55278111b55fd9a40f9", features = ["egui"] }
 
 [dev-dependencies]
 ab_glyph.workspace = true

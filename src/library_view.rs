@@ -383,6 +383,10 @@ impl App {
             self.open_settings(crate::settings_view::SettingsSection::default());
             ui.close();
         }
+        if ui.button(tr!("menu-check-updates")).clicked() {
+            self.check_for_updates();
+            ui.close();
+        }
         if ui.button(tr!("menu-about")).clicked() {
             self.dialog = Some(Dialog::About);
             ui.close();

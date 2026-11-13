@@ -29,6 +29,7 @@ mod shell;
 mod slides;
 mod slideshow_view;
 mod theme;
+mod updates;
 
 // Everything without a window lives in the albumcraft-core and albumcraft-edit crates. Their
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
@@ -53,7 +54,7 @@ fn window_icon() -> eframe::egui::IconData {
 }
 
 /// Reverse-DNS id of the Linux desktop file, AppStream metadata and Flatpak.
-const APP_ID: &str = "io.github.kbarni.albumcraft";
+pub const APP_ID: &str = "io.github.kbarni.albumcraft";
 
 /// Where panics are written down (release builds have no console on Windows).
 pub fn crash_log_path() -> Option<PathBuf> {
@@ -98,6 +99,14 @@ fn install_panic_hook() {
 
 fn main() -> eframe::Result<()> {
     install_panic_hook();
+    // started by an update's restart helper: finish installing it, start the new copy, exit
+    if let Some(done) = updates::finish_update() {
+        if let Err(e) = done {
+            eprintln!("AlbumCraft update helper failed: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if std::env::args().skip(1).any(|a| a == "--version") {
         println!("AlbumCraft {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
