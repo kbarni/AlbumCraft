@@ -43,7 +43,6 @@ dialog-new-album = Neues Album
 dialog-rename-album = Album umbenennen
 dialog-tags = Stichwörter und Personen
 dialog-gallery = Web-Galerie
-dialog-folder-note = Ordnerbeschreibung
 dialog-movie = Film
 dialog-about = Über AlbumCraft
 dialog-online-maps = Karten
@@ -82,7 +81,6 @@ gallery-size-large = Groß (2048 Pixel, für große Bildschirme)
 gallery-captions = Bildunterschriften anzeigen
 gallery-make = Ordner wählen und erstellen…
 
-folder-note-intro = Eine kurze Beschreibung, die unter dem Ordnernamen angezeigt wird:
 
 
 # $fade and $motion are "yes" or "no"
@@ -368,7 +366,7 @@ empty-add = Ordner hinzufügen
 empty-add-hint = Die Fotos eines Ordners dort anzeigen, wo sie liegen, ohne sie zu kopieren
 
 folder-play-hint = Diesen Ordner als Diashow abspielen
-folder-edit-hint = Beschreibung ändern
+folder-edit-hint = Bildunterschrift und Beschreibung ändern
 folder-map-hint = Diesen Ordner auf der Karte anzeigen
 tile-pick-hint = Als Favorit markieren (P)
 tile-reject-hint = Ablehnen (X)
@@ -482,6 +480,82 @@ ctx-tags = Stichwörter und Personen…
 ctx-location = Ort festlegen…
 ctx-export = Exportieren…
 ctx-show-file = Im Dateimanager anzeigen
+ctx-open-default = Mit Standardprogramm öffnen
+ctx-open-with = Öffnen mit…
+ctx-open-with-menu = Öffnen mit
+ctx-copy-path = Pfad kopieren
+ctx-rename = Umbenennen…
+ctx-move = In Ordner verschieben…
+ctx-trash = In den Papierkorb legen…
+notice-copied-path = { $n ->
+    [one] Pfad kopiert.
+   *[other] { $n } Pfade kopiert.
+}
+notice-open-failed = Das Programm konnte nicht geöffnet werden: { $error }
+folder-select = Diesen Ordner auswählen
+folder-texts = Bildunterschrift und Beschreibung…
+folder-open = Im Dateimanager öffnen
+folder-refresh = Miniaturen aktualisieren
+folder-refresh-hint = Die Miniaturen dieses Ordners neu aus den Dateien erstellen
+folder-refreshing = Die Miniaturen von { $name } werden neu erstellt.
+folder-move = Verschieben nach…
+folder-remove = Aus der Bibliothek entfernen
+folder-remove-hint = Die Dateien und Ihre Notizen dazu bleiben unverändert.
+removed-folder = { $path } wurde aus der Bibliothek genommen. Die Dateien und Ihre Notizen dazu sind unverändert.
+dialog-folder-texts = Bildunterschrift und Beschreibung
+folder-caption-label = Bildunterschrift (eine Zeile, unter dem Ordnernamen):
+folder-description-label = Beschreibung (über den Fotos des Ordners):
+dialog-rename-picture = Foto umbenennen
+dialog-rename-folder = Ordner umbenennen
+rename-label = Neuer Name:
+rename-keeps-ext = Die Endung .{ $ext } bleibt erhalten.
+rename-button = Umbenennen
+dialog-move = In Ordner verschieben
+move-pictures-into = { $n ->
+    [one] { $name } verschieben nach:
+   *[other] Die { $count } Fotos verschieben nach:
+}
+move-folder-into = Den Ordner { $name } verschieben nach:
+move-filter = Ordner filtern
+move-other = Anderer Ordner…
+move-none = Kein anderer Ordner der Bibliothek passt.
+files-renamed = { $from } in { $to } umbenannt.
+folder-trash = Ordner in den Papierkorb legen…
+trash-folder-question = { $n ->
+    [one] Den Ordner { $name } mit allem darin (1 Foto, { $size }) in den Papierkorb legen?
+   *[other] Den Ordner { $name } mit allem darin ({ $count } Fotos, { $size }) in den Papierkorb legen?
+}
+dialog-delete-forever = Endgültig löschen?
+delete-forever-question = { $n ->
+    [one] Dieses Element konnte nicht in den Papierkorb (sein Laufwerk hat keinen, etwa ein Netzlaufwerk). Endgültig löschen? Es kann nicht wiederhergestellt werden.
+   *[other] Diese { $n } Elemente konnten nicht in den Papierkorb (ihr Laufwerk hat keinen, etwa ein Netzlaufwerk). Endgültig löschen? Sie können nicht wiederhergestellt werden.
+}
+delete-forever-button = Endgültig löschen
+delete-forever-keep = Behalten
+task-move-across = { $n ->
+    [one] { $n } Element wird auf ein anderes Laufwerk verschoben
+   *[other] { $n } Elemente werden auf ein anderes Laufwerk verschoben
+}
+task-trash-folder = { $name } wird in den Papierkorb gelegt
+task-delete = { $n ->
+    [one] { $n } Element wird gelöscht
+   *[other] { $n } Elemente werden gelöscht
+}
+moved-across = { $n ->
+    [one] { $n } Element auf ein anderes Laufwerk verschoben.
+   *[other] { $n } Elemente auf ein anderes Laufwerk verschoben.
+}
+fail-move = Die Dateien konnten nicht verschoben werden: unerwarteter Fehler.
+fail-delete = Die Dateien konnten nicht gelöscht werden: unerwarteter Fehler.
+files-moved = { $n ->
+    [one] { $name } nach { $folder } verschoben.
+   *[other] { $count } Fotos nach { $folder } verschoben.
+}
+files-more-problems = …und { $n } weitere.
+trash-question-chosen = { $n ->
+    [one] Dieses Foto ({ $size }) in den Papierkorb legen?
+   *[other] Diese { $count } Fotos ({ $size }) in den Papierkorb legen?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1303,6 +1377,26 @@ root-excluded = That folder is inside { $folder }, which is left out of the libr
 exclude-is-root = That is a library folder: remove it instead.
 exclude-outside = That folder is not inside a library folder.
 exclude-already = That folder is already left out.
+name-empty = Geben Sie einen Namen ein.
+name-bad-char = Ein Name darf { $char } nicht enthalten.
+name-dot = Ein Name darf nicht mit einem Punkt enden.
+name-long = Dieser Name ist zu lang.
+move-no-parent = { $path } hat keinen Ordner.
+move-no-name = { $path } hat keinen Namen.
+move-sample = Beispielfotos können nicht verschoben oder umbenannt werden.
+move-missing = { $path } ist nicht mehr da.
+move-into-itself = Ein Ordner kann nicht in sich selbst verschoben werden.
+move-no-folder = Der Ordner { $path } existiert nicht.
+move-taken = { $name } gibt es dort schon.
+move-failed = { $path } konnte nicht verschoben werden: { $error }
+move-outside = { $path } ist nicht in der Bibliothek: Wählen Sie einen Ordner innerhalb eines Bibliotheksordners.
+move-stopped = Angehalten: { $path } wurde nicht verschoben.
+move-original-left = { $to } wurde kopiert, aber das Original { $path } konnte nicht entfernt werden ({ $error }): Jetzt gibt es beide.
+deleted-for-good = { $n ->
+    [one] { $n } Element endgültig gelöscht.
+   *[other] { $n } Elemente endgültig gelöscht.
+}
+deleted-stopped = Vor dem Ende angehalten.
 online-tile-bad = eine Kartenkachel konnte nicht gelesen werden: { $error }
 online-map-down = Online-Karte nicht erreichbar ({ $error })
 online-search-down = Die Online-Suche ist nicht erreichbar ({ $error }).

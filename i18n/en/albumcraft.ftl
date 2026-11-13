@@ -45,7 +45,6 @@ dialog-new-album = New album
 dialog-rename-album = Rename album
 dialog-tags = Tags and people
 dialog-gallery = Web gallery
-dialog-folder-note = Folder description
 dialog-movie = Movie
 dialog-about = About AlbumCraft
 dialog-online-maps = Maps
@@ -84,7 +83,6 @@ gallery-size-large = Large (2048 pixels, for big screens)
 gallery-captions = Show captions
 gallery-make = Choose folder and make…
 
-folder-note-intro = A short description shown under the folder name:
 
 
 # $fade and $motion are "yes" or "no"
@@ -372,7 +370,7 @@ empty-add = Add a folder
 empty-add-hint = Show the pictures of a folder where they are, without copying them
 
 folder-play-hint = Play this folder as a slideshow
-folder-edit-hint = Edit description
+folder-edit-hint = Edit caption and description
 folder-map-hint = Show this folder on the map
 tile-pick-hint = Pick (P)
 tile-reject-hint = Reject (X)
@@ -487,6 +485,82 @@ ctx-tags = Tags and people…
 ctx-location = Set location…
 ctx-export = Export…
 ctx-show-file = Show in file manager
+ctx-open-default = Open in default program
+ctx-open-with = Open with…
+ctx-open-with-menu = Open with
+ctx-copy-path = Copy path
+ctx-rename = Rename…
+ctx-move = Move to folder…
+ctx-trash = Move to the trash…
+notice-copied-path = { $n ->
+    [one] Copied the path.
+   *[other] Copied { $n } paths.
+}
+notice-open-failed = Could not open the program: { $error }
+folder-select = Select this folder
+folder-texts = Caption and description…
+folder-open = Open in file manager
+folder-refresh = Refresh thumbnails
+folder-refresh-hint = Make this folder's thumbnails again from the files
+folder-refreshing = Making the thumbnails of { $name } again.
+folder-move = Move to…
+folder-remove = Remove from library
+folder-remove-hint = The files and your notes on them are not touched.
+removed-folder = Took { $path } out of the library. Its files and your notes on them are untouched.
+dialog-folder-texts = Caption and description
+folder-caption-label = Caption (one line, shown under the folder's name):
+folder-description-label = Description (shown above the folder's pictures):
+dialog-rename-picture = Rename picture
+dialog-rename-folder = Rename folder
+rename-label = New name:
+rename-keeps-ext = The extension .{ $ext } stays.
+rename-button = Rename
+dialog-move = Move to folder
+move-pictures-into = { $n ->
+    [one] Move { $name } into:
+   *[other] Move the { $count } pictures into:
+}
+move-folder-into = Move the folder { $name } into:
+move-filter = Filter folders
+move-other = Other folder…
+move-none = No other folder of the library matches.
+files-renamed = Renamed { $from } to { $to }.
+folder-trash = Move folder to the trash…
+trash-folder-question = { $n ->
+    [one] Move the folder { $name } and everything in it (1 picture, { $size }) to the trash?
+   *[other] Move the folder { $name } and everything in it ({ $count } pictures, { $size }) to the trash?
+}
+dialog-delete-forever = Delete for good?
+delete-forever-question = { $n ->
+    [one] This item could not go to the trash (its disk has none, for example a network drive). Delete it for good? It can't be brought back.
+   *[other] These { $n } items could not go to the trash (their disk has none, for example a network drive). Delete them for good? They can't be brought back.
+}
+delete-forever-button = Delete for good
+delete-forever-keep = Keep them
+task-move-across = { $n ->
+    [one] Moving { $n } item to another disk
+   *[other] Moving { $n } items to another disk
+}
+task-trash-folder = Moving { $name } to the trash
+task-delete = { $n ->
+    [one] Deleting { $n } item
+   *[other] Deleting { $n } items
+}
+moved-across = { $n ->
+    [one] Moved { $n } item to another disk.
+   *[other] Moved { $n } items to another disk.
+}
+fail-move = Could not move the files: unexpected error.
+fail-delete = Could not delete the files: unexpected error.
+files-moved = { $n ->
+    [one] Moved { $name } to { $folder }.
+   *[other] Moved { $count } pictures to { $folder }.
+}
+files-more-problems = …and { $n } more.
+trash-question-chosen = { $n ->
+    [one] Move this picture ({ $size }) to the trash?
+   *[other] Move these { $count } pictures ({ $size }) to the trash?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1309,6 +1383,26 @@ root-excluded = That folder is inside { $folder }, which is left out of the libr
 exclude-is-root = That is a library folder: remove it instead.
 exclude-outside = That folder is not inside a library folder.
 exclude-already = That folder is already left out.
+name-empty = Type a name.
+name-bad-char = A name can't contain { $char }.
+name-dot = A name can't end with a dot.
+name-long = That name is too long.
+move-no-parent = { $path } has no folder.
+move-no-name = { $path } has no name.
+move-sample = Sample pictures can't be moved or renamed.
+move-missing = { $path } is not there any more.
+move-into-itself = A folder can't be moved into itself.
+move-no-folder = The folder { $path } doesn't exist.
+move-taken = { $name } already exists there.
+move-failed = Could not move { $path }: { $error }
+move-outside = { $path } is not in the library: choose a folder inside a library folder.
+move-stopped = Stopped: { $path } was not moved.
+move-original-left = { $to } was copied, but the original { $path } could not be removed ({ $error }): both are there now.
+deleted-for-good = { $n ->
+    [one] Deleted { $n } item for good.
+   *[other] Deleted { $n } items for good.
+}
+deleted-stopped = Stopped before the end.
 online-tile-bad = a map tile could not be read: { $error }
 online-map-down = Online map not reachable ({ $error })
 online-search-down = The online search is not reachable ({ $error }).

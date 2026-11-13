@@ -27,6 +27,13 @@ pub trait Host {
     fn changed(&mut self, _id: usize) {}
     /// Look for pictures again after the library's folders changed.
     fn rescan(&mut self);
+    /// Files or folders were moved on disk, (old path, new path), and the notes followed them;
+    /// a rescan comes next (the window keeps its thumbnails and selection across it).
+    fn moved(&mut self, _pairs: &[(String, String)]) {}
+    /// Move or rename a file or folder on disk (see `files::move_path`).
+    fn move_path(&mut self, from: &str, to: &str) -> Result<(), String> {
+        crate::files::move_path(from, to)
+    }
     /// Show a picture in the editor (only with a window).
     fn show(&mut self, _id: usize) -> Result<(), String> {
         Err("the AlbumCraft window isn't open".into())
@@ -72,6 +79,84 @@ pub fn remove_place(host: &mut dyn Host, ids: &[usize], back_to_file: bool) {
             m.place = if has_file_gps { Some(Place::Removed) } else { None };
         }
         host.changed(id);
+    }
+}
+
+/// What `move_on_disk` did: the (old, new) paths moved and why the others were not.
+#[derive(Debug, Default)]
+pub struct Moves {
+    pub done: Vec<(String, String)>,
+    pub failed: Vec<String>,
+}
+
+/// Move (or rename) files or folders on disk, (from, to) each: their notes follow them, and
+/// the library is scanned again when anything moved. The window and the commands use this.
+pub fn move_on_disk(host: &mut dyn Host, pairs: &[(String, String)]) -> Moves {
+    let mut m = Moves::default();
+    for (from, to) in pairs {
+        if from == to {
+            continue;
+        }
+        match host.move_path(from, to) {
+            Ok(()) => {
+                host.store_mut().moved(from, to);
+                m.done.push((from.clone(), to.clone()));
+            }
+            Err(e) => m.failed.push(e),
+        }
+    }
+    if !m.done.is_empty() {
+        host.moved(&m.done);
+        host.rescan();
+    }
+    m
+}
+
+/// A folder pictures or folders can be moved into: there, and part of the library.
+pub fn library_folder(store: &Store, dir: &str) -> Result<(), String> {
+    if !Path::new(dir).is_dir() {
+        return Err(crate::msg!("move-no-folder", "The folder {path} doesn't exist.", path = dir).into());
+    }
+    if !store.shows_folder(dir) {
+        return Err(crate::msg!("move-outside", "{path} is not in the library: choose a folder inside a library folder.", path = dir).into());
+    }
+    Ok(())
+}
+
+/// Take a folder out of the library without touching its files: a library folder is removed
+/// from the list, a folder inside one is left out (`Store.excluded`). Returns whether it was a
+/// library folder (`roots`), and its place there.
+pub fn remove_folder(host: &mut dyn Host, path: &str) -> Result<Option<usize>, String> {
+    let s = host.store_mut();
+    let at = s.roots.iter().position(|r| Path::new(r) == Path::new(path));
+    match at {
+        Some(i) => {
+            s.roots.remove(i);
+        }
+        None => s.add_excluded(path)?,
+    }
+    host.rescan();
+    Ok(at)
+}
+
+/// Before a folder goes to the trash: a library folder is taken off the list (it would be
+/// missing at every scan after).
+pub fn forget_root(store: &mut Store, path: &str) {
+    store.roots.retain(|r| Path::new(r) != Path::new(path));
+}
+
+/// Set a folder's caption and / or description (empty clears it).
+pub fn set_folder_text(store: &mut Store, path: &str, caption: Option<&str>, description: Option<&str>) {
+    for (map, text) in [(&mut store.folder_captions, caption), (&mut store.folder_notes, description)] {
+        match text.map(str::trim) {
+            Some("") => {
+                map.remove(path);
+            }
+            Some(t) => {
+                map.insert(path.to_string(), t.to_string());
+            }
+            None => {}
+        }
     }
 }
 
@@ -326,6 +411,70 @@ Call `rescan` afterwards to see the new pictures in the library.",
                 "keys": { "type": "array", "items": { "type": "string" }, "description": "Rejected pictures to move (default: all rejected pictures)" },
                 "confirm": { "type": "boolean", "description": "Must be true: the user agreed to move these files to the trash" }
             }, "required": ["confirm"] }),
+        },
+        Spec {
+            name: "trash_pictures",
+            description: "Move picture files to the system's trash: they are removed from their folders, and the user can get them back from the trash until it is emptied. Ask the user first, then call with confirm: true.",
+            schema: || keys_schema(json!({ "confirm": { "type": "boolean", "description": "Must be true: the user agreed to move these files to the trash" } })),
+        },
+        Spec {
+            name: "trash_folder",
+            description: "Move a folder of the library, with everything in it, to the system's trash. Ask the user first, then call with confirm: true. A library folder is also taken off the library's list.",
+            schema: || json!({ "type": "object", "properties": {
+                "path": { "type": "string", "description": "The folder, as listed by list_folders" },
+                "confirm": { "type": "boolean", "description": "Must be true: the user agreed to move this folder to the trash" }
+            }, "required": ["path", "confirm"] }),
+        },
+        Spec {
+            name: "delete_permanently",
+            description: "Delete pictures or library folders for good, without the trash: they can't be brought back. Only for what the trash refused (`not_moved` of trash_pictures / trash_folder, e.g. on a network drive). Ask the user first, saying it can't be undone, then call with confirm: true.",
+            schema: || json!({ "type": "object", "properties": {
+                "paths": { "type": "array", "items": { "type": "string" }, "description": "Picture keys or library folders" },
+                "confirm": { "type": "boolean", "description": "Must be true: the user agreed to delete these for good" }
+            }, "required": ["paths", "confirm"] }),
+        },
+        Spec {
+            name: "rename_picture",
+            description: "Rename a picture's file on disk (in its folder; never over another file). Its notes, edits and albums follow it. The extension is kept when the new name leaves it out.",
+            schema: || json!({ "type": "object", "properties": {
+                "key": { "type": "string", "description": "The picture (its file path)" },
+                "name": { "type": "string", "description": "The new file name, e.g. \"Beach at dawn\" or \"beach.jpg\"" }
+            }, "required": ["key", "name"] }),
+        },
+        Spec {
+            name: "move_pictures",
+            description: "Move picture files into another folder of the library, on the same disk (never over another file). Their notes, edits and albums follow them.",
+            schema: || keys_schema(json!({ "folder": { "type": "string", "description": "The folder to move them into (must exist and be in the library)" } })),
+        },
+        Spec {
+            name: "rename_folder",
+            description: "Rename a folder of the library on disk. The notes of its pictures, its caption and description follow it.",
+            schema: || json!({ "type": "object", "properties": {
+                "path": { "type": "string", "description": "The folder, as listed by list_folders" },
+                "name": { "type": "string", "description": "Its new name (not a path)" }
+            }, "required": ["path", "name"] }),
+        },
+        Spec {
+            name: "move_folder",
+            description: "Move a folder of the library (with everything in it) into another library folder, on the same disk. The notes follow it.",
+            schema: || json!({ "type": "object", "properties": {
+                "path": { "type": "string", "description": "The folder to move" },
+                "into": { "type": "string", "description": "The folder to move it into (must exist and be in the library)" }
+            }, "required": ["path", "into"] }),
+        },
+        Spec {
+            name: "set_folder_text",
+            description: "Set a folder's caption (one short line, shown under its name) and / or description (shown above its pictures). An empty text removes it; a missing one is left as it is.",
+            schema: || json!({ "type": "object", "properties": {
+                "path": { "type": "string", "description": "The folder, as listed by list_folders" },
+                "caption": { "type": "string" },
+                "description": { "type": "string" }
+            }, "required": ["path"] }),
+        },
+        Spec {
+            name: "remove_folder",
+            description: "Take a folder out of the library; its files and the notes on its pictures are not touched. A library folder is removed from the list; a folder inside one is left out of the scans (Settings › Folders lists it, to bring it back).",
+            schema: || json!({ "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] }),
         },
         Spec {
             name: "email_pictures",
@@ -651,6 +800,27 @@ fn hex_color(s: &str) -> Result<[u8; 3], String> {
     Ok([byte(0)?, byte(2)?, byte(4)?])
 }
 
+/// A folder in the library: one with pictures, a library folder, or one inside it.
+fn library_dir(host: &dyn Host, path: &str) -> Result<String, String> {
+    let path = path.trim_end_matches(['/', '\\']);
+    let known = host.folders().iter().any(|f| f.path == path) || host.store().roots.iter().any(|r| r == path);
+    if known || (Path::new(path).is_dir() && host.store().shows_folder(path)) {
+        Ok(path.to_string())
+    } else {
+        Err(format!("{path:?} is not a folder of the library"))
+    }
+}
+
+fn moved_reply(m: Moves) -> Result<Outcome, String> {
+    if m.done.is_empty()
+        && let Some(e) = m.failed.first()
+    {
+        return Err(e.clone());
+    }
+    let moved: Vec<Value> = m.done.iter().map(|(a, b)| json!({ "from": a, "to": b })).collect();
+    Ok(Outcome::Now(Reply::json(json!({ "moved": moved, "not_moved": m.failed }))))
+}
+
 fn existing_dir(path: &str) -> Result<PathBuf, String> {
     let p = PathBuf::from(path);
     if p.is_dir() { Ok(p) } else { Err(format!("{path:?} is not an existing folder")) }
@@ -681,11 +851,11 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             }))
         }
         "list_folders" => {
-            let notes = &host.store().folder_notes;
+            let (notes, captions) = (&host.store().folder_notes, &host.store().folder_captions);
             now(Value::Array(
                 host.folders()
                     .iter()
-                    .map(|f| json!({ "path": f.path, "name": f.name, "pictures": f.photos.len(), "newest": iso(f.date), "description": notes.get(&f.path) }))
+                    .map(|f| json!({ "path": f.path, "name": f.name, "pictures": f.photos.len(), "newest": iso(f.date), "caption": captions.get(&f.path), "description": notes.get(&f.path) }))
                     .collect(),
             ))
         }
@@ -1263,6 +1433,95 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             host.rescan();
             now(json!({ "moved": done.moved, "not_moved": done.failed, "message": done.report().text }))
         }
+        "trash_pictures" => {
+            let chosen = ids(host, args)?;
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: the files are removed from their folders (to the system's trash)".into());
+            }
+            let files: Vec<String> = chosen.iter().map(|&id| host.photos()[id].key.clone()).collect();
+            let done = library::trash_files(&files, &|_, _| true);
+            host.rescan();
+            now(json!({ "moved": done.moved, "not_moved": done.failed, "refused_by_trash": done.refused, "message": done.report().text }))
+        }
+        "trash_folder" => {
+            let path = library_dir(host, str_arg(args, "path")?)?;
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: the folder and everything in it go to the system's trash".into());
+            }
+            let done = library::trash_files(std::slice::from_ref(&path), &|_, _| true);
+            if done.moved > 0 {
+                forget_root(host.store_mut(), &path);
+            }
+            host.rescan();
+            now(json!({ "moved": done.moved, "not_moved": done.failed, "refused_by_trash": done.refused, "message": done.report().text }))
+        }
+        "delete_permanently" => {
+            let paths = strings(args, "paths")?;
+            if paths.is_empty() {
+                return Err("`paths` is empty".into());
+            }
+            for p in &paths {
+                if host.find(p).is_none() {
+                    library_dir(host, p)?;
+                }
+            }
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: these are deleted for good and can't be brought back".into());
+            }
+            for p in &paths {
+                forget_root(host.store_mut(), p);
+            }
+            let r = library::delete_permanently(&paths, &|_, _| true);
+            host.rescan();
+            if r.ok { now(json!({ "message": r.text })) } else { Err(r.text) }
+        }
+        "rename_picture" => {
+            let id = one(host, str_arg(args, "key")?)?;
+            let key = host.photos()[id].key.clone();
+            let to = crate::files::renamed_file(&key, str_arg(args, "name")?)?;
+            moved_reply(move_on_disk(host, &[(key, to)]))
+        }
+        "move_pictures" => {
+            let chosen = ids(host, args)?;
+            let folder = str_arg(args, "folder")?;
+            library_folder(host.store(), folder)?;
+            let pairs = chosen
+                .iter()
+                .map(|&id| {
+                    let key = host.photos()[id].key.clone();
+                    crate::files::moved_into(&key, folder).map(|to| (key, to))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            moved_reply(move_on_disk(host, &pairs))
+        }
+        "rename_folder" => {
+            let path = library_dir(host, str_arg(args, "path")?)?;
+            let to = crate::files::renamed_folder(&path, str_arg(args, "name")?)?;
+            moved_reply(move_on_disk(host, &[(path, to)]))
+        }
+        "move_folder" => {
+            let path = library_dir(host, str_arg(args, "path")?)?;
+            let into = str_arg(args, "into")?;
+            library_folder(host.store(), into)?;
+            let to = crate::files::moved_into(&path, into)?;
+            moved_reply(move_on_disk(host, &[(path, to)]))
+        }
+        "set_folder_text" => {
+            let path = library_dir(host, str_arg(args, "path")?)?;
+            let text = |k: &str| match args.get(k) {
+                None | Some(Value::Null) => Ok(None),
+                Some(v) => v.as_str().map(Some).ok_or(format!("`{k}` must be text")),
+            };
+            let (caption, description) = (text("caption")?, text("description")?);
+            set_folder_text(host.store_mut(), &path, caption, description);
+            let s = host.store();
+            now(json!({ "path": path, "caption": s.folder_captions.get(&path), "description": s.folder_notes.get(&path) }))
+        }
+        "remove_folder" => {
+            let path = library_dir(host, str_arg(args, "path")?)?;
+            let was_root = remove_folder(host, &path)?.is_some();
+            now(json!({ "removed": path, "was_library_folder": was_root, "pictures": host.photos().len() }))
+        }
         "email_pictures" => {
             let ids = ids(host, args)?;
             let subject = opt_str(args, "subject").unwrap_or("Pictures").to_string();
@@ -1642,6 +1901,48 @@ mod tests {
     }
 
     #[test]
+    fn pictures_and_folders_move_with_their_notes() {
+        let (dir, mut h, keys) = fixture("moves");
+        h.rescan();
+        let pics = dir.join("pics");
+        call(&mut h, "set_caption", json!({ "keys": [keys[0]], "caption": "Dawn" })).unwrap();
+        call(&mut h, "create_album", json!({ "name": "Best", "keys": [keys[0]] })).unwrap();
+        // rename: the extension is kept, the notes follow
+        let r = call(&mut h, "rename_picture", json!({ "key": keys[0], "name": "dawn" })).unwrap();
+        let dawn = pics.join("dawn.jpg").to_string_lossy().to_string();
+        assert_eq!(r["moved"][0]["to"], dawn);
+        assert!(Path::new(&dawn).is_file() && !Path::new(&keys[0]).exists());
+        assert_eq!(h.store().meta[&dawn].caption, "Dawn");
+        assert_eq!(h.store().albums[0].keys, vec![dawn.clone()]);
+        assert!(h.find(&dawn).is_some());
+        // into a subfolder
+        let sub = pics.join("2024");
+        std::fs::create_dir_all(&sub).unwrap();
+        call(&mut h, "move_pictures", json!({ "keys": [dawn, keys[1]], "folder": sub.to_string_lossy() })).unwrap();
+        let moved = sub.join("dawn.jpg").to_string_lossy().to_string();
+        assert_eq!(h.store().meta[&moved].caption, "Dawn");
+        assert_eq!(h.photos().len(), 3);
+        // the folder: caption, then renamed, then removed from the library
+        let s = sub.to_string_lossy().to_string();
+        call(&mut h, "set_folder_text", json!({ "path": s, "caption": "Summer", "description": "By the sea" })).unwrap();
+        call(&mut h, "rename_folder", json!({ "path": s, "name": "Summer 2024" })).unwrap();
+        let summer = pics.join("Summer 2024").to_string_lossy().to_string();
+        assert_eq!(h.store().folder_captions[&summer], "Summer");
+        assert_eq!(h.store().folder_notes[&summer], "By the sea");
+        assert_eq!(h.store().meta[&Path::new(&summer).join("dawn.jpg").to_string_lossy().to_string()].caption, "Dawn");
+        call(&mut h, "set_folder_text", json!({ "path": summer, "caption": "" })).unwrap();
+        assert!(!h.store().folder_captions.contains_key(&summer));
+        call(&mut h, "remove_folder", json!({ "path": summer })).unwrap();
+        assert_eq!(h.photos().len(), 1);
+        assert!(Path::new(&summer).join("dawn.jpg").is_file());
+        // deleting for good (the real trash is not used in tests)
+        let last = h.photos()[0].key.clone();
+        call(&mut h, "delete_permanently", json!({ "paths": [last], "confirm": true })).unwrap();
+        assert!(!Path::new(&last).exists() && h.photos().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn locations() {
         let (dir, mut h, keys) = fixture("places");
         // beach.jpg carries a GPS position (Bordeaux) in its EXIF
@@ -1809,6 +2110,22 @@ mod tests {
             ("trash_rejected", json!({ "confirm": false })),
             ("trash_rejected", json!({ "keys": [k], "confirm": true })),
             ("set_sort_order", json!({ "order": "colour" })),
+            ("trash_pictures", json!({ "keys": [k] })),
+            ("trash_folder", json!({ "path": dir.join("pics").to_string_lossy() })),
+            ("trash_folder", json!({ "path": "/no/such/folder", "confirm": true })),
+            ("delete_permanently", json!({ "paths": [k] })),
+            ("delete_permanently", json!({ "paths": [], "confirm": true })),
+            ("delete_permanently", json!({ "paths": ["/etc/passwd"], "confirm": true })),
+            ("trash_pictures", json!({ "keys": [k], "confirm": "yes" })),
+            ("rename_picture", json!({ "key": k, "name": "a/b" })),
+            ("rename_picture", json!({ "key": k, "name": "" })),
+            ("rename_picture", json!({ "key": k, "name": "hills.jpg" })),
+            ("move_pictures", json!({ "keys": [k], "folder": "/no/such/folder" })),
+            ("move_pictures", json!({ "keys": [k], "folder": dir.to_string_lossy() })),
+            ("rename_folder", json!({ "path": "/no/such/folder", "name": "x" })),
+            ("move_folder", json!({ "path": dir.join("pics").to_string_lossy(), "into": dir.join("pics").to_string_lossy() })),
+            ("set_folder_text", json!({ "path": dir.join("pics").to_string_lossy(), "caption": 3 })),
+            ("remove_folder", json!({ "path": dir.to_string_lossy() })),
             ("set_sort_order", json!({})),
             ("set_location", json!({ "keys": [k], "latitude": 100, "longitude": 0 })),
             ("set_location", json!({ "keys": [k], "latitude": 10 })),

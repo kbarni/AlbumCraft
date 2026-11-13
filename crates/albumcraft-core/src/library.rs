@@ -201,7 +201,11 @@ pub struct Store {
     #[serde(serialize_with = "without_samples")]
     pub meta: HashMap<String, Meta>,
     pub albums: Vec<Album>,
+    /// A folder's description (by folder path), shown under its name in the picture grid.
     pub folder_notes: HashMap<String, String>,
+    /// A folder's caption (by folder path): one short line under its name in the sidebar and
+    /// beside it in the picture grid.
+    pub folder_captions: HashMap<String, String>,
     pub thumb_size: f32,
     /// Folders whose .picasa.ini was already imported once.
     pub imported_ini: Vec<String>,
@@ -290,6 +294,7 @@ impl Default for Store {
             meta: HashMap::new(),
             albums: vec![],
             folder_notes: HashMap::new(),
+            folder_captions: HashMap::new(),
             thumb_size: 120.0,
             imported_ini: vec![],
             dont_ask_end_2up: false,
@@ -643,6 +648,46 @@ impl Store {
         self.excluded.push(path.to_string());
         Ok(())
     }
+
+    /// A file or folder was moved (or renamed) on disk from `from` to `to`: everything noted
+    /// under that path (the pictures' notes and album places, folder captions and descriptions,
+    /// library and left-out folders, `.picasa.ini` already read) follows it.
+    pub fn moved(&mut self, from: &str, to: &str) {
+        let new_path = |k: &str| -> Option<String> {
+            let rest = Path::new(k).strip_prefix(from).ok()?;
+            Some(if rest.as_os_str().is_empty() { to.to_string() } else { Path::new(to).join(rest).to_string_lossy().into_owned() })
+        };
+        fn rekey<V>(m: &mut HashMap<String, V>, f: &dyn Fn(&str) -> Option<String>) {
+            let hit: Vec<String> = m.keys().filter(|k| f(k).is_some()).cloned().collect();
+            for k in hit {
+                if let (Some(n), Some(v)) = (f(&k), m.remove(&k)) {
+                    m.insert(n, v);
+                }
+            }
+        }
+        fn relist(v: &mut [String], f: &dyn Fn(&str) -> Option<String>) {
+            for k in v.iter_mut() {
+                if let Some(n) = f(k) {
+                    *k = n;
+                }
+            }
+        }
+        rekey(&mut self.meta, &new_path);
+        rekey(&mut self.folder_notes, &new_path);
+        rekey(&mut self.folder_captions, &new_path);
+        for a in &mut self.albums {
+            relist(&mut a.keys, &new_path);
+        }
+        relist(&mut self.roots, &new_path);
+        relist(&mut self.excluded, &new_path);
+        relist(&mut self.imported_ini, &new_path);
+    }
+
+    /// The folder is in the library: inside a library folder and not left out.
+    pub fn shows_folder(&self, dir: &str) -> bool {
+        let p = Path::new(dir);
+        self.roots.iter().any(|r| p.starts_with(r)) && !self.excluded.iter().any(|e| p.starts_with(e))
+    }
 }
 
 /// Whether `dir` is one of the excluded folders or inside one.
@@ -732,6 +777,47 @@ pub fn sample_folders() -> Vec<ScannedFolder> {
 pub fn sample_file_name(key: &str) -> String {
     let n = key.trim_start_matches(SAMPLE_PREFIX);
     format!("IMG_{:04}.JPG", 2000 + n.parse::<u32>().unwrap_or(0) * 7)
+}
+
+#[cfg(test)]
+mod moved_tests {
+    use super::*;
+
+    #[test]
+    fn notes_follow_a_moved_folder_or_file() {
+        let j = |parts: &[&str]| parts.iter().collect::<PathBuf>().to_string_lossy().to_string();
+        let (trip, tripx, other) = (j(&["/p", "trip"]), j(&["/p", "tripx"]), j(&["/p", "2024", "trip"]));
+        let a = j(&["/p", "trip", "a.jpg"]);
+        let mut s = Store { roots: vec![j(&["/p"])], excluded: vec![j(&["/p", "trip", "raw"])], ..Default::default() };
+        s.meta.insert(a.clone(), Meta { caption: "a".into(), ..Default::default() });
+        s.meta.insert(j(&["/p", "tripx", "b.jpg"]), Meta { caption: "b".into(), ..Default::default() });
+        s.albums.push(Album { name: "best".into(), keys: vec![a.clone()] });
+        s.folder_notes.insert(trip.clone(), "note".into());
+        s.folder_captions.insert(trip.clone(), "cap".into());
+        s.imported_ini.push(trip.clone());
+        s.moved(&trip, &other);
+        let a2 = j(&["/p", "2024", "trip", "a.jpg"]);
+        assert_eq!(s.meta[&a2].caption, "a");
+        assert!(!s.meta.contains_key(&a));
+        // a folder whose name only starts the same stays
+        assert_eq!(s.meta[&j(&["/p", "tripx", "b.jpg"])].caption, "b");
+        assert_eq!(s.albums[0].keys, vec![a2.clone()]);
+        assert_eq!(s.folder_notes[&other], "note");
+        assert_eq!(s.folder_captions[&other], "cap");
+        assert_eq!(s.imported_ini, vec![other.clone()]);
+        assert_eq!(s.excluded, vec![j(&["/p", "2024", "trip", "raw"])]);
+        assert_eq!(s.roots, vec![j(&["/p"])]);
+        let _ = tripx;
+        // one file
+        let a3 = j(&["/p", "2024", "trip", "beach.jpg"]);
+        s.moved(&a2, &a3);
+        assert_eq!(s.meta[&a3].caption, "a");
+        assert_eq!(s.albums[0].keys, vec![a3]);
+        // a library folder renamed
+        s.moved(&j(&["/p"]), &j(&["/q"]));
+        assert_eq!(s.roots, vec![j(&["/q"])]);
+        assert!(s.shows_folder(&j(&["/q", "2024"])) && !s.shows_folder(&j(&["/q", "2024", "trip", "raw"])) && !s.shows_folder(&j(&["/p"])));
+    }
 }
 
 #[cfg(test)]
@@ -1212,7 +1298,7 @@ impl Report {
 }
 
 /// Move these picture files to the system's trash (where the user can get them back until it is
-/// emptied): the one place where AlbumCraft removes original files, after the user confirmed it.
+/// emptied), after the user confirmed it: how AlbumCraft removes original files.
 /// Sample pictures and files that are not there are left alone. `step(done, total)` says how far
 /// it is and answers false when the user stopped it.
 pub fn move_to_trash(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Report {
@@ -1224,25 +1310,32 @@ pub struct Trashed {
     pub moved: usize,
     /// "file name: why" for each file left where it was.
     pub failed: Vec<String>,
+    /// The paths of those the trash refused (a disk without one, a network share…): they can
+    /// still be deleted for good if the user wants (`delete_permanently`).
+    pub refused: Vec<String>,
     pub stopped: bool,
 }
 
 /// Move these files to the system's trash (see `move_to_trash`).
 pub fn trash_files(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Trashed {
-    let mut t = Trashed { moved: 0, failed: vec![], stopped: false };
+    let mut t = Trashed { moved: 0, failed: vec![], refused: vec![], stopped: false };
     for (i, f) in files.iter().enumerate() {
         if !step(i, files.len()) {
             t.stopped = true;
             break;
         }
         let name = f.rsplit(['/', '\\']).next().unwrap_or(f);
-        if f.starts_with(SAMPLE_PREFIX) || !Path::new(f).is_file() {
+        // a picture file or a folder
+        if f.starts_with(SAMPLE_PREFIX) || std::fs::symlink_metadata(f).is_err() {
             t.failed.push(format!("{name}: not found"));
             continue;
         }
         match trash_one(Path::new(f)) {
             Ok(()) => t.moved += 1,
-            Err(e) => t.failed.push(format!("{name}: {e}")),
+            Err(e) => {
+                t.failed.push(format!("{name}: {e}"));
+                t.refused.push(f.clone());
+            }
         }
     }
     t
@@ -1315,6 +1408,39 @@ fn into_home_trash(file: &Path, trash: &Path) -> Option<Result<(), String>> {
     Some(Err("no free name in the trash".into()))
 }
 
+/// Delete these files or folders for good (no trash: they can't be brought back), after the user
+/// confirmed it; for what the trash refused. `step` as for `move_to_trash`.
+pub fn delete_permanently(paths: &[String], step: &dyn Fn(usize, usize) -> bool) -> Report {
+    let (mut deleted, mut failed, mut stopped) = (0usize, vec![], false);
+    for (i, p) in paths.iter().enumerate() {
+        if !step(i, paths.len()) {
+            stopped = true;
+            break;
+        }
+        let path = Path::new(p);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.clone());
+        let Ok(m) = std::fs::symlink_metadata(path).map_err(|_| ()).and_then(|m| if p.starts_with(SAMPLE_PREFIX) { Err(()) } else { Ok(m) }) else {
+            failed.push(format!("{name}: not found"));
+            continue;
+        };
+        let done = if m.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+        match done {
+            Ok(()) => deleted += 1,
+            Err(e) => failed.push(format!("{name}: {e}")),
+        }
+    }
+    let mut text: String = crate::msg!("deleted-for-good", "Deleted {n} {n:item|items} for good.", n = deleted).into();
+    if stopped {
+        text.push('\n');
+        text.push_str(&String::from(crate::msg!("deleted-stopped", "Stopped before the end.")));
+    }
+    for f in failed.iter().take(10) {
+        text.push_str("\n• ");
+        text.push_str(f);
+    }
+    if failed.is_empty() { Report::done(text) } else { Report::failed(text) }
+}
+
 impl Trashed {
     pub fn report(&self) -> Report {
         let (moved, failed, stopped) = (self.moved, &self.failed, self.stopped);
@@ -1364,6 +1490,15 @@ pub enum Done {
     Dropped(Vec<String>),
     /// A short progress note for the toast.
     Toast(String),
+    /// Files or folders moved to another disk in the background (`Library::move_across`):
+    /// (old path, new path) of those moved (the task's report says why others were not).
+    Moved(Vec<(String, String)>),
+    /// The trash refused these files or folders (`Trashed::refused`): the window asks whether to
+    /// delete them for good.
+    NotTrashed(Vec<String>),
+    /// The cached thumbnails of these pictures were removed (`Library::forget_thumbs`): the
+    /// window asks for them again.
+    ThumbsForgotten(Vec<String>),
     File { key: String, dim: u32, img: Option<RgbaImage> },
     /// (photo id, key, shown size and date taken) for each picture of a `Job::Dims`.
     Dims(Vec<FoundDims>),

@@ -3,6 +3,7 @@
 //! the views opened. Nothing here is saved.
 
 use crate::app::*;
+use eframe::egui;
 use crate::imaging::{self, EditOp};
 use crate::library::{self, Album, Flag};
 
@@ -27,6 +28,29 @@ impl App {
             self.store.meta.entry(p.key.clone()).or_default().flag = Flag::Reject;
         }
         let shot_view = std::env::var("ALBUMCRAFT_SHOT_VIEW").unwrap_or_default();
+        // a caption on two folders, a description on the first
+        let paths: Vec<String> = self.folders.iter().take(2).map(|f| f.path.clone()).collect();
+        for (path, caption) in paths.iter().zip(["Weekend by the sea", "Hiking with the cousins"]) {
+            self.store.folder_captions.insert(path.clone(), caption.into());
+        }
+        if let Some(path) = paths.first() {
+            self.store.folder_notes.insert(path.clone(), "Two sunny days on the coast, before the storm.".into());
+            match shot_view.as_str() {
+                "foldertexts" => self.edit_folder_texts(&path.clone()),
+                "renamefolder" => {
+                    let name = self.folders[0].name.clone();
+                    self.dialog = Some(Dialog::Rename { path: path.clone(), folder: true, name, error: String::new() });
+                }
+                "trashfolder" => self.ask_trash_folder(&path.clone()),
+                "deleteforever" => {
+                    self.dialog = Some(Dialog::DeleteForever { paths: vec!["//nas/photos/2019/Trip".into(), "//nas/photos/2019/IMG_0042.jpg".into()] });
+                }
+                "movefolder" => {
+                    self.dialog = Some(Dialog::MoveTo { what: crate::file_actions::Moving::Folder(path.clone()), filter: String::new(), error: String::new() });
+                }
+                _ => {}
+            }
+        }
         if std::env::var("ALBUMCRAFT_SHOT_BAR").is_ok_and(|b| b == "tray") {
             self.store.bar_style = crate::library::BarStyle::Tray;
         }
@@ -322,7 +346,7 @@ impl App {
             eprintln!("cache check: {}", if ok_before && ok_after { "ok" } else { "WRONG" });
         }
         if shot_view == "trash" {
-            self.dialog = Some(Dialog::TrashRejects { keys: vec!["/home/me/Pictures/a.jpg".into(); 14], bytes: 61_000_000 });
+            self.dialog = Some(Dialog::Trash { keys: vec!["/home/me/Pictures/a.jpg".into(); 14], bytes: 61_000_000, rejects: true });
         }
         if shot_view == "open" && self.photos.len() > 12 {
             // several pictures selected, one opened: the editor steps through those, and the
@@ -361,6 +385,42 @@ impl App {
         }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
+        }
+    }
+}
+
+impl App {
+    /// For screenshots: `ALBUMCRAFT_SHOT_RCLICK=x,y` right-clicks there (window points) after
+    /// the window has settled, to show a context menu; `ALBUMCRAFT_SHOT_HOVER=x,y` then rests
+    /// the pointer on a menu entry (opens a submenu).
+    /// Also outside `--screenshot` (the variable is a developer's aid), counting frames itself.
+    pub fn demo_input(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        static FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        if std::env::var_os("ALBUMCRAFT_SHOT_RCLICK").is_none() {
+            return;
+        }
+        let frames = FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if frames < 200 {
+            ctx.request_repaint();
+        }
+        let at = |name: &str| -> Option<egui::Pos2> {
+            let v = std::env::var(name).ok()?;
+            let (x, y) = v.split_once(',')?;
+            Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))
+        };
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() };
+        if let Some(pos) = at("ALBUMCRAFT_SHOT_RCLICK") {
+            match frames {
+                60 => raw.events.push(egui::Event::PointerMoved(pos)),
+                62 => raw.events.push(button(pos, true)),
+                63 => raw.events.push(button(pos, false)),
+                _ => {}
+            }
+        }
+        if let Some(pos) = at("ALBUMCRAFT_SHOT_HOVER")
+            && frames >= 70
+        {
+            raw.events.push(egui::Event::PointerMoved(pos));
         }
     }
 }

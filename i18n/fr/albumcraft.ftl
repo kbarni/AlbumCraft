@@ -43,7 +43,6 @@ dialog-new-album = Nouvel album
 dialog-rename-album = Renommer l'album
 dialog-tags = Mots-clés et personnes
 dialog-gallery = Galerie web
-dialog-folder-note = Description du dossier
 dialog-movie = Film
 dialog-about = À propos d'AlbumCraft
 dialog-online-maps = Cartes
@@ -82,7 +81,6 @@ gallery-size-large = Grande (2048 pixels, pour les grands écrans)
 gallery-captions = Afficher les légendes
 gallery-make = Choisir le dossier et créer…
 
-folder-note-intro = Une courte description affichée sous le nom du dossier :
 
 
 # $fade and $motion are "yes" or "no"
@@ -368,7 +366,7 @@ empty-add = Ajouter un dossier
 empty-add-hint = Afficher les photos d'un dossier là où elles sont, sans les copier
 
 folder-play-hint = Lire ce dossier en diaporama
-folder-edit-hint = Modifier la description
+folder-edit-hint = Modifier la légende et la description
 folder-map-hint = Afficher ce dossier sur la carte
 tile-pick-hint = Choisir (P)
 tile-reject-hint = Rejeter (X)
@@ -482,6 +480,82 @@ ctx-tags = Mots-clés et personnes…
 ctx-location = Définir le lieu…
 ctx-export = Exporter…
 ctx-show-file = Afficher dans le gestionnaire de fichiers
+ctx-open-default = Ouvrir avec le programme par défaut
+ctx-open-with = Ouvrir avec…
+ctx-open-with-menu = Ouvrir avec
+ctx-copy-path = Copier le chemin
+ctx-rename = Renommer…
+ctx-move = Déplacer vers un dossier…
+ctx-trash = Mettre à la corbeille…
+notice-copied-path = { $n ->
+    [one] Chemin copié.
+   *[other] { $n } chemins copiés.
+}
+notice-open-failed = Impossible d'ouvrir le programme : { $error }
+folder-select = Sélectionner ce dossier
+folder-texts = Légende et description…
+folder-open = Ouvrir dans le gestionnaire de fichiers
+folder-refresh = Actualiser les miniatures
+folder-refresh-hint = Refaire les miniatures de ce dossier à partir des fichiers
+folder-refreshing = Les miniatures de { $name } sont refaites.
+folder-move = Déplacer vers…
+folder-remove = Retirer de la bibliothèque
+folder-remove-hint = Les fichiers et vos notes sur eux ne sont pas touchés.
+removed-folder = { $path } a été retiré de la bibliothèque. Ses fichiers et vos notes sur eux sont intacts.
+dialog-folder-texts = Légende et description
+folder-caption-label = Légende (une ligne, sous le nom du dossier) :
+folder-description-label = Description (au-dessus des photos du dossier) :
+dialog-rename-picture = Renommer la photo
+dialog-rename-folder = Renommer le dossier
+rename-label = Nouveau nom :
+rename-keeps-ext = L'extension .{ $ext } est conservée.
+rename-button = Renommer
+dialog-move = Déplacer vers un dossier
+move-pictures-into = { $n ->
+    [one] Déplacer { $name } dans :
+   *[other] Déplacer les { $count } photos dans :
+}
+move-folder-into = Déplacer le dossier { $name } dans :
+move-filter = Filtrer les dossiers
+move-other = Autre dossier…
+move-none = Aucun autre dossier de la bibliothèque ne correspond.
+files-renamed = { $from } renommé en { $to }.
+folder-trash = Mettre le dossier à la corbeille…
+trash-folder-question = { $n ->
+    [one] Mettre à la corbeille le dossier { $name } et tout ce qu'il contient (1 photo, { $size }) ?
+   *[other] Mettre à la corbeille le dossier { $name } et tout ce qu'il contient ({ $count } photos, { $size }) ?
+}
+dialog-delete-forever = Supprimer définitivement ?
+delete-forever-question = { $n ->
+    [one] Cet élément n'a pas pu aller à la corbeille (son disque n'en a pas, par exemple un lecteur réseau). Le supprimer définitivement ? Il ne pourra pas être récupéré.
+   *[other] Ces { $n } éléments n'ont pas pu aller à la corbeille (leur disque n'en a pas, par exemple un lecteur réseau). Les supprimer définitivement ? Ils ne pourront pas être récupérés.
+}
+delete-forever-button = Supprimer définitivement
+delete-forever-keep = Les garder
+task-move-across = { $n ->
+    [one] Déplacement de { $n } élément vers un autre disque
+   *[other] Déplacement de { $n } éléments vers un autre disque
+}
+task-trash-folder = Mise à la corbeille de { $name }
+task-delete = { $n ->
+    [one] Suppression de { $n } élément
+   *[other] Suppression de { $n } éléments
+}
+moved-across = { $n ->
+    [one] { $n } élément déplacé vers un autre disque.
+   *[other] { $n } éléments déplacés vers un autre disque.
+}
+fail-move = Impossible de déplacer les fichiers : erreur inattendue.
+fail-delete = Impossible de supprimer les fichiers : erreur inattendue.
+files-moved = { $n ->
+    [one] { $name } déplacé dans { $folder }.
+   *[other] { $count } photos déplacées dans { $folder }.
+}
+files-more-problems = …et { $n } de plus.
+trash-question-chosen = { $n ->
+    [one] Mettre cette photo ({ $size }) à la corbeille ?
+   *[other] Mettre ces { $count } photos ({ $size }) à la corbeille ?
+}
 
 ## Names of looks, effects and edit steps (src/labels.rs)
 
@@ -1303,6 +1377,26 @@ root-excluded = Ce dossier est dans { $folder }, qui est exclu de la bibliothèq
 exclude-is-root = C’est un dossier de la bibliothèque : retirez-le plutôt.
 exclude-outside = Ce dossier n’est dans aucun dossier de la bibliothèque.
 exclude-already = Ce dossier est déjà exclu.
+name-empty = Tapez un nom.
+name-bad-char = Un nom ne peut pas contenir { $char }.
+name-dot = Un nom ne peut pas finir par un point.
+name-long = Ce nom est trop long.
+move-no-parent = { $path } n'a pas de dossier.
+move-no-name = { $path } n'a pas de nom.
+move-sample = Les photos d'exemple ne peuvent être ni déplacées ni renommées.
+move-missing = { $path } n'est plus là.
+move-into-itself = Un dossier ne peut pas être déplacé dans lui-même.
+move-no-folder = Le dossier { $path } n'existe pas.
+move-taken = { $name } existe déjà à cet endroit.
+move-failed = Impossible de déplacer { $path } : { $error }
+move-outside = { $path } n'est pas dans la bibliothèque : choisissez un dossier à l'intérieur d'un dossier de la bibliothèque.
+move-stopped = Arrêté : { $path } n'a pas été déplacé.
+move-original-left = { $to } a été copié, mais l'original { $path } n'a pas pu être supprimé ({ $error }) : les deux sont là maintenant.
+deleted-for-good = { $n ->
+    [one] { $n } élément supprimé définitivement.
+   *[other] { $n } éléments supprimés définitivement.
+}
+deleted-stopped = Arrêté avant la fin.
 online-tile-bad = une tuile de carte n'a pas pu être lue : { $error }
 online-map-down = Carte en ligne inaccessible ({ $error })
 online-search-down = La recherche en ligne est inaccessible ({ $error }).

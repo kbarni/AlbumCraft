@@ -774,13 +774,7 @@ impl App {
                 self.open_export(tray.clone());
                 ui.close();
             }
-            if !self.photos[id].is_sample() && ui.button(tr!("ctx-show-file")).clicked() {
-                let path = self.photos[id].key.clone();
-                if let Err(e) = reveal_in_file_manager(std::path::Path::new(&path)) {
-                    self.toast(tr!("notice-no-file-manager", error = e.to_string()));
-                }
-                ui.close();
-            }
+            self.picture_file_menu(ui, id, &tray);
         });
     }
 }
