@@ -18,7 +18,9 @@ In English, French, German, Spanish, Italian and Portuguese (Brazil).</p>
 - **Import** from a memory card, a camera or any folder: pictures grouped by time, the ones already in your library left out, copied into a new folder you name. Nothing is ever overwritten and the originals stay as they are. (Adding a folder to the library, by contrast, copies nothing.)
 - Pick or reject pictures, give them 1–5 stars, captions, tags and people; filter by any of those.
 - **One search box** for everything: words in names and captions, tags, people, albums, folders and places, with suggestions as you type. Places are found by city, region or country, also for pictures that only have the camera's GPS position.
+- **Smart search** (optional AI pack, runs on your computer): find pictures by what they show ("beach at sunset"), or *More like this* from any picture; tag proposals from your own tags and a built-in vocabulary.
 - Albums (drag pictures onto one), selection with the mouse, a box or the arrow keys, and keyboard culling in the grid and the editor (`P` pick, `X` reject, `U` clear, `0`–`5` stars); rejected pictures can be moved to the system's trash.
+- Right-click a folder or a picture: rename, move (also to another disk), move to the trash, open in another program, add a caption to a folder; Undo moves them back. Leave sub-folders out of the library in *Settings → Folders*.
 - Camera raw files (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF, …) are shown through the full-size preview the camera embeds in them.
 - Picture notes made with the classic per-folder `.picasa.ini` files are brought in (read only).
 - **Places**: a map of where your pictures were taken (GPS from phones and cameras is read automatically). Set the location of any picture by searching a city or address or by dropping a pin on the map; exported copies carry it in their EXIF (optional). Show a folder or an album on the map.
@@ -35,7 +37,7 @@ In English, French, German, Spanish, Italian and Portuguese (Brazil).</p>
 - Export edited copies (any size, JPEG quality, with a text or logo signature, creator and copyright, and the camera information if you want), collages (photo pile, mosaic, centre stage, grid, film strip, clothesline, fan, heart / circle / star, multiple exposure; colour, gradient or picture background; drag pictures to arrange them), contact sheets (title, file names, several pages, PDF), prints (Windows printing, or CUPS on Linux and macOS).
 - Full-screen slideshow with crossfades, slow pan and zoom, and music; a full-screen viewer from the editor (F11).
 - Email: small copies attached to a new message in your mail program (Thunderbird, Evolution, KMail, Outlook, Apple Mail).
-- A web gallery: a self-contained folder with an `index.html` (three styles, lightbox), ready to open or upload anywhere.
+- A web gallery: a self-contained folder with an `index.html` (eight themes chosen from previews, grid, column or justified layouts, an animated lightbox with swipe and zoom), ready to open or upload anywhere.
 - A slideshow movie (MP4, 720p or 1080p, with music) when [FFmpeg](https://ffmpeg.org/download.html) is installed.
 
 | Editing with the Advanced sliders | Presets | Effects |
@@ -45,11 +47,11 @@ In English, French, German, Spanish, Italian and Portuguese (Brazil).</p>
 ## Use it from an AI agent (MCP)
 
 `albumcraft --mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on
-stdin/stdout. It offers 33 tools: search the library (also by tag, place or position), import pictures from a card or folder, read a picture's details,
+stdin/stdout. It offers 49 tools: search the library (also by tag, place or position, or by what the pictures show), import pictures from a card or folder, read a picture's details,
 flag, rate, caption, tag, manage albums, set or remove locations and look up places, apply edits
 and one-click fixes, render a preview image, export, make a web gallery, a movie, a collage or a
-contact sheet, prepare an email, move rejected pictures to the trash (only with a confirmation),
-set the sort order, and open a picture or a set of pictures on the map in the window.
+contact sheet, prepare an email, move pictures or folders to the trash (only with a confirmation),
+rename and move files and folders, propose tags, set the sort order, and open a picture or a set of pictures on the map in the window.
 
 ```sh
 claude mcp add albumcraft -- /path/to/albumcraft --mcp      # Claude Code
@@ -64,10 +66,10 @@ Download the build for your system from the
 [releases](https://github.com/kbarni/AlbumCraft/releases):
 
 - **Windows**: the `.msi` installer, or the portable `-portable.zip` (unpack and run `albumcraft.exe`).
-- **Linux**: the `.deb` for Debian, Ubuntu and their relatives (`sudo apt install ./albumcraft-….deb`),
+- **Linux** (Ubuntu 24.04, Debian 13 or newer; the Flatpak runs anywhere): the `.deb` for Debian, Ubuntu and their relatives (`sudo apt install ./albumcraft-….deb`),
   the `.flatpak` (`flatpak install --user albumcraft-….flatpak`), the `.AppImage` (make it
   executable and run it) or the `.tar.gz` (unpack and run `albumcraft`).
-- **macOS** (Apple Silicon): open the `.dmg` and drag `AlbumCraft.app` to Applications.
+- **macOS** (Apple Silicon, macOS 13.4 or newer): open the `.dmg` and drag `AlbumCraft.app` to Applications.
 
 The builds are not signed: on macOS, right-click the app and choose *Open* the first time; on
 Windows, choose *More info* → *Run anyway*.
@@ -110,6 +112,8 @@ When it starts, AlbumCraft asks GitHub whether there is a newer release (nothing
 turn it off in *Settings → Interface → Updates*, or check by hand from the menu). When there is
 one, it offers to download and install it, or to open the release page; nothing is installed
 unless you say so.
+
+The AI packs for smart search are downloaded from the project's own releases, only when you ask for one in *Settings → AI features*; pictures and search text never leave your computer.
 
 Other than that, AlbumCraft makes no network connections unless you turn on **online maps** (it
 asks once, at the first start; change it later in *Settings → Maps*). Then, and only

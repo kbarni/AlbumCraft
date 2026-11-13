@@ -1,10 +1,10 @@
 # Flatpak manifest for the single-file bundle attached to each release
 # (albumcraft-<version>-linux-<arch>.flatpak). Build it with packaging/linux/flatpak-bundle.sh.
 #
-# It repackages the release's own .deb (built on Ubuntu 22.04 by package.sh) instead of compiling
+# It repackages the release's own .deb (built on Ubuntu 24.04 by package.sh) instead of compiling
 # Rust inside flatpak-builder: no network or vendored crates during the build, and the same binary
 # as the .deb and the AppImage. The script unpacks the .deb into `stage/` next to a copy of this
-# file. The binary needs glibc >= 2.35 and loads X11, Wayland, xkbcommon, Vulkan and ALSA at
+# file. The binary needs glibc >= 2.39 and libstdc++ from GCC 13 and loads X11, Wayland, xkbcommon, Vulkan and ALSA at
 # runtime; the freedesktop runtime has all of them, and the GPU driver comes from its GL extension.
 id: io.github.kbarni.albumcraft
 runtime: org.freedesktop.Platform

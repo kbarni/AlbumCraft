@@ -51,6 +51,8 @@
       <Component><File Id="LicenseMit" Source="$(var.StageDir)\LICENSE-MIT" /></Component>
       <Component><File Id="LicenseApache" Source="$(var.StageDir)\LICENSE-APACHE" /></Component>
       <Component><File Id="Notice" Source="$(var.StageDir)\NOTICE" /></Component>
+      <!-- the Visual C++ runtime DLLs, copied beside the exe by package.ps1 -->
+      <Files Include="$(var.StageDir)\*.dll" />
     </ComponentGroup>
   </Fragment>
 </Wix>

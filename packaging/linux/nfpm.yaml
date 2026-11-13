@@ -21,13 +21,14 @@ description: |-
   modify the originals. Export, collage, printing, slideshows, web galleries
   and slideshow movies. Includes an MCP server (albumcraft --mcp).
 
-# The binary links only glibc, libgcc_s and ALSA directly. Windowing (X11, Wayland, xkbcommon)
+# The binary links only glibc, libstdc++ (ONNX Runtime), libgcc_s and ALSA directly. Windowing (X11, Wayland, xkbcommon)
 # and the GPU (Vulkan, or EGL/GL) are loaded at runtime, so they are listed here rather than in
 # the ELF file.
 overrides:
   deb:
     depends:
-      - libc6 (>= 2.35)
+      - libc6 (>= 2.39)
+      - libstdc++6 (>= 13)
       - libgcc-s1
       - libasound2 | libasound2t64
       - libxkbcommon0
