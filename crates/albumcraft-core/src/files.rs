@@ -1,6 +1,5 @@
-//! Renaming and moving picture files and folders on disk, when the user asks for it: with
-//! moving to the trash (`library::move_to_trash`), the only changes AlbumCraft makes to the
-//! originals. A move is one rename on the same disk: it never copies, never overwrites what is
+//! Renaming and moving picture files and folders on disk, only when the user asks for it
+//! (deleting is `library::move_to_trash`). A move is one rename on the same disk: it never copies, never overwrites what is
 //! already there, and either happens completely or not at all. The notes follow with
 //! `Store::moved`.
 

@@ -1298,7 +1298,7 @@ impl Report {
 }
 
 /// Move these picture files to the system's trash (where the user can get them back until it is
-/// emptied): the one place where AlbumCraft removes original files, after the user confirmed it.
+/// emptied), after the user confirmed it: how AlbumCraft removes original files.
 /// Sample pictures and files that are not there are left alone. `step(done, total)` says how far
 /// it is and answers false when the user stopped it.
 pub fn move_to_trash(files: &[String], step: &dyn Fn(usize, usize) -> bool) -> Report {

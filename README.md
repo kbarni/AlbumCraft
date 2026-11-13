@@ -7,7 +7,7 @@ Native Rust, for Linux, Windows and macOS. Part of the <i>Craft</i> apps family.
 In English, French, German, Spanish, Italian and Portuguese (Brazil).</p>
 
 > **Early version.** Expect rough edges and missing pieces.
-> Your original pictures are never modified, so trying it is safe.
+> Your original pictures are never modified: edits are kept apart, and files are only moved, renamed or deleted when you ask for it.
 
 ![The library](docs/screenshots/library.jpg)
 
