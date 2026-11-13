@@ -132,6 +132,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build
+        # macOS 13.4: the oldest the prebuilt ONNX Runtime (the AI features) is built for.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.4"
         run: cargo build --release --locked
       - name: Package
         env:

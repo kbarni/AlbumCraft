@@ -69,7 +69,7 @@ Download the build for your system from the
 - **Linux** (Ubuntu 24.04, Debian 13 or newer; the Flatpak runs anywhere): the `.deb` for Debian, Ubuntu and their relatives (`sudo apt install ./albumcraft-….deb`),
   the `.flatpak` (`flatpak install --user albumcraft-….flatpak`), the `.AppImage` (make it
   executable and run it) or the `.tar.gz` (unpack and run `albumcraft`).
-- **macOS** (Apple Silicon): open the `.dmg` and drag `AlbumCraft.app` to Applications.
+- **macOS** (Apple Silicon, macOS 13.4 or newer): open the `.dmg` and drag `AlbumCraft.app` to Applications.
 
 The builds are not signed: on macOS, right-click the app and choose *Open* the first time; on
 Windows, choose *More info* → *Run anyway*.

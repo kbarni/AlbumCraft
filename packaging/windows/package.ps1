@@ -49,8 +49,8 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 Write-Output "AlbumCraft $Version for Windows x64"
 
 if (-not $SkipBuild) {
-  # Static C runtime, scoped to the target so build scripts and proc-macros are unaffected.
-  $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+  # The dynamic C runtime: ONNX Runtime's prebuilt library (the AI features) is built against it
+  # and can't be linked with +crt-static. Its DLLs are shipped beside the exe (below).
   # Fail the build instead of warning when the icon can't be embedded.
   $env:ALBUMCRAFT_REQUIRE_ICON = '1'
   Invoke-Native 'cargo build' { cargo build --release --locked -p albumcraft --target $Target }
@@ -77,6 +77,17 @@ Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item $Exe $Stage
 foreach ($f in 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE') { Copy-Item (Join-Path $Root $f) $Stage }
+# The Visual C++ runtime DLLs (vcruntime140, msvcp140, ...), app-local, so no VC++ redistributable
+# has to be installed; the Universal CRT is part of Windows 10 and 11.
+$Vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$Vs = & $Vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if (-not $Vs) { throw 'Visual Studio with the C++ tools not found (vswhere)' }
+$Crt = Get-ChildItem (Join-Path $Vs 'VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT') -Directory |
+  Where-Object { $_.FullName -match '\\MSVC\\\d' } | Sort-Object { [version]($_.Parent.Parent.Name) } -Descending |
+  Select-Object -First 1
+if (-not $Crt) { throw "no Visual C++ runtime under $Vs\VC\Redist\MSVC" }
+Copy-Item (Join-Path $Crt.FullName '*.dll') $Stage
+Write-Output "ok C++ runtime: $((Get-ChildItem $Stage -Filter *.dll).Name -join ', ') from $($Crt.FullName)"
 
 # ---- MSI ---------------------------------------------------------------------------------------
 $Msi = Join-Path $Dist "$Name.msi"
