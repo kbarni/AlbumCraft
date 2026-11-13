@@ -75,7 +75,7 @@ impl App {
             }
             self.open_collage(shot_view == "sheet");
         }
-        if shot_view == "props" {
+        if shot_view == "props" || shot_view == "proposals" {
             // a temporary folder with one photo carrying camera information
             let dir = std::env::temp_dir().join("albumcraft-props-demo");
             let _ = std::fs::create_dir_all(&dir);
@@ -91,6 +91,14 @@ impl App {
                     self.open_editor(0);
                     self.store.info_open = true;
                     self.edit.tag_buf = "o".into();
+                    if shot_view == "proposals" {
+                        // proposed tags (fixed: the demo picture is not analysed)
+                        self.edit.tag_buf.clear();
+                        for section in ["properties", "location"] {
+                            self.store.info_sections.insert(section.into(), false);
+                        }
+                        self.props.demo(["Architecture", "Tower", "Town square", "Sightseeing"].iter().map(|t| crate::tag_proposals::Proposal { tag: t.to_string(), score: 0.6 }).collect());
+                    }
                 }
             }
         }

@@ -59,6 +59,10 @@ pub struct Meta {
     pub rating: u8,
     pub caption: String,
     pub tags: Vec<String>,
+    /// Proposed tags the user said this picture does not show (tag proposals leave them out
+    /// here and lower them for pictures like it).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub not_tags: Vec<String>,
     pub people: Vec<String>,
     pub edits: Vec<EditOp>,
     /// Where the picture was taken, when the user set or removed it (else the file's GPS is used).
@@ -80,6 +84,7 @@ impl Meta {
             && self.rating == 0
             && self.caption.is_empty()
             && self.tags.is_empty()
+            && self.not_tags.is_empty()
             && self.people.is_empty()
             && self.edits.is_empty()
             && self.place.is_none()
@@ -1370,6 +1375,8 @@ pub enum Done {
     Analysis(crate::analysis::Progress),
     /// The pictures a smart search found, best first (`Library::looks_like`).
     LooksLike(crate::smart_search::Query, Result<Vec<crate::smart_search::Hit>, String>),
+    /// Tags proposed for some pictures (`Library::propose_tags`; the number it was asked with).
+    TagProposals(u64, Result<crate::tag_proposals::Proposals, String>),
 }
 
 /// (photo id, key, what its header says).

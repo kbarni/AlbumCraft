@@ -105,7 +105,7 @@ Faces grouped by person, search by describing a picture, tag proposals; all comp
 |---|---|---|
 | A | `albumcraft-ai` crate with ONNX Runtime (`ort`, static), download of packs of networks, background analysis queue, analysis files | done 2026-11-11 |
 | B | Picture vectors with the Light pack (OpenCLIP ViT-B/32: MobileCLIP's weights are research-only); "Looks like" search; similar pictures; MCP commands (`semantic_search`, `similar_pictures`); the Multilingual pack (SigLIP 2 B/32-256) and the choice between them | code done 2026-11-12; packs published on release `model-1` |
-| C | Tag proposals (the user's own tags, a built-in vocabulary, per-tag classifiers) | |
+| C | Tag proposals (the user's own tags, a built-in vocabulary, per-tag classifiers) | done 2026-11-12 (vocabulary of 218 words, its vectors made on the user's computer) |
 | D | Faces: detection (YuNet, bundled), automatic grouping (SFace), People view, names in search; then corrections and import of existing face regions | |
 | E | Stacks and near-duplicates, events, face-aware framing, clutter filter | |
 | F | Text in pictures, captions on demand, subject mask, retouch | |

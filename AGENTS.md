@@ -30,6 +30,7 @@ crates/albumcraft-ai/src/     what the AI features share; depends on no other cr
 crates/albumcraft-core/src/   everything without a window (native: desktop app, later the server)
   analysis.rs      the background analysis of the library (Analysis, on the Pool's background queue); the packs
   smart_search.rs  smart search: the pack in use, ranking by text or by a picture
+  tag_proposals.rs tags proposed from the search vectors; vocabulary.rs: the built-in words
   library.rs       Store (library.json), Meta/Album/Folder/Photo, .picasa.ini import, folder scan, background Pool
   catalogue.rs     the catalogue cache: what the last scan found, shown at once at the next start
   imaging.rs       reading picture files (load_source, oriented_dims) on top of the edit pipeline
@@ -51,6 +52,7 @@ src/                          the egui app (binary `albumcraft`)
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
   search_box.rs    the library's search box and its suggestions
   looks_like.rs    smart search in the window: the "Looks like" section and "More like this"
+  proposals.rs     tag proposals in the window (info panel, Tags dialog)
   info_panel.rs    editor's info panel (properties, EXIF, location map, tags)
   import_view.rs   Import view (copy from a card, camera or folder into a new library folder)
   online.rs        map tiles as textures (adds to core's online.rs)

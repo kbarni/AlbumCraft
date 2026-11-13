@@ -16,6 +16,7 @@ mod info_panel;
 mod labels;
 mod library_view;
 mod looks_like;
+mod proposals;
 mod map_view;
 mod online;
 mod print;
@@ -31,7 +32,7 @@ mod theme;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{ai, analysis, catalogue, collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, steps, thumbcache};
+pub use albumcraft_core::{ai, analysis, catalogue, collage, commands, control, decor, develop, exifinfo, export, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, steps, thumbcache};
 
 use std::path::PathBuf;
 

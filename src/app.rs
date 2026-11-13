@@ -514,6 +514,8 @@ pub struct App {
     pub packs: Vec<crate::analysis::PackState>,
     /// Smart search: the pack in use, the query asked and its answer (looks_like.rs).
     pub smart: crate::looks_like::SmartSearch,
+    /// Tag proposals (proposals.rs).
+    pub props: crate::proposals::TagProposals,
     pub packs_at: f64,
     pub print: Option<crate::print_view::PrintState>,
     pub collage: Option<Box<crate::collage_view::CollageState>>,
@@ -700,6 +702,7 @@ impl App {
             analysis: Default::default(),
             analysis_paused: false,
             smart: Default::default(),
+            props: Default::default(),
             packs: vec![],
             packs_at: f64::NEG_INFINITY,
             export: None,
@@ -2208,6 +2211,7 @@ impl App {
                 Done::CacheSizes { thumbs, tiles } => self.cache_sizes = Some((thumbs, tiles)),
                 Done::Analysis(progress) => self.analysis = progress,
                 Done::LooksLike(query, found) => self.on_looks_like(query, found),
+                Done::TagProposals(n, found) => self.on_tag_proposals(n, found),
                 Done::Progress { task, done, total } => {
                     if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
                         (t.done, t.total) = (done, total);

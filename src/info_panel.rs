@@ -114,6 +114,8 @@ impl App {
         if !m.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
             m.tags.push(tag.to_string());
         }
+        // added after all: it does show it
+        m.not_tags.retain(|t| !t.eq_ignore_ascii_case(tag));
     }
 
     pub fn info_panel(&mut self, ui: &mut egui::Ui) {
@@ -338,9 +340,16 @@ impl App {
                 });
             }
         }
+        // proposed tags (when a search pack has analysed the picture)
+        let (proposed, not) = self.proposal_chips(ui, &[id]);
+        if let Some(tag) = not {
+            self.not_this_tag(&[id], &tag);
+        }
         if let Some(tag) = add {
             self.add_tag(id, &tag);
             self.edit.tag_buf.clear();
+        } else if let Some(tag) = proposed {
+            self.add_tag(id, &tag);
         }
     }
 }

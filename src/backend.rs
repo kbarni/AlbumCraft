@@ -121,6 +121,9 @@ pub trait Library {
     /// Rank the library's pictures for a smart search with `pack`, off the window's thread;
     /// the answer is `Done::LooksLike` (the query with it, to tell stale answers apart).
     fn looks_like(&self, pack: String, query: crate::smart_search::Query);
+    /// Propose tags for `targets` with `pack`, learning from `examples`; the answer is
+    /// `Done::TagProposals(asked, …)`.
+    fn propose_tags(&self, pack: String, asked: u64, examples: Arc<crate::tag_proposals::Examples>, targets: Vec<crate::tag_proposals::Picture>);
 }
 
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).
@@ -469,6 +472,18 @@ impl Library for LocalLibrary {
                 crate::smart_search::search(pack, &files, &dir, &query)
             }));
             send(Done::LooksLike(query, found.unwrap_or_else(|_| Err(tr!("search-failed")))));
+        });
+    }
+
+    fn propose_tags(&self, pack: String, asked: u64, examples: Arc<crate::tag_proposals::Examples>, targets: Vec<crate::tag_proposals::Picture>) {
+        let (send, files, dir) = (self.sender(), self.analysis.files(), self.analysis.dir().map(PathBuf::from));
+        std::thread::spawn(move || {
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let pack = crate::ai::models::manifest().pack(&pack).ok_or_else(|| format!("no pack is named {pack}"))?;
+                let dir = dir.ok_or_else(|| tr!("search-no-folder"))?;
+                crate::tag_proposals::propose(pack, &files, &dir, &examples, &targets)
+            }));
+            send(Done::TagProposals(asked, found.unwrap_or_else(|_| Err(tr!("search-failed")))));
         });
     }
 }

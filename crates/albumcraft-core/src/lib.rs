@@ -34,4 +34,6 @@ pub mod print;
 pub mod raw;
 pub mod slides;
 pub mod smart_search;
+pub mod tag_proposals;
 pub mod thumbcache;
+pub mod vocabulary;

@@ -70,9 +70,11 @@ pub fn active(choice: &str, language: &str) -> Option<&'static Pack> {
 
 /// The vectors of the library's pictures in one block, in the order of the picture list they
 /// were made from.
-struct Matrix {
+pub(crate) struct Matrix {
     files: Arc<Vec<FileStamp>>,
     changes: u64,
+    /// The place of each picture's vector, by key.
+    index: HashMap<String, usize>,
     /// For each vector, its picture's place in `files`.
     rows: Vec<u32>,
     /// The kept records, one after the other.
@@ -83,24 +85,47 @@ struct Matrix {
 impl Matrix {
     fn of(files: &Arc<Vec<FileStamp>>, table: &Table) -> Matrix {
         let record_len = table.spec().record_len;
-        let (mut rows, mut data) = (vec![], vec![]);
+        let (mut rows, mut data, mut index) = (vec![], vec![], HashMap::new());
         for (i, (key, modified, bytes)) in files.iter().enumerate() {
             if let Some(first) = table.get(key, (*modified, *bytes)).and_then(|r| r.first().copied())
                 && let Ok(i) = u32::try_from(i)
             {
+                index.insert(key.clone(), rows.len());
                 rows.push(i);
                 data.extend_from_slice(first);
             }
         }
-        Matrix { files: files.clone(), changes: table.changes(), rows, data, record_len }
+        Matrix { files: files.clone(), changes: table.changes(), index, rows, data, record_len }
     }
 
-    fn covered(&self) -> usize {
+    /// What this matrix was made from (the picture list and the table's changes): two
+    /// matrices with the same identity hold the same vectors.
+    pub(crate) fn identity(&self) -> (usize, u64) {
+        (Arc::as_ptr(&self.files) as usize, self.changes)
+    }
+
+    /// The vector of a picture, if it was analysed as it is now.
+    pub(crate) fn vector(&self, key: &str) -> Option<Vec<f32>> {
+        search::dequantise(self.record_of(key)?, self.dim())
+    }
+
+    pub(crate) fn dim(&self) -> usize {
+        self.record_len.saturating_sub(4)
+    }
+
+    /// The records of up to `n` pictures spread over the library (for statistics).
+    pub(crate) fn sample(&self, n: usize) -> Vec<&[u8]> {
+        let all = self.rows.len();
+        let step = all.div_ceil(n.max(1)).max(1);
+        self.data.chunks_exact(self.record_len.max(1)).step_by(step).collect()
+    }
+
+    pub(crate) fn covered(&self) -> usize {
         self.rows.len()
     }
 
     fn record_of(&self, key: &str) -> Option<&[u8]> {
-        let at = self.rows.iter().position(|&r| self.files.get(r as usize).is_some_and(|f| f.0 == key))?;
+        let at = *self.index.get(key)?;
         self.data.get(at * self.record_len..(at + 1) * self.record_len)
     }
 
@@ -124,8 +149,8 @@ impl Matrix {
 }
 
 /// A search pack's networks and the vectors made with them.
-struct Engine {
-    model: Arc<Model>,
+pub(crate) struct Engine {
+    pub(crate) model: Arc<Model>,
     table: SharedTable,
     matrix: Mutex<Option<Arc<Matrix>>>,
 }
@@ -154,7 +179,7 @@ fn engines() -> std::sync::MutexGuard<'static, HashMap<String, Arc<Engine>>> {
     ENGINES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn no_folder() -> String {
+pub(crate) fn no_folder() -> String {
     crate::msg!("analysis-no-data-dir", "No folder for application data was found.").to_string()
 }
 
@@ -196,7 +221,7 @@ pub fn use_pack(analysis: &Analysis, active: Option<&Pack>) -> Result<(), String
 /// The engine and vectors to search with: the active pack's, unless another pack on this
 /// computer has vectors for more of these pictures (the library is being analysed again after
 /// a switch).
-fn source(active: &Pack, files: &Arc<Vec<FileStamp>>, dir: &Path) -> Result<(Arc<Engine>, Arc<Matrix>), String> {
+pub(crate) fn source(active: &Pack, files: &Arc<Vec<FileStamp>>, dir: &Path) -> Result<(Arc<Engine>, Arc<Matrix>), String> {
     let e = engine(active, dir)?;
     let mut best = (e.clone(), e.matrix(files));
     if best.1.covered() < files.len() {
@@ -256,7 +281,7 @@ pub fn vectors_dir() -> Result<PathBuf, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::ai::search::quantise;
     use crate::ai::store::Spec;
@@ -314,17 +339,16 @@ mod tests {
     /// `ALBUMCRAFT_SEARCH_PACK_ID=search-multilingual` (default: the Light pack);
     /// `cargo test --release -p albumcraft-core real_search -- --ignored --nocapture` prints the
     /// best matches.
-    #[test]
-    #[ignore]
-    fn real_search() {
+    /// The pictures of `ALBUMCRAFT_SEARCH_PHOTOS` analysed with the pack named by
+    /// `ALBUMCRAFT_SEARCH_PACK_ID` (default: Light) into a new folder: (pack, pictures, folder).
+    pub(crate) fn analysed_library(name: &str) -> (&'static Pack, Vec<FileStamp>, PathBuf) {
         use crate::analysis::Analysis;
         use crate::library::{Done, Pool};
         let photos = std::env::var("ALBUMCRAFT_SEARCH_PHOTOS").expect("ALBUMCRAFT_SEARCH_PHOTOS");
-        let queries = std::env::var("ALBUMCRAFT_SEARCH_QUERIES").unwrap_or_else(|_| "a church|the sea|snow and ice|a street at night|food".into());
         let id = std::env::var("ALBUMCRAFT_SEARCH_PACK_ID").unwrap_or_else(|_| "search-light".into());
         let pack = active(&id, "en").filter(|p| p.id == id).expect("the pack's files in XDG_DATA_HOME/AlbumCraft/models");
         let files: Vec<FileStamp> = walk(Path::new(&photos));
-        let dir = std::env::temp_dir().join(format!("albumcraft-real-search-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("albumcraft-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let (tx, rx) = std::sync::mpsc::channel();
         let pool = Pool::new(4, tx.clone(), Arc::new(|| {}));
@@ -339,7 +363,16 @@ mod tests {
                 _ => {}
             }
         }
-        println!("{} pictures analysed in {:.1} s", files.len(), started.elapsed().as_secs_f64());
+        println!("{} pictures analysed in {:.1} s with {}", files.len(), started.elapsed().as_secs_f64(), pack.id);
+        (pack, files, dir)
+    }
+
+    #[test]
+    #[ignore]
+    fn real_search() {
+        let photos = std::env::var("ALBUMCRAFT_SEARCH_PHOTOS").expect("ALBUMCRAFT_SEARCH_PHOTOS");
+        let queries = std::env::var("ALBUMCRAFT_SEARCH_QUERIES").unwrap_or_else(|_| "a church|the sea|snow and ice|a street at night|food".into());
+        let (pack, files, dir) = analysed_library("real-search");
         let files = Arc::new(files);
         assert_eq!(analysed(pack, &files, &dir).unwrap(), files.len());
         let name = |k: &str| k.strip_prefix(&photos).unwrap_or(k).to_string();
@@ -362,7 +395,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn walk(dir: &Path) -> Vec<FileStamp> {
+    pub(crate) fn walk(dir: &Path) -> Vec<FileStamp> {
         let mut out = vec![];
         let Ok(entries) = std::fs::read_dir(dir) else { return out };
         let mut entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
@@ -370,11 +403,11 @@ mod tests {
         for p in entries {
             if p.is_dir() {
                 out.extend(walk(&p));
-            } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg")) {
-                if let Ok(m) = std::fs::metadata(&p) {
-                    let modified = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
-                    out.push((p.to_string_lossy().to_string(), modified, m.len()));
-                }
+            } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"))
+                && let Ok(m) = std::fs::metadata(&p)
+            {
+                let modified = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
+                out.push((p.to_string_lossy().to_string(), modified, m.len()));
             }
         }
         out

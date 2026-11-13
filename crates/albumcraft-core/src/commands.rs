@@ -458,6 +458,11 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "propose_tags",
+            description: "Tags proposed for pictures (for several, the tags most of them would get), best first, at most five: the user's own tags of the pictures that look alike or are in the same folder or place, and a built-in vocabulary (beach, wedding, dog, sunset…) in the user's language. From the smart search pack's analysis (see ai_status). Nothing is added: tag_photos adds the ones to keep. `partial`: the built-in vocabulary is still being prepared (a minute after the first call); ask again later for more.",
+            schema: || json!({ "type": "object", "properties": { "keys": { "type": "array", "items": { "type": "string" } } }, "required": ["keys"] }),
+        },
+        Spec {
             name: "pause_analysis",
             description: "Pause (or resume) the background analysis of the library by the AI features. What is analysed is kept.",
             schema: || json!({ "type": "object", "properties": { "paused": { "type": "boolean" } }, "required": ["paused"] }),
@@ -1013,6 +1018,24 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             crate::analysis::remove_pack(id)?;
             now(json!({ "removed": id }))
         }
+        "propose_tags" => {
+            let ids = ids(host, args)?;
+            let store = host.store();
+            let pack = crate::smart_search::active(&store.search_pack, &store.language)
+                .ok_or("tag proposals need a search pack: none is downloaded (see ai_status and download_model_pack)")?;
+            let set = |_: &str, m: &library::Meta| crate::geo::effective(m.place.as_ref(), None);
+            let photos = host.photos();
+            let targets: Vec<crate::tag_proposals::Picture> = ids.iter().filter_map(|&i| photos.get(i)).map(|p| crate::tag_proposals::picture_of(store, &p.key, set)).collect();
+            let examples = std::sync::Arc::new(crate::tag_proposals::examples_of(store, 0, set));
+            let files: Vec<crate::geo::FileStamp> = photos.iter().filter(|p| !p.is_sample()).map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
+            let files = std::sync::Arc::new(files);
+            Ok(Outcome::Later(Box::new(move || {
+                let dir = crate::smart_search::vectors_dir()?;
+                let got = crate::tag_proposals::propose(pack, &files, &dir, &examples, &targets)?;
+                let tags: Vec<Value> = got.tags.iter().map(|p| json!({ "tag": p.tag, "score": (f64::from(p.score) * 100.0).round() / 100.0 })).collect();
+                Ok(Reply::json(json!({ "tags": tags, "partial": got.partial, "analysed": !got.not_analysed, "pack": pack.id })))
+            })))
+        }
         "semantic_search" | "similar_pictures" => {
             let query = if name == "semantic_search" {
                 let text = str_arg(args, "text")?.trim();
@@ -1555,7 +1578,7 @@ impl Host for Headless {
 pub fn read_only(name: &str) -> bool {
     matches!(
         name,
-        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place" | "semantic_search" | "similar_pictures" | "ai_status"
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place" | "semantic_search" | "similar_pictures" | "propose_tags" | "ai_status"
     )
 }
 
@@ -1777,6 +1800,8 @@ mod tests {
             ("pause_analysis", json!({})),
             ("pause_analysis", json!({ "paused": "yes" })),
             ("semantic_search", json!({})),
+            ("propose_tags", json!({ "keys": [] })),
+            ("propose_tags", json!({ "keys": ["/no/such.jpg"] })),
             ("semantic_search", json!({ "text": "   " })),
             ("semantic_search", json!({ "text": "snow", "limit": "ten" })),
             ("similar_pictures", json!({ "key": "/no/such/picture.jpg" })),

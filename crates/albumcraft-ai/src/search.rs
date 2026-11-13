@@ -109,6 +109,14 @@ impl Config {
 }
 
 /// Bytes of a kept vector: its scale (f32), then one signed byte per value.
+/// The product of two vectors (their cosine when both are unit vectors); 0 for different lengths.
+pub fn dot(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
 pub fn record_len(dim: usize) -> usize {
     4 + dim
 }
@@ -263,8 +271,17 @@ impl Model {
 
     /// The vector of a sentence, put into the pack's prompt ("a photo of {}").
     pub fn encode_text(&self, text: &str) -> Result<Vec<f32>, String> {
+        self.encode(text, &self.config)
+    }
+
+    /// The vector of a whole sentence, as it is (the pack's prompt is not used).
+    pub fn encode_sentence(&self, sentence: &str) -> Result<Vec<f32>, String> {
+        self.encode(sentence, &Config { prompt: "{}".into(), ..self.config.clone() })
+    }
+
+    fn encode(&self, text: &str, cfg: &Config) -> Result<Vec<f32>, String> {
         let (net, tok) = self.text_net()?;
-        let ids = tokens(tok, text, &self.config)?;
+        let ids = tokens(tok, text, cfg)?;
         let context = ids.len();
         let mask: Vec<i64> = ids.iter().map(|&i| (i != self.config.pad_id) as i64).collect();
         let mut inputs = vec![];
