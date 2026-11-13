@@ -76,7 +76,8 @@ gallery-intro = { $n ->
    *[other] A web page with { $n } pictures and your edits, viewable in any browser or uploadable to a web host.
 }
 gallery-title = Title:
-gallery-style = Style:
+gallery-theme = Theme:
+gallery-layout = Layout:
 gallery-size = Picture size:
 gallery-size-medium = Medium (1280 pixels, small files)
 gallery-size-large = Large (2048 pixels, for big screens)
@@ -577,9 +578,17 @@ wb-fluorescent = Fluorescent
 wb-flash = Flash
 wb-custom = Custom
 wb-auto = Auto
-gallery-style-light = Light grid
-gallery-style-dark = Dark grid
-gallery-style-masonry = Masonry (whole pictures)
+gallery-theme-paper = Paper
+gallery-theme-night = Night
+gallery-theme-museum = Museum
+gallery-theme-darkroom = Darkroom
+gallery-theme-instant = Instant photos
+gallery-theme-ocean = Ocean
+gallery-theme-vintage = Vintage
+gallery-theme-blossom = Blossom
+gallery-layout-grid = Square grid
+gallery-layout-masonry = Columns
+gallery-layout-rows = Rows
 crop-free = Free
 crop-original = Original shape
 crop-square = Square
@@ -1352,6 +1361,7 @@ gallery-count = { $n ->
 gallery-close = Close
 gallery-prev = Previous
 gallery-next = Next
+gallery-zoom = Zoom
 sheet-count = { $n ->
     [one] { $n } picture
    *[other] { $n } pictures

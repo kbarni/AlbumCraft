@@ -74,7 +74,8 @@ gallery-intro = { $n ->
    *[other] Una pagina web con { $n } foto e le tue modifiche, leggibile in qualsiasi browser o da pubblicare su un servizio di hosting.
 }
 gallery-title = Titolo:
-gallery-style = Stile:
+gallery-theme = Tema:
+gallery-layout = Disposizione:
 gallery-size = Dimensione delle foto:
 gallery-size-medium = Media (1280 pixel, file leggeri)
 gallery-size-large = Grande (2048 pixel, per schermi grandi)
@@ -572,9 +573,17 @@ wb-fluorescent = Fluorescente
 wb-flash = Flash
 wb-custom = Personalizzato
 wb-auto = Auto
-gallery-style-light = Griglia chiara
-gallery-style-dark = Griglia scura
-gallery-style-masonry = Mosaico (foto intere)
+gallery-theme-paper = Carta
+gallery-theme-night = Notte
+gallery-theme-museum = Museo
+gallery-theme-darkroom = Camera oscura
+gallery-theme-instant = Istantanee
+gallery-theme-ocean = Oceano
+gallery-theme-vintage = Retrò
+gallery-theme-blossom = Petali
+gallery-layout-grid = Griglia quadrata
+gallery-layout-masonry = Colonne
+gallery-layout-rows = Righe
 crop-free = Libero
 crop-original = Forma originale
 crop-square = Quadrato
@@ -1346,6 +1355,7 @@ gallery-count = { $n ->
 gallery-close = Chiudi
 gallery-prev = Precedente
 gallery-next = Successiva
+gallery-zoom = Ingrandisci
 sheet-count = { $n ->
     [one] { $n } foto
    *[other] { $n } foto

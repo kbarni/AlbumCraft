@@ -138,24 +138,47 @@ impl App {
                         }
                     });
                 }
-                Dialog::Gallery { title, style, size, captions } => {
+                Dialog::Gallery { title } => {
+                    ui.set_width(CARD_W * 4.0 + 3.0 * 8.0);
                     ui.label(tr!("gallery-intro", n = targets.len()));
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label(tr!("gallery-title"));
                         ui.text_edit_singleline(title);
                     });
-                    ui.label(tr!("gallery-style"));
-                    for st in crate::gallery::Style::ALL {
-                        ui.radio_value(style, st, crate::labels::gallery_style(&st));
+                    // the themes as small pages made of the tray's own thumbnails
+                    let pics: Vec<egui::TextureHandle> = targets.iter().filter_map(|id| self.thumbs.get(id).cloned()).take(12).collect();
+                    let before = self.store.gallery;
+                    let g = &mut self.store.gallery;
+                    ui.add_space(4.0);
+                    ui.label(tr!("gallery-theme"));
+                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+                    for row in crate::gallery::Theme::ALL.chunks(4) {
+                        ui.horizontal(|ui| {
+                            for &th in row {
+                                if theme_card(ui, th, g.layout, &pics, g.theme == th).clicked() {
+                                    g.theme = th;
+                                }
+                            }
+                        });
                     }
+                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(tr!("gallery-layout"));
+                        for l in crate::gallery::Layout::ALL {
+                            ui.radio_value(&mut g.layout, l, crate::labels::gallery_layout(&l));
+                        }
+                    });
                     ui.label(tr!("gallery-size"));
-                    ui.radio_value(size, 1280, tr!("gallery-size-medium"));
-                    ui.radio_value(size, 2048, tr!("gallery-size-large"));
-                    ui.checkbox(captions, tr!("gallery-captions"));
+                    ui.radio_value(&mut g.size, 1280, tr!("gallery-size-medium"));
+                    ui.radio_value(&mut g.size, 2048, tr!("gallery-size-large"));
+                    ui.checkbox(&mut g.captions, tr!("gallery-captions"));
+                    if *g != before {
+                        self.dirty = true;
+                    }
                     ui.horizontal(|ui| {
                         if ui.add_enabled(!targets.is_empty(), egui::Button::new(tr!("gallery-make"))).clicked() {
-                            let opts = crate::gallery::Options { title: title.clone(), style: *style, size: *size, captions: *captions };
+                            let opts = crate::gallery::Options::new(title.clone(), &self.store.gallery);
                             self.make_gallery(targets.clone(), opts);
                             close = true;
                         }
@@ -394,4 +417,130 @@ impl App {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
     }
+}
+
+const CARD_W: f32 = 108.0;
+
+/// A gallery theme drawn as a small page (title, count and tiles in the chosen layout, with the
+/// given thumbnails or plain shapes), its name below; a click picks it.
+fn theme_card(ui: &mut egui::Ui, theme: crate::gallery::Theme, layout: crate::gallery::Layout, pics: &[egui::TextureHandle], selected: bool) -> egui::Response {
+    use crate::gallery::Layout;
+    use egui::{pos2, vec2, Rect, Stroke};
+    let rgb = |c: u32| Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+    let look = theme.look();
+    let name = crate::labels::gallery_theme(&theme);
+    let (rect, resp) = ui.allocate_exact_size(vec2(CARD_W, 96.0), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let vis = ui.visuals();
+    let page = Rect::from_min_size(rect.min, vec2(CARD_W, 76.0));
+    let p = ui.painter();
+    p.rect_filled(page, 5, rgb(look.bg));
+    let pp = p.with_clip_rect(page.shrink(1.0));
+    // title and count, centred in the themes that centre them
+    let centred = matches!(theme, crate::gallery::Theme::Museum | crate::gallery::Theme::Instant | crate::gallery::Theme::Vintage);
+    let bar = |y: f32, w: f32, h: f32, c: u32| {
+        let x = if centred { page.center().x - w / 2.0 } else { page.left() + 7.0 };
+        pp.rect_filled(Rect::from_min_size(pos2(x, page.top() + y), vec2(w, h)), 1, rgb(c));
+    };
+    bar(6.0, 38.0, 4.0, if theme == crate::gallery::Theme::Blossom { look.accent } else { look.fg });
+    bar(12.5, 20.0, 2.0, look.weak);
+    let gap = (look.gap as f32 * 0.14).clamp(1.0, 5.0);
+    let frame = look.frame as f32 * 0.3;
+    let radius = look.radius as f32 * 0.3;
+    let area = Rect::from_min_max(pos2(page.left() + 6.0, page.top() + 18.0), pos2(page.right() - 6.0, page.bottom() + 20.0));
+    // aspect ratios of the pictures (or of made-up ones), cycled
+    const MADE_UP: [f32; 6] = [1.5, 0.75, 1.33, 1.0, 1.5, 0.67];
+    let aspect = |i: usize| match pics.get(i % pics.len().max(1)) {
+        Some(t) => t.size()[0] as f32 / t.size()[1].max(1) as f32,
+        None => MADE_UP[i % MADE_UP.len()],
+    };
+    let mut tiles: Vec<Rect> = vec![];
+    match layout {
+        Layout::Grid => {
+            let c = (area.width() - 2.0 * gap) / 3.0;
+            for i in 0..9 {
+                let (col, row) = ((i % 3) as f32, (i / 3) as f32);
+                tiles.push(Rect::from_min_size(area.min + vec2(col * (c + gap), row * (c + gap)), vec2(c, c)));
+            }
+        }
+        Layout::Masonry => {
+            let c = (area.width() - 2.0 * gap) / 3.0;
+            let mut y = [0.0f32; 3];
+            for i in 0..12 {
+                let col = (0..3).min_by(|&a, &b| y[a].total_cmp(&y[b])).unwrap_or(0);
+                let h = c / aspect(i) + 2.0 * frame;
+                tiles.push(Rect::from_min_size(area.min + vec2(col as f32 * (c + gap), y[col]), vec2(c, h)));
+                y[col] += h + gap;
+            }
+        }
+        Layout::Rows => {
+            let (h, mut i, mut y) = (17.0, 0, area.top());
+            while y < area.bottom() && i < 30 {
+                // as many as fit at this height, then stretched to the full width
+                let mut row = vec![];
+                let mut w = 0.0;
+                while row.is_empty() || w + aspect(i) * h <= area.width() * 1.15 {
+                    w += aspect(i) * h + if row.is_empty() { 0.0 } else { gap };
+                    row.push(aspect(i));
+                    i += 1;
+                }
+                let k = (area.width() - gap * (row.len() - 1) as f32) / (w - gap * (row.len() - 1) as f32);
+                let mut x = area.left();
+                for a in row {
+                    tiles.push(Rect::from_min_size(pos2(x, y), vec2(a * h * k, h * k)));
+                    x += a * h * k + gap;
+                }
+                y += h * k + gap;
+            }
+        }
+    }
+    let card = rgb(look.card);
+    for (i, t) in tiles.into_iter().enumerate() {
+        if look.shadow {
+            pp.rect_filled(t.translate(vec2(0.0, 1.0)).expand(0.5), radius, Color32::from_black_alpha(28));
+        }
+        if look.frame > 0 || look.card != look.bg {
+            pp.rect_filled(t, radius, card);
+        }
+        let bottom = if theme == crate::gallery::Theme::Instant { frame * 2.5 } else { frame };
+        let r = Rect::from_min_max(t.min + vec2(frame, frame), t.max - vec2(frame, bottom));
+        let pr = (look.pic_radius as f32 * 0.3).min(r.width() / 2.0);
+        match pics.get(i % pics.len().max(1)) {
+            Some(tex) => {
+                // cover: crop the thumbnail to the tile's shape
+                let [w, h] = tex.size();
+                let (ta, ra) = (w as f32 / h.max(1) as f32, r.width() / r.height().max(1.0));
+                let uv = if ta > ra {
+                    let u = ra / ta;
+                    Rect::from_min_max(pos2((1.0 - u) / 2.0, 0.0), pos2((1.0 + u) / 2.0, 1.0))
+                } else {
+                    let v = ta / ra;
+                    Rect::from_min_max(pos2(0.0, (1.0 - v) / 2.0), pos2(1.0, (1.0 + v) / 2.0))
+                };
+                pp.add(egui::epaint::RectShape::filled(r, pr, Color32::WHITE).with_texture(tex.id(), uv));
+            }
+            None => {
+                let shade = if crate::gallery::luma(look.bg) < 0.5 { Color32::from_white_alpha(40) } else { Color32::from_black_alpha(30) };
+                pp.rect_filled(r, pr, rgb(look.accent).linear_multiply(0.45));
+                pp.rect_filled(Rect::from_min_max(pos2(r.left(), r.center().y), r.max), pr, shade);
+            }
+        }
+    }
+    let stroke = if selected {
+        Stroke::new(3.0, crate::theme::t().accent)
+    } else if resp.hovered() {
+        Stroke::new(1.5, vis.widgets.hovered.fg_stroke.color)
+    } else {
+        Stroke::new(1.0, vis.widgets.noninteractive.bg_stroke.color)
+    };
+    p.rect_stroke(page, 5, stroke, egui::StrokeKind::Outside);
+    let text = if selected { egui::RichText::new(&name).strong() } else { egui::RichText::new(&name) };
+    let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Truncate), CARD_W, egui::TextStyle::Body);
+    let color = if selected { vis.strong_text_color() } else { vis.text_color() };
+    p.galley(pos2(rect.center().x - galley.size().x / 2.0, page.bottom() + 3.0), galley, color);
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &name));
+    resp
 }

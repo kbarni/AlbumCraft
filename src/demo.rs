@@ -149,6 +149,11 @@ impl App {
                 e.dest = "/home/ana/Pictures/Exports".into();
             }
         }
+        if shot_view == "gallery" {
+            self.selection = (0..self.photos.len().min(8)).collect();
+            self.store.gallery.theme = crate::gallery::Theme::Instant;
+            self.open_gallery_dialog();
+        }
         if shot_view == "movie" {
             self.selection = [0usize, 1, 2, 3].into_iter().collect();
             self.dialog = Some(Dialog::Movie { hd: true });

@@ -339,7 +339,8 @@ Call `rescan` afterwards to see the new pictures in the library.",
                 keys_schema(json!({
                     "folder": { "type": "string" },
                     "title": { "type": "string", "required": false },
-                    "style": { "type": "string", "enum": ["light", "dark", "masonry"], "default": "light", "required": false },
+                    "theme": { "type": "string", "enum": ["paper", "night", "museum", "darkroom", "instant", "ocean", "vintage", "blossom"], "default": "paper", "required": false },
+                    "layout": { "type": "string", "enum": ["grid", "masonry", "rows"], "default": "grid", "required": false, "description": "grid: square thumbnails; masonry: whole pictures in columns; rows: whole pictures in rows of even height" },
                     "size": { "type": "integer", "minimum": 320, "maximum": 4096, "default": 1280, "required": false },
                     "captions": { "type": "boolean", "default": true, "required": false }
                 }))
@@ -1277,15 +1278,14 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
         "make_gallery" => {
             let ids = ids(host, args)?;
             let parent = existing_dir(str_arg(args, "folder")?)?;
-            let style = match opt_str(args, "style").unwrap_or("light") {
-                "light" => crate::gallery::Style::Light,
-                "dark" => crate::gallery::Style::Dark,
-                "masonry" => crate::gallery::Style::Masonry,
-                s => return Err(format!("unknown style {s:?}")),
-            };
+            let theme = opt_str(args, "theme").unwrap_or("paper");
+            let theme = crate::gallery::Theme::from_id(theme).ok_or_else(|| format!("unknown theme {theme:?}"))?;
+            let layout = opt_str(args, "layout").unwrap_or("grid");
+            let layout = crate::gallery::Layout::from_id(layout).ok_or_else(|| format!("unknown layout {layout:?}"))?;
             let opts = crate::gallery::Options {
                 title: opt_str(args, "title").unwrap_or("Gallery").to_string(),
-                style,
+                theme,
+                layout,
                 size: opt_u64(args, "size")?.unwrap_or(1280).clamp(320, 4096) as u32,
                 captions: opt_bool(args, "captions")?.unwrap_or(true),
             };
