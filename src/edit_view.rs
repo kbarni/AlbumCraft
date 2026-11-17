@@ -319,6 +319,16 @@ impl App {
         }
         self.edit_keys(ui.ctx());
         let id = self.edit.id;
+        if id >= self.photos.len() {
+            return;
+        }
+        let video = crate::video::is_video(&self.photos[id].key);
+        if video {
+            self.video_keys(ui.ctx());
+        } else {
+            self.player = None;
+            self.strip = None;
+        }
         self.tick_zoom_anim(ui.ctx());
 
         // ---- top bar
@@ -352,7 +362,8 @@ impl App {
                         ui.separator();
                         // one picture, two pictures, or before / after; with two halves shown, two more
                         // buttons: side by side or one above the other, and which half the edits go to
-                        if self.edit.compare != CompareMode::Single {
+                        // (not for a video, which has no edits)
+                        if !video && self.edit.compare != CompareMode::Single {
                             let layout_icon = if self.edit.vertical { icons::SIDE_BY_SIDE } else { icons::ABOVE_BELOW };
                             if ui
                                 .button(RichText::new(layout_icon).size(15.0))
@@ -370,7 +381,7 @@ impl App {
                             }
                         }
                         let two = self.edit.compare == CompareMode::TwoPhotos;
-                        if ui
+                        if !video && ui
                             .add(egui::Button::new(RichText::new(tr!("edit-compare")).size(12.5)).selected(two))
                             .on_hover_text(tr!("edit-compare-hint"))
                             .clicked()
@@ -379,13 +390,15 @@ impl App {
                         }
                         // the picture without its edits, for as long as the button (or O) is held
                         let has_edits = self.meta(id).is_some_and(|m| !m.edits.is_empty());
-                        let r = ui
-                            .add_enabled(has_edits, egui::Button::new(RichText::new(tr!("edit-original")).size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
-                            .on_hover_text(tr!("edit-original-hint"));
-                        if r.is_pointer_button_down_on() {
-                            self.edit.show_original = true;
+                        if !video {
+                            let r = ui
+                                .add_enabled(has_edits, egui::Button::new(RichText::new(tr!("edit-original")).size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
+                                .on_hover_text(tr!("edit-original-hint"));
+                            if r.is_pointer_button_down_on() {
+                                self.edit.show_original = true;
+                            }
+                            ui.separator();
                         }
-                        ui.separator();
                         if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::PLAY, tr!("edit-slideshow")), 13.5))).clicked() {
                             let list = self.edit.list.clone();
                             self.start_slideshow(list, id);
@@ -411,12 +424,23 @@ impl App {
                 });
             });
 
-        self.edit_tools_panel(ui);
+        if video {
+            self.video_panel(ui);
+        } else {
+            self.edit_tools_panel(ui);
+        }
         self.edit_bottom_panel(ui);
+        if video {
+            self.video_bar(ui);
+        }
         if self.store.info_open {
             self.info_panel(ui);
         }
-        self.edit_canvas(ui);
+        if video {
+            self.video_canvas(ui);
+        } else {
+            self.edit_canvas(ui);
+        }
     }
 
     fn edit_keys(&mut self, ctx: &egui::Context) {
@@ -1077,6 +1101,8 @@ impl App {
                     // a narrow window (or a language with longer words) leaves out the rotate buttons
                     // (the Tools panel has them) and the zoom slider
                     let narrow = ui.available_width() < 820.0;
+                    // a video: no turning, zooming, printing or exporting (yet)
+                    let video = crate::video::is_video(&self.photos[id].key);
                     if pick_button(ui, self.flag(id) == Flag::Pick, egui::vec2(34.0, 28.0)).on_hover_text(tr!("tile-pick-hint")).clicked() {
                         self.toggle_flag(&[id], Flag::Pick);
                     }
@@ -1087,10 +1113,10 @@ impl App {
                         self.set_rating(&[id], n);
                     }
                     ui.add_space(6.0);
-                    if !narrow && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
+                    if !narrow && !video && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if !narrow && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
+                    if !narrow && !video && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.separator();
@@ -1100,13 +1126,16 @@ impl App {
                         self.meta_mut(id).caption = caption;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("output-export")), 13.5))).clicked() {
+                        if !video && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("output-export")), 13.5))).clicked() {
                             self.open_export(vec![id]);
                         }
-                        if crate::print::available() && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::PRINT, tr!("output-print")), 13.5))).on_hover_text(tr!("edit-print-hint")).clicked() {
+                        if !video && crate::print::available() && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::PRINT, tr!("output-print")), 13.5))).on_hover_text(tr!("edit-print-hint")).clicked() {
                             self.open_print();
                         }
                         self.album_menu(ui, format!("{} {} {}", icons::ALBUM, tr!("edit-album"), icons::EXPAND_MORE), &[id]);
+                        if video {
+                            return;
+                        }
                         ui.separator();
                         // Zoom: Fit, 1:1 and the zoom slider:
                         // the slider runs from Fit (left) through 1:1 (middle) to 400 % (right).

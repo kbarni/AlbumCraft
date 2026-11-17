@@ -131,7 +131,9 @@ impl App {
         let cam = self.camera_info(id);
         let c = cam.as_deref();
         let num = crate::exifinfo::trim_num;
-        let taken = c.and_then(|c| c.date_taken.as_deref()).and_then(crate::import::parse_exif_date);
+        let video = crate::video::is_video(&p.key);
+        // a video's own date was read with its shape (`App.taken`; the file's date when it has none)
+        let taken = if video { self.taken.get(&id).copied().filter(|&t| t != p.modified) } else { c.and_then(|c| c.date_taken.as_deref()).and_then(crate::import::parse_exif_date) };
         let format = p.name.rsplit_once('.').map(|(_, e)| match e.to_ascii_lowercase().as_str() {
             "jpg" | "jpeg" | "jpe" => "JPEG".to_string(),
             "tif" | "tiff" => "TIFF".to_string(),
@@ -155,6 +157,9 @@ impl App {
                 if mp >= 1.0 { tr!("info-megapixels", w = w, h = h, mp = num(mp, 1)) } else { format!("{w} × {h}") }
             }),
         );
+        if video {
+            row(ui, &tr!("info-length"), self.durations.get(&id).map(|&s| crate::video::fmt_duration(f64::from(s))));
+        }
         row(ui, &tr!("info-file"), Some([format, Some(fmt_bytes(p.bytes))].into_iter().flatten().collect::<Vec<_>>().join(" · ")));
         if let Some(c) = c {
             let focal = c.focal_mm.map(|f| match c.focal_35mm {
@@ -170,7 +175,7 @@ impl App {
         row(ui, &tr!("info-folder"), folder);
         let edits = self.meta(id).map(|m| m.edits.iter().map(crate::labels::op).collect::<Vec<_>>().join(", "));
         row(ui, &tr!("info-edits"), edits);
-        if c.is_none() && !p.is_sample() {
+        if c.is_none() && !p.is_sample() && !video {
             ui.label(RichText::new(tr!("info-no-exif")).size(12.0).color(t().text_weak));
         }
     }

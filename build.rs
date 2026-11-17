@@ -3,6 +3,7 @@
 fn main() {
     println!("cargo:rerun-if-changed=assets/app-icon/albumcraft.ico");
     apple_availability_check();
+    ffmpeg_rpath("cargo:rustc-link-arg");
     #[cfg(windows)]
     {
         let mut res = winresource::WindowsResource::new();
@@ -40,3 +41,5 @@ fn apple_availability_check() {
         println!("cargo:warning=not found: {}", lib.display());
     }
 }
+
+include!("packaging/ffmpeg/rpath.rs");

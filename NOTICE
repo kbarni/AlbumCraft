@@ -39,6 +39,14 @@ features. The Linux packages carry it as Microsoft's own library file (libonnxru
 its licence and third-party notices (LICENSE-ONNXRuntime, ThirdPartyNotices-ONNXRuntime.txt). No network is distributed with AlbumCraft: each is downloaded when the user asks, and
 its licence is shown before.
 
+AlbumCraft builds with videos (Cargo feature `video`, on by default) use the FFmpeg libraries
+(ffmpeg.org; libavcodec, libavformat, libavutil, libswscale, libswresample), GNU Lesser General
+Public License 2.1 or later, and dav1d (VideoLAN, BSD 2-Clause License), loaded as shared
+libraries. They are built from their unchanged release sources by packaging/ffmpeg/build.sh,
+which says how (decoders and file readers only, no GPL or non-free parts); their licence texts
+go with the libraries (share/licenses/). The Rust bindings are the ffmpeg-next and
+ffmpeg-sys-next crates (WTFPL).
+
 All other dependencies are Rust crates under their own licenses (see Cargo.lock; most are MIT
 and/or Apache-2.0). Movie export runs the separately installed FFmpeg program, which is not
 distributed with AlbumCraft.

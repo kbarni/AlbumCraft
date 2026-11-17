@@ -37,6 +37,7 @@ crates/albumcraft-core/src/   everything without a window (native: desktop app, 
   commands.rs      the command layer (Host, Headless); mcp.rs and control.rs: the MCP server and the window's control connection
   export.rs        export_one (edited JPEG copies, never overwriting); import.rs: copying from cards / folders
   exifinfo.rs raw.rs geo.rs thumbcache.rs gallery.rs movie.rs
+  video.rs         videos through the FFmpeg libraries (feature `video`): size, length, date, GPS, frames, the Playback thread
   mail.rs          Email: small copies attached to a new message in the mail program (Windows: Simple MAPI, `unsafe`)
   online.rs        online map services (tiles on disk, place search), only when allowed
   print.rs         print layouts and page rendering, the PDF writer; slides.rs: slideshow settings and motion
@@ -49,6 +50,7 @@ src/                          the egui app (binary `albumcraft`)
   shell.rs         library UI (top bar, sidebar, justified grid, selection bar, status bar)
   library_view.rs  shared library helpers, menus, context menu, keys
   edit_view.rs     editor UI, compare modes; slideshow_view.rs: the full-screen slideshow
+  video_view.rs    the editor for a video (player, filmstrip, in / out points, thumbnail frame); player.rs: textures, clock, sound
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
   search_box.rs    the library's search box and its suggestions
   looks_like.rs    smart search in the window: the "Looks like" section and "More like this"

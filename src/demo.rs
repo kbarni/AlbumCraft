@@ -343,7 +343,7 @@ impl App {
             // the catalogue cache is shown until the first scan's result, never after it
             let folders = library::sample_folders();
             let first = folders.first().and_then(|(_, files)| files.first()).map(|f| f.0.clone()).unwrap_or_default();
-            let known = vec![(first.clone(), crate::catalogue::Details { dims: Some((40, 30)), taken: Some(7) })];
+            let known = vec![(first.clone(), crate::catalogue::Details { dims: Some((40, 30)), taken: Some(7), secs: None })];
             self.store.roots = vec!["/demo".into()];
             let _ = self.tx.send(library::Done::Cached(folders.clone(), known.clone()));
             self.process_results();

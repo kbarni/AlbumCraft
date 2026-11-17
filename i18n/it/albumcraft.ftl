@@ -1806,3 +1806,27 @@ update-managed = { $app } { $version } segue la versione scelta nel launcher, qu
 update-manual = Questo tipo di installazione non può aggiornarsi da solo. Scarica la nuova versione.
 update-start-failed = Impossibile avviare l'aggiornamento ({ $error })
 update-wait-for-work = Attendi la fine del lavoro in corso (esportazione, importazione…); l'aggiornamento riavvia l'app.
+
+## Videos (video_view.rs)
+info-length = Durata
+video-panel = Video
+video-details = { $width } × { $height } · { $fps } fps · { $codec }
+video-no-sound = Senza audio
+video-part = Parte riprodotta
+video-plays = Da { $from } a { $to }
+video-set-start = Inizia qui
+video-set-start-hint = Il video inizia dal fotogramma mostrato ([)
+video-set-end = Finisci qui
+video-set-end-hint = Il video finisce al fotogramma mostrato (])
+video-whole = Riproduci tutto il video
+video-thumbnail = Miniatura
+video-use-frame = Usa questo fotogramma
+video-use-frame-hint = La libreria mostra il fotogramma mostrato per questo video
+video-default-frame = Fotogramma predefinito
+video-keys = Spazio riproduce e mette in pausa, [ e ] fissano l’inizio e la fine, virgola e punto avanzano di un fotogramma, M toglie e rimette l’audio.
+video-play = Riproduci (Spazio)
+video-pause = Pausa (Spazio)
+video-sound-on = Audio
+video-sound-off = Muto
+video-sound-hint = Togli o rimetti l’audio (M)
+video-unreadable = Questo video non può essere riprodotto.

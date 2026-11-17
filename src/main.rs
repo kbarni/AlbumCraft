@@ -33,12 +33,14 @@ mod slideshow_view;
 mod tags_view;
 mod theme;
 mod updates;
+mod player;
+mod video_view;
 
 // Everything without a window lives in the albumcraft-core and albumcraft-edit crates. Their
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{ai, analysis, catalogue, collage, commands, control, decor, develop, exifinfo, export, files, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, steps, thumbcache};
+pub use albumcraft_core::{ai, analysis, catalogue, collage, commands, control, decor, develop, exifinfo, export, files, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, steps, thumbcache, video};
 
 use std::path::PathBuf;
 

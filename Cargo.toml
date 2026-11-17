@@ -19,6 +19,8 @@ ab_glyph = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "7.0.0"
 epaint_default_fonts = "0.37.0"
+# videos: the FFmpeg libraries of packaging/ffmpeg/build.sh (a playback-only build), found with pkg-config
+ffmpeg-next = { version = "9.1", default-features = false, features = ["format", "software-scaling", "software-resampling"] }
 image = { version = "0.25.10", default-features = false }
 miniz_oxide = "0.9"
 rayon = "1"
@@ -37,13 +39,16 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["onnx"]
+default = ["onnx", "video"]
 # ONNX Runtime linked in, to run the networks of the AI features (see crates/albumcraft-ai).
 # `cargo build --no-default-features` builds the app without it.
 onnx = ["albumcraft-core/onnx"]
 # ONNX Runtime loaded from its library file beside the program instead of linked in: what the
 # Linux packages are built with (packaging/linux/package.sh puts the file there).
 onnx-dynamic = ["onnx", "albumcraft-core/onnx-dynamic"]
+# Videos in the library, the editor and slideshows, through the FFmpeg libraries (packaging/ffmpeg/build.sh).
+# Without it, video files are left out as before.
+video = ["albumcraft-core/video"]
 
 [dependencies]
 albumcraft-core.workspace = true

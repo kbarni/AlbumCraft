@@ -15,6 +15,9 @@ enum SlideCmd {
 }
 
 /// Ask for a music file; true when one was chosen (music is then switched on).
+/// Largest side of the frames a slideshow plays.
+const SLIDE_MAX_DIM: u32 = 2560;
+
 pub(crate) fn pick_music(s: &mut crate::slides::SlideSettings) -> bool {
     let Some(path) = rfd::FileDialog::new()
         .set_title(tr!("music-dialog-title"))
@@ -60,8 +63,48 @@ impl App {
                 }
             });
         }
-        if settings.auto_advance && s.playing && s.paused_at.is_none() && now - s.started >= step {
-            go = 1;
+        // a video plays to its out point instead of for the slide's time
+        let current = s.list[s.pos % len];
+        let current_key = self.photos.get(current).map(|p| p.key.clone()).unwrap_or_default();
+        let is_video = crate::video::is_video(&current_key);
+        if !is_video {
+            s.video = None;
+        } else if s.video.as_ref().is_none_or(|p| p.id != current) {
+            let v = self.store.meta.get(&current_key).map(|m| m.video).unwrap_or_default();
+            let mut p = crate::player::Player::open(self.lib.as_ref(), current, &current_key, v.start.unwrap_or(0.0), SLIDE_MAX_DIM);
+            p.set_muted(self.store.video_muted);
+            s.video = Some(p);
+        }
+        let mut video_ended = false;
+        let mut video_sound = false;
+        let mut video_failed = false;
+        if let Some(p) = s.video.as_mut() {
+            let v = self.store.meta.get(&current_key).map(|m| m.video).unwrap_or_default();
+            if p.info.is_some() {
+                p.range = v.range(p.duration());
+            }
+            video_ended = p.poll(&ctx, now).ended;
+            video_failed = p.failed;
+            let run = s.playing && s.paused_at.is_none();
+            if run && !p.is_playing() && !video_ended && p.info.is_some() && !p.failed {
+                p.play(now);
+            } else if !run && p.is_playing() {
+                p.pause(now);
+            }
+            video_sound = p.is_playing() && !p.muted && p.info.as_ref().is_some_and(|i| i.has_audio);
+        }
+        if let Some(m) = &s.music {
+            // the music waits while a clip plays its own sound
+            m.set_playing(s.playing && !video_sound);
+        }
+        if settings.auto_advance && s.playing && s.paused_at.is_none() {
+            if is_video && !video_failed {
+                if video_ended {
+                    go = 1;
+                }
+            } else if now - s.started >= step {
+                go = 1;
+            }
         }
         // draw
         let clock = s.paused_at.unwrap_or(now);
@@ -115,9 +158,6 @@ impl App {
             } else {
                 s.paused_at = Some(now);
             }
-            if let Some(m) = &s.music {
-                m.set_playing(s.playing);
-            }
         }
         if go != 0 {
             let cur = s.list[s.pos % len];
@@ -130,19 +170,28 @@ impl App {
     /// One slideshow picture, faded by `alpha`, with the pan-and-zoom motion at `since` seconds.
     #[allow(clippy::too_many_arguments)]
     fn paint_slide(&mut self, ui: &mut egui::Ui, full: Rect, id: usize, index: usize, since: f32, alpha: f32, settings: &crate::slides::SlideSettings) {
+        let tint = Color32::from_white_alpha((alpha.clamp(0.0, 1.0) * 255.0) as u8);
+        // a video playing: its frame, without pan and zoom (until its first frame, its thumbnail)
+        if let Some(p) = self.slide.as_ref().and_then(|s| s.video.as_ref()).filter(|p| p.id == id && p.has_frame())
+            && let Some(size) = p.shown_size()
+        {
+            p.paint(ui.painter(), fit_rect(full.shrink(10.0), size), tint);
+            return;
+        }
+        let video = self.photos.get(id).is_some_and(|p| crate::video::is_video(&p.key));
         let tex = self.big_texture(id, &[]).or_else(|| self.thumbs.get(&id).cloned());
         let Some(tex) = tex else {
             self.request_thumb(id);
             return;
         };
         let r = fit_rect(full.shrink(10.0), tex.size());
-        let uv = if settings.motion {
+        let uv = if settings.motion && !video {
             let [u0, v0, u1, v1] = crate::slides::ken_burns_uv(index, since / settings.step_secs().max(0.1), settings.strong_motion);
             Rect::from_min_max(Pos2::new(u0, v0), Pos2::new(u1, v1))
         } else {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))
         };
-        ui.painter().image(tex.id(), r, uv, Color32::from_white_alpha((alpha.clamp(0.0, 1.0) * 255.0) as u8));
+        ui.painter().image(tex.id(), r, uv, tint);
     }
 
     fn slideshow_controls(&mut self, ui: &mut egui::Ui, full: Rect, pos: usize, len: usize, playing: bool, viewer: bool) -> Option<SlideCmd> {

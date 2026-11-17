@@ -1806,3 +1806,27 @@ update-managed = { $app } { $version } folgt der im Launcher gewählten Version 
 update-manual = Diese Installationsart kann sich nicht selbst aktualisieren. Bitte laden Sie die neue Version herunter.
 update-start-failed = Das Update konnte nicht gestartet werden ({ $error })
 update-wait-for-work = Warten Sie, bis die laufende Arbeit (Export, Import…) fertig ist; das Update startet die App neu.
+
+## Videos (video_view.rs)
+info-length = Länge
+video-panel = Video
+video-details = { $width } × { $height } · { $fps } B/s · { $codec }
+video-no-sound = Ohne Ton
+video-part = Abgespielter Teil
+video-plays = Von { $from } bis { $to }
+video-set-start = Hier beginnen
+video-set-start-hint = Das Video beginnt beim gezeigten Bild ([)
+video-set-end = Hier enden
+video-set-end-hint = Das Video endet beim gezeigten Bild (])
+video-whole = Ganzes Video abspielen
+video-thumbnail = Vorschaubild
+video-use-frame = Dieses Bild verwenden
+video-use-frame-hint = Die Bibliothek zeigt für dieses Video das gezeigte Bild
+video-default-frame = Standardbild
+video-keys = Leertaste spielt ab und hält an, [ und ] setzen Anfang und Ende, Komma und Punkt gehen ein Bild weiter, M schaltet den Ton aus und ein.
+video-play = Abspielen (Leertaste)
+video-pause = Anhalten (Leertaste)
+video-sound-on = Ton
+video-sound-off = Stumm
+video-sound-hint = Ton aus- oder einschalten (M)
+video-unreadable = Dieses Video kann nicht abgespielt werden.
