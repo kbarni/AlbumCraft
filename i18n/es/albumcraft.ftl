@@ -801,27 +801,13 @@ edit-tab-effects = Efectos
 edit-undo = Deshacer
 edit-undo-hint = Deshacer el último cambio (Ctrl+Z)
 edit-redo = Rehacer
-edit-history = Historial
-edit-history-original = Original
-edit-history-opened = Al abrir
-edit-history-opened-hint =
-    Los retoques de la foto al abrirla:
-    { $steps }
-edit-history-hint = Haga clic para volver a este punto (los cambios posteriores siguen aquí, para Rehacer)
-edit-history-resize = Arrastre para hacer el historial más alto o más bajo
-edit-history-removed = Quitado: { $label }
-edit-history-back = Volver al paso { $n }
-edit-history-changed = Retoques cambiados
-edit-history-added = { $label } y { $n ->
-        [one] uno más
-       *[other] { $n } más
-    }
 edit-list = Retoques de esta foto:
 edit-list-none = (ninguno: es el original)
 edit-step-hint =
     { $label }
     Haga clic para cambiarlo
 edit-step-remove = Quitar este retoque
+edit-list-resize = Arrastre hacia arriba o hacia abajo para hacer la lista más alta o más baja
 edit-copy-hint = Copiar estos retoques para pegarlos en otras fotos (Ctrl+Mayús+C)
 edit-paste-n = Pegar { $n }
 edit-paste-hint = Añadir los retoques copiados a esta foto (Ctrl+Mayús+V)

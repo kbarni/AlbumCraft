@@ -287,64 +287,70 @@ impl App {
         }
     }
 
-    /// The undo history of the open picture: where it started, each change made since (named
-    /// after what it did), and the changes Undo took back (dimmed, for Redo). A click goes to
-    /// that point; the handle under the list makes it taller or shorter (`Store.history_h`).
-    fn history_list(&mut self, ui: &mut egui::Ui, edits: &[EditOp]) {
-        ui.label(RichText::new(tr!("edit-history")).size(12.0).weak());
-        let font = egui::FontId::proportional(12.0);
-        let row = ui.fonts_mut(|f| f.row_height(&font)) + ui.spacing().item_spacing.y;
+    /// The handle at the top of the bottom-left panel: the step list's height (`Store.steps_h`).
+    /// The panel grows from the bottom, so its top edge is the one that moves: dragging up makes
+    /// the list taller. Returns the height.
+    fn steps_grip(&mut self, ui: &mut egui::Ui) -> f32 {
+        let row = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(12.0))).max(ui.spacing().interact_size.y) + ui.spacing().item_spacing.y;
         let (min_h, max_h) = (row * 2.0, (ui.ctx().content_rect().height() * 0.5).max(row * 3.0));
-        let h = if self.store.history_h > 0.0 { self.store.history_h } else { row * 6.0 }.clamp(min_h, max_h);
-        let start = self.edit.undo.first().map(|(e, _)| e.as_slice()).unwrap_or(edits);
-        let start_hint = (!start.is_empty()).then(|| {
-            let steps: Vec<String> = start.iter().enumerate().map(|(i, e)| format!("{}. {}", i + 1, crate::labels::op(e))).collect();
-            tr!("edit-history-opened-hint", steps = steps.join("
-"))
-        });
-        let mut names = vec![if start.is_empty() { tr!("edit-history-original") } else { tr!("edit-history-opened") }];
-        names.extend(self.edit.undo.iter().map(|(_, n)| n.clone()));
-        names.extend(self.edit.redo.iter().rev().map(|(_, n)| n.clone()));
-        let now = self.edit.undo.len();
-        let mut go = None;
-        egui::Frame::new().fill(t().surface).stroke(Stroke::new(1.0, t().border)).corner_radius(3).inner_margin(egui::Margin::symmetric(4, 2)).show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("edit_history")
-                .auto_shrink([false, false])
-                .min_scrolled_height(h)
-                .max_height(h)
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for (k, name) in names.iter().enumerate() {
-                        let text = RichText::new(name).size(12.0);
-                        let text = if k == now { text.strong() } else if k > now { text.color(t().text_weak).italics() } else { text };
-                        let r = ui.add(egui::Label::new(text).truncate().sense(Sense::click()));
-                        let r = match (&start_hint, k) {
-                            (Some(hint), 0) => r.on_hover_text(hint.as_str()),
-                            _ => r,
-                        };
-                        if k != now && r.on_hover_text(tr!("edit-history-hint")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            go = Some(k);
-                        }
-                    }
-                });
-        });
-        // the handle: drag it to make the list taller or shorter
+        let h = if self.store.steps_h > 0.0 { self.store.steps_h } else { row * 4.0 }.clamp(min_h, max_h);
         let (grip, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 7.0), Sense::drag());
-        let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical).on_hover_text(tr!("edit-history-resize"));
+        let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical).on_hover_text(tr!("edit-list-resize"));
         let c = if resp.hovered() || resp.dragged() { t().text } else { t().text_weak };
         let mid = grip.center();
         for dy in [-1.5, 1.5] {
             ui.painter().line_segment([Pos2::new(mid.x - 14.0, mid.y + dy), Pos2::new(mid.x + 14.0, mid.y + dy)], Stroke::new(1.0, c));
         }
         if resp.dragged() {
-            self.store.history_h = (h + resp.drag_delta().y).clamp(min_h, max_h);
+            self.store.steps_h = (h - resp.drag_delta().y).clamp(min_h, max_h);
         }
         if resp.drag_stopped() {
             self.dirty = true;
         }
-        if let Some(k) = go {
-            self.history_go(k);
+        h
+    }
+
+    /// "Edits on this picture": the picture's steps in their order; a click on one brings back
+    /// its settings, the x beside it removes it. `h`: its height, from `steps_grip`.
+    fn step_list(&mut self, ui: &mut egui::Ui, id: usize, edits: &[EditOp], h: f32) {
+        ui.label(RichText::new(tr!("edit-list")).size(12.0).weak());
+        let (mut open, mut remove) = (None, None);
+        egui::Frame::new().fill(t().surface).stroke(Stroke::new(1.0, t().border)).corner_radius(3).inner_margin(egui::Margin::symmetric(4, 2)).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("edit_steps").auto_shrink([false, false]).min_scrolled_height(h).max_height(h).show(ui, |ui| {
+                if edits.is_empty() {
+                    ui.label(RichText::new(tr!("edit-list-none")).size(12.0).weak());
+                }
+                for (i, e) in edits.iter().enumerate() {
+                    let label = crate::labels::op(e);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let x = ui.add(egui::Label::new(RichText::new(icons::CLOSE).size(12.0).weak()).selectable(false).sense(Sense::click()));
+                            if x.on_hover_text(tr!("edit-step-remove")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                remove = Some(i);
+                            }
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                let shown = self.step_shown(edits, i);
+                                let t = RichText::new(&label).size(12.0);
+                                let r = ui.add(egui::Label::new(if shown { t.strong() } else { t }).truncate().selectable(false).sense(Sense::click()));
+                                if Self::step_opens(e) {
+                                    if r.on_hover_text(tr!("edit-step-hint", label = label)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                        open = Some(i);
+                                    }
+                                } else {
+                                    r.on_hover_text(&label);
+                                }
+                            });
+                        });
+                    });
+                }
+            });
+        });
+        if let Some(i) = open {
+            self.open_step(id, i);
+        }
+        if let Some(i) = remove {
+            self.change_edits(id, "", |e| crate::steps::remove_step(e, i));
         }
     }
 
@@ -682,6 +688,7 @@ impl App {
                 // history at the bottom
                 egui::Panel::bottom("history").resizable(false).frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6))).show(ui, |ui| {
                     let edits = self.edits(id);
+                    let steps_h = self.steps_grip(ui);
                     ui.horizontal(|ui| {
                         if ui.add_enabled(!self.edit.undo.is_empty(), egui::Button::new(format!("{} {}", icons::UNDO, tr!("edit-undo")))).on_hover_text(tr!("edit-undo-hint")).clicked() {
                             self.undo();
@@ -690,48 +697,7 @@ impl App {
                             self.redo();
                         }
                     });
-                    ui.label(RichText::new(tr!("edit-list")).size(12.0).weak());
-                    if edits.is_empty() {
-                        ui.label(RichText::new(tr!("edit-list-none")).size(12.0).weak());
-                    }
-                    // a fixed height for up to six steps: inside a bottom panel, a scroll area left
-                    // to size itself can get stuck at the panel's first, tiny height (one line)
-                    let row = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(12.0))).max(ui.spacing().interact_size.y) + ui.spacing().item_spacing.y;
-                    let h = row * edits.len().clamp(0, 6) as f32;
-                    let (mut open, mut remove) = (None, None);
-                    egui::ScrollArea::vertical().id_salt("edit_steps").min_scrolled_height(h).max_height(h).show(ui, |ui| {
-                        for (i, e) in edits.iter().enumerate() {
-                            let label = crate::labels::op(e);
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let x = ui.add(egui::Label::new(RichText::new(icons::CLOSE).size(12.0).weak()).selectable(false).sense(Sense::click()));
-                                    if x.on_hover_text(tr!("edit-step-remove")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                                        remove = Some(i);
-                                    }
-                                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                        let shown = self.step_shown(&edits, i);
-                                        let t = RichText::new(&label).size(12.0);
-                                        let r = ui.add(egui::Label::new(if shown { t.strong() } else { t }).truncate().selectable(false).sense(Sense::click()));
-                                        if Self::step_opens(e) {
-                                            if r.on_hover_text(tr!("edit-step-hint", label = label)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                                                open = Some(i);
-                                            }
-                                        } else {
-                                            r.on_hover_text(&label);
-                                        }
-                                    });
-                                });
-                            });
-                        }
-                    });
-                    if let Some(i) = open {
-                        self.open_step(id, i);
-                    }
-                    if let Some(i) = remove {
-                        self.change_edits(id, "", |e| crate::steps::remove_step(e, i));
-                    }
-                    self.history_list(ui, &edits);
+                    self.step_list(ui, id, &edits, steps_h);
                     // wraps: in some languages the three buttons are wider than the panel
                     ui.horizontal_wrapped(|ui| {
                         if !edits.is_empty() && ui.add(egui::Button::new(tr!("menu-undo-edits")).small().truncate()).clicked() {

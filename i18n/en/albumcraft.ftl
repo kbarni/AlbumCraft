@@ -806,27 +806,13 @@ edit-tab-effects = Effects
 edit-undo = Undo
 edit-undo-hint = Take back the last change (Ctrl+Z)
 edit-redo = Redo
-edit-history = History
-edit-history-original = Original
-edit-history-opened = As opened
-edit-history-opened-hint =
-    The picture's edits when it was opened:
-    { $steps }
-edit-history-hint = Click to go back to this point (the later changes stay here, for Redo)
-edit-history-resize = Drag to make the history taller or shorter
-edit-history-removed = Removed: { $label }
-edit-history-back = Back to step { $n }
-edit-history-changed = Edits changed
-edit-history-added = { $label } and { $n ->
-        [one] one more
-       *[other] { $n } more
-    }
 edit-list = Edits on this picture:
 edit-list-none = (none — this is the original)
 edit-step-hint =
     { $label }
     Click to change it
 edit-step-remove = Remove this step
+edit-list-resize = Drag up or down to make the list taller or shorter
 edit-copy-hint = Copy these edits to paste them on other pictures (Ctrl+Shift+C)
 edit-paste-n = Paste { $n }
 edit-paste-hint = Add the copied edits to this picture (Ctrl+Shift+V)
