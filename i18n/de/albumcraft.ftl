@@ -799,11 +799,21 @@ edit-tab-effects = Effekte
 edit-undo = Rückgängig
 edit-undo-hint = Letzte Änderung rückgängig machen (Strg+Z)
 edit-redo = Wiederholen
-edit-list = Bearbeitungen dieses Fotos:
-edit-list-none = (keine – es ist das Original)
-edit-step-hint =
-    { $label }
-    Klicken, um zu diesem Schritt zurückzukehren (die folgenden werden entfernt; Rückgängig holt sie zurück)
+edit-history = Verlauf
+edit-history-original = Original
+edit-history-opened = Beim Öffnen
+edit-history-opened-hint =
+    Die Bearbeitungen des Fotos beim Öffnen:
+    { $steps }
+edit-history-hint = Klicken, um zu diesem Punkt zurückzukehren (die späteren Änderungen bleiben hier, für Wiederholen)
+edit-history-resize = Ziehen, um den Verlauf höher oder niedriger zu machen
+edit-history-removed = Entfernt: { $label }
+edit-history-back = Zurück zu Schritt { $n }
+edit-history-changed = Bearbeitungen geändert
+edit-history-added = { $label } und { $n ->
+        [one] eine weitere
+       *[other] { $n } weitere
+    }
 edit-copy-hint = Diese Bearbeitungen kopieren, um sie in andere Fotos einzufügen (Strg+Umschalt+C)
 edit-paste-n = { $n } einfügen
 edit-paste-hint = Die kopierten Bearbeitungen zu diesem Foto hinzufügen (Strg+Umschalt+V)

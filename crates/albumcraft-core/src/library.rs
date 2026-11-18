@@ -274,6 +274,13 @@ pub struct Store {
     pub edit_advanced: bool,
     /// The editor's histogram shows the red, green and blue curves rather than luminance.
     pub hist_rgb: bool,
+    /// Height of the editor's undo history list in points (dragged by its handle; 0 = the
+    /// starting height).
+    pub history_h: f32,
+    /// Widths of the editor's side panels in points, set by dragging their inner edge: the
+    /// tools on the left and the info panel on the right (0 = the starting width).
+    pub edit_tools_w: f32,
+    pub info_w: f32,
     /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
     pub export_size: u32,
     pub export_quality: u8,
@@ -347,6 +354,9 @@ impl Default for Store {
             bar_style: BarStyle::Compact,
             edit_advanced: false,
             hist_rgb: false,
+            history_h: 0.0,
+            edit_tools_w: 0.0,
+            info_w: 0.0,
             export_size: 0,
             export_quality: 90,
             analysis_paused: false,

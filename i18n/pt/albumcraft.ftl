@@ -799,11 +799,21 @@ edit-tab-effects = Efeitos
 edit-undo = Desfazer
 edit-undo-hint = Desfazer a última alteração (Ctrl+Z)
 edit-redo = Refazer
-edit-list = Edições desta foto:
-edit-list-none = (nenhuma: é o original)
-edit-step-hint =
-    { $label }
-    Clique para voltar a esta etapa (as seguintes são removidas; Desfazer as traz de volta)
+edit-history = Histórico
+edit-history-original = Original
+edit-history-opened = Ao abrir
+edit-history-opened-hint =
+    As edições da foto quando foi aberta:
+    { $steps }
+edit-history-hint = Clique para voltar a este ponto (as alterações seguintes ficam aqui, para Refazer)
+edit-history-resize = Arraste para deixar o histórico mais alto ou mais baixo
+edit-history-removed = Removido: { $label }
+edit-history-back = Voltar à etapa { $n }
+edit-history-changed = Edições alteradas
+edit-history-added = { $label } e { $n ->
+        [one] mais uma
+       *[other] mais { $n }
+    }
 edit-copy-hint = Copiar essas edições para colá-las em outras fotos (Ctrl+Shift+C)
 edit-paste-n = Colar { $n }
 edit-paste-hint = Adicionar as edições copiadas a esta foto (Ctrl+Shift+V)

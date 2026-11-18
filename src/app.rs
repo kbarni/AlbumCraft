@@ -298,10 +298,12 @@ pub struct EditState {
     pub crop_autofit: bool,
     /// Show the alignment grid on the picture until this time (geometry sliders in use).
     pub grid_until: f64,
-    /// The picture's edit lists as they were before each change made here, oldest first (Undo).
-    pub undo: Vec<Vec<EditOp>>,
-    /// The lists taken back by Undo, to put back with Redo.
-    pub redo: Vec<Vec<EditOp>>,
+    /// The picture's edit lists as they were before each change made here, oldest first (Undo),
+    /// each with the name of the change made from it (the history list shows them).
+    pub undo: Vec<(Vec<EditOp>, String)>,
+    /// The lists taken back by Undo, to put back with Redo, newest first at the end, each with
+    /// the name of the change that leads to it.
+    pub redo: Vec<(Vec<EditOp>, String)>,
     /// What the user is in the middle of (dragging a slider…): further changes of the same kind
     /// belong to the same Undo step. Cleared when the mouse button is let go.
     pub gesture: Option<&'static str>,
@@ -1417,18 +1419,23 @@ impl App {
         if after == before {
             return;
         }
-        self.meta_mut(id).edits = after;
         if self.edit.id == id {
             let same = !gesture.is_empty() && self.edit.gesture == Some(gesture);
-            if !same {
-                self.edit.undo.push(before);
-                if self.edit.undo.len() > 200 {
-                    self.edit.undo.remove(0);
+            match self.edit.undo.last_mut() {
+                // the same slider still moving: its step is named after where it is now
+                Some((from, name)) if same => *name = crate::labels::change(from, &after),
+                _ => {
+                    let name = crate::labels::change(&before, &after);
+                    self.edit.undo.push((before, name));
+                    if self.edit.undo.len() > 200 {
+                        self.edit.undo.remove(0);
+                    }
                 }
             }
             self.edit.gesture = (!gesture.is_empty()).then_some(gesture);
             self.edit.redo.clear();
         }
+        self.meta_mut(id).edits = after;
         self.refresh_thumb(id);
     }
 
@@ -1510,11 +1517,25 @@ impl App {
         if id >= self.photos.len() {
             return;
         }
-        if let Some(list) = self.edit.undo.pop() {
+        if let Some((list, name)) = self.edit.undo.pop() {
             let now = std::mem::replace(&mut self.meta_mut(id).edits, list);
-            self.edit.redo.push(now);
+            self.edit.redo.push((now, name));
             self.edit.gesture = None;
             self.refresh_thumb(id);
+        }
+    }
+
+    /// Go to point `k` of the history: 0 is the picture as it was opened, `undo.len()` where it
+    /// is now; further ones are the changes Undo took back.
+    pub fn history_go(&mut self, k: usize) {
+        if self.edit.id >= self.photos.len() {
+            return;
+        }
+        while self.edit.undo.len() > k && !self.edit.undo.is_empty() {
+            self.undo();
+        }
+        while self.edit.undo.len() < k && !self.edit.redo.is_empty() {
+            self.redo();
         }
     }
 
@@ -1523,9 +1544,9 @@ impl App {
         if id >= self.photos.len() {
             return;
         }
-        if let Some(list) = self.edit.redo.pop() {
+        if let Some((list, name)) = self.edit.redo.pop() {
             let now = std::mem::replace(&mut self.meta_mut(id).edits, list);
-            self.edit.undo.push(now);
+            self.edit.undo.push((now, name));
             self.edit.gesture = None;
             self.refresh_thumb(id);
         }

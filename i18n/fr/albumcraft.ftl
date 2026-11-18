@@ -799,11 +799,21 @@ edit-tab-effects = Effets
 edit-undo = Annuler
 edit-undo-hint = Annuler la dernière modification (Ctrl+Z)
 edit-redo = Rétablir
-edit-list = Retouches de cette photo :
-edit-list-none = (aucune — c'est l'original)
-edit-step-hint =
-    { $label }
-    Cliquez pour revenir à cette étape (les suivantes sont retirées ; Annuler les ramène)
+edit-history = Historique
+edit-history-original = Original
+edit-history-opened = À l'ouverture
+edit-history-opened-hint =
+    Les retouches de la photo à son ouverture :
+    { $steps }
+edit-history-hint = Cliquez pour revenir à ce point (les changements suivants restent ici, pour Rétablir)
+edit-history-resize = Faites glisser pour agrandir ou réduire l'historique
+edit-history-removed = Retiré : { $label }
+edit-history-back = Retour à l'étape { $n }
+edit-history-changed = Retouches modifiées
+edit-history-added = { $label } et { $n ->
+        [one] une autre
+       *[other] { $n } autres
+    }
 edit-copy-hint = Copier ces retouches pour les coller sur d'autres photos (Ctrl+Maj+C)
 edit-paste-n = Coller { $n }
 edit-paste-hint = Ajouter les retouches copiées à cette photo (Ctrl+Maj+V)

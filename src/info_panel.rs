@@ -92,13 +92,20 @@ impl App {
         let id = self.edit.id;
         let Some(p) = self.photos.get(id).cloned() else { return };
         let mut close = false;
-        egui::Panel::right("info")
-            .resizable(true)
-            .default_size(300.0)
-            .min_size(240.0)
-            .max_size(480.0)
-            .frame(egui::Frame::new().fill(t().surface).inner_margin(egui::Margin::symmetric(14, 8)).stroke(Stroke::new(1.0, t().border)))
-            .show(ui, |ui| {
+        let range = 240.0..=560.0;
+        let mut w = crate::edit_view::panel_width(ui.ctx(), self.store.info_w, 300.0, range.clone());
+        let panel = egui::Panel::right("info")
+            .exact_size(w)
+            .frame(egui::Frame::new().fill(t().surface).inner_margin(egui::Margin { left: 12, right: 14, top: 8, bottom: 8 }).stroke(Stroke::new(1.0, t().border)))
+            .show(ui, |outer| {
+                // The content lives in a child of exactly the panel's size, which does not report
+                // its size to the panel: anything wider is cut on the right. Otherwise a right
+                // panel wider than it should be keeps its right edge, and the picture is drawn
+                // over its left part.
+                let r = outer.available_rect_before_wrap();
+                let mut fenced = outer.new_child(egui::UiBuilder::new().max_rect(r).layout(egui::Layout::top_down(egui::Align::Min)));
+                fenced.shrink_clip_rect(r.expand2(egui::vec2(4.0, 0.0)));
+                let ui = &mut fenced;
                 ui.horizontal(|ui| {
                     ui.add(egui::Label::new(RichText::new(&p.name).size(14.0).strong().color(t().text_strong)).truncate());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -115,7 +122,12 @@ impl App {
                     self.info_tags(ui, id);
                     ui.add_space(12.0);
                 });
+                outer.advance_cursor_after_rect(r);
             });
+        if crate::edit_view::side_grip(ui, "info_grip", panel.response.rect, false, &mut w, range) {
+            self.dirty = true;
+        }
+        self.store.info_w = w;
         if close {
             self.store.info_open = false;
             self.dirty = true;
@@ -210,18 +222,30 @@ impl App {
             });
         }
         if !c.all.is_empty() {
-            egui::CollapsingHeader::new(RichText::new(tr!("info-all-exif", n = c.all.len())).size(12.5))
-                .id_salt(("allexif", id))
-                .default_open(false)
-                .show(ui, |ui| {
-                    egui::Grid::new(("exif_all", id)).num_columns(2).striped(true).spacing([8.0, 3.0]).show(ui, |ui| {
-                        for (k, v) in &c.all {
-                            ui.label(RichText::new(k).size(11.0).color(t().text_weak));
-                            ui.add(egui::Label::new(RichText::new(v).size(11.0)).wrap());
-                            ui.end_row();
-                        }
+            // a header of its own, cut short when narrow (egui's collapsing header never wraps
+            // and would widen the panel)
+            let open = self.store.info_sections.get("allexif").copied().unwrap_or(false);
+            let chevron = if open { icons::EXPAND_MORE } else { icons::CHEVRON_RIGHT };
+            let n = c.all.len();
+            let head = ui
+                .add(egui::Label::new(RichText::new(format!("{chevron} {}", tr!("info-all-exif", n = n))).size(12.5)).truncate().sense(Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if head.clicked() {
+                self.store.info_sections.insert("allexif".into(), !open);
+                self.dirty = true;
+            }
+            if open {
+                // rows rather than a grid: a grid's columns grow with long values
+                for (k, v) in &c.all {
+                    ui.horizontal_top(|ui| {
+                        ui.allocate_ui_with_layout(egui::vec2(NAME_W, 14.0), egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                            ui.set_min_width(NAME_W);
+                            ui.add(egui::Label::new(RichText::new(k).size(11.0).color(t().text_weak)).truncate());
+                        });
+                        ui.add(egui::Label::new(RichText::new(v).size(11.0)).wrap());
                     });
-                });
+                }
+            }
         }
     }
 
@@ -242,7 +266,7 @@ impl App {
                     ui.label(RichText::new(name).size(13.0).color(t().text));
                 }
                 ui.label(RichText::new(if by_user { tr!("info-set-in-app") } else { tr!("info-from-gps") }).size(11.5).color(t().text_weak));
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{}  {}", icons::EDIT, tr!("info-modify")), 13.5))).on_hover_text(tr!("info-modify-hint")).clicked() {
                         modify = true;
                     }
@@ -289,11 +313,14 @@ impl App {
         }
         ui.add_space(2.0);
         let mut add: Option<String> = None;
-        ui.horizontal(|ui| {
-            let field = egui::TextEdit::singleline(&mut self.edit.tag_buf).hint_text(tr!("info-add-tag")).desired_width(ui.available_width() - 60.0);
+        // the button first, from the right, so the field takes what it leaves in any language
+        let line = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+        ui.allocate_ui_with_layout(line, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let button = ui.add_enabled(!self.edit.tag_buf.trim().is_empty(), egui::Button::new(tr!("tags-add")));
+            let field = egui::TextEdit::singleline(&mut self.edit.tag_buf).hint_text(tr!("info-add-tag")).desired_width(ui.available_width());
             let r = ui.add(field);
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (ui.add_enabled(!self.edit.tag_buf.trim().is_empty(), egui::Button::new(tr!("tags-add"))).clicked() || enter) && !self.edit.tag_buf.trim().is_empty() {
+            if (button.clicked() || enter) && !self.edit.tag_buf.trim().is_empty() {
                 add = Some(self.edit.tag_buf.trim().to_string());
                 if enter {
                     r.request_focus();
@@ -303,7 +330,7 @@ impl App {
         // the library's tags (most used first; those containing what is typed): a click puts one
         // on the picture or takes it off
         self.tag_picker(ui, &[id], &self.edit.tag_buf.clone(), TAG_CHIPS, true);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.add(egui::Button::new(RichText::new(tr!("info-all-tags")).size(12.0)).frame(false)).on_hover_text(tr!("info-all-tags-hint")).clicked() {
                 self.dialog = Some(crate::app::Dialog::Tag { tags: String::new(), people: String::new() });
             }

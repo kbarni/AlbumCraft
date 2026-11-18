@@ -75,6 +75,87 @@ fn effect(e: &Effect) -> String {
 }
 
 /// What the Advanced adjustments changed, as `Adjust::label` lists it.
+/// The name of one change to an edit list, for the editor's history: the slider and where it
+/// is now ("Exposure +0.40"), the step added, removed or changed, or what became of the list.
+pub fn change(before: &[EditOp], after: &[EditOp]) -> String {
+    if after.is_empty() {
+        return tr!("menu-undo-edits");
+    }
+    // steps added at the end (a button, pasted edits)
+    if after.len() > before.len() && after.starts_with(before) {
+        let added = &after[before.len()..];
+        let label = match &added[0] {
+            EditOp::Adjust(a) => adjust_change(&Adjust::default(), a),
+            e => op(e),
+        };
+        let n = added.len() - 1;
+        return if n == 0 { label } else { tr!("edit-history-added", label = label, n = n) };
+    }
+    // the later steps dropped
+    if after.len() < before.len() && before.starts_with(after) {
+        let n = after.len();
+        return tr!("edit-history-back", n = n);
+    }
+    // one step removed somewhere (a slider back to neutral, Remove crop)
+    if after.len() + 1 == before.len()
+        && let Some(i) = (0..before.len()).find(|&i| before[..i] == after[..i] && before[i + 1..] == after[i..])
+    {
+        return tr!("edit-history-removed", label = op(&before[i]));
+    }
+    // one step added somewhere (an adjustment, straighten or look put where it belongs)
+    if after.len() == before.len() + 1
+        && let Some(i) = (0..after.len()).find(|&i| after[..i] == before[..i] && after[i + 1..] == before[i..])
+    {
+        return match &after[i] {
+            EditOp::Adjust(a) => adjust_change(&Adjust::default(), a),
+            e => op(e),
+        };
+    }
+    // one step changed where it stands
+    if after.len() == before.len() {
+        let changed: Vec<usize> = (0..after.len()).filter(|&i| after[i] != before[i]).collect();
+        if let [i] = changed[..] {
+            return match (&before[i], &after[i]) {
+                (EditOp::Adjust(b), EditOp::Adjust(a)) => adjust_change(b, a),
+                (_, e) => op(e),
+            };
+        }
+    }
+    tr!("edit-history-changed")
+}
+
+/// The sliders an adjustment change moved, with their new values; several at once (a white
+/// balance preset, an automatic fix) are named as the adjustment.
+fn adjust_change(b: &Adjust, a: &Adjust) -> String {
+    let moved: Vec<String> = [
+        (b.temp, a.temp, tr!("edit-s-temperature")),
+        (b.tint, a.tint, tr!("edit-s-tint")),
+        (b.exposure, a.exposure, tr!("edit-s-exposure")),
+        (b.highlights, a.highlights, tr!("edit-s-highlights")),
+        (b.shadows, a.shadows, tr!("edit-s-shadows")),
+        (b.blacks, a.blacks, tr!("edit-s-blacks")),
+        (b.contrast, a.contrast, tr!("edit-s-contrast")),
+        (b.saturation, a.saturation, tr!("edit-s-saturation")),
+        (b.vibrance, a.vibrance, tr!("edit-s-vibrance")),
+        (b.clarity, a.clarity, tr!("edit-s-clarity")),
+        (b.sharpen, a.sharpen, tr!("edit-s-sharpen")),
+        (b.noise, a.noise, tr!("edit-s-noise")),
+    ]
+    .into_iter()
+    .enumerate()
+    .filter(|(_, (was, now, _))| was != now)
+    .map(|(i, (_, now, name))| {
+        // exposure is in EV, with two decimals; the others are whole numbers
+        let v = if i == 2 { crate::locale::decimal(&format!("{now:+.2}")) } else { format!("{now:+.0}") };
+        format!("{name} {v}")
+    })
+    .collect();
+    match moved.len() {
+        1 | 2 => moved.join(", "),
+        _ => adjust(a),
+    }
+}
+
 fn adjust(a: &Adjust) -> String {
     let d = Adjust::default();
     let mut parts = vec![];

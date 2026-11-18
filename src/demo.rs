@@ -151,6 +151,19 @@ impl App {
             self.open_editor(2);
             self.store.info_open = true;
         }
+        if shot_view == "history" && self.photos.len() > 5 {
+            // a few slider movements and a look in the Advanced tab, the last one undone
+            self.open_editor(5);
+            self.edit.advanced = true;
+            let mut a = crate::develop::Adjust::default();
+            for (exposure, contrast, vibrance) in [(0.35, 0.0, 0.0), (0.35, 18.0, 0.0), (0.35, 18.0, 25.0), (0.5, 18.0, 25.0)] {
+                (a.exposure, a.contrast, a.vibrance) = (exposure, contrast, vibrance);
+                self.change_edits(5, "", |e| crate::steps::set_adjust(e, a));
+            }
+            self.change_edits(5, "", |e| crate::steps::set_geometry(e, EditOp::Straighten(1.5)));
+            self.change_edits(5, "", |e| crate::steps::set_look(e, Some((crate::looks::Look::Vivid, 0.4))));
+            self.undo();
+        }
         if shot_view == "effects" && self.photos.len() > 4 {
             let k = self.photos[4].key.clone();
             let m = self.store.meta.entry(k).or_default();

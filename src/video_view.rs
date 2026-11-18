@@ -121,8 +121,9 @@ impl App {
         let id = self.edit.id;
         self.editor_player(id);
         let now = ui.input(|i| i.time);
-        egui::Panel::left("edit_tools")
-            .exact_size(260.0)
+        let w = self.edit_tools_width(ui.ctx());
+        let panel = egui::Panel::left("edit_tools")
+            .exact_size(w)
             .frame(egui::Frame::new().fill(t().left_bg).inner_margin(egui::Margin::same(8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 crate::theme::panel_gradient(ui, egui::Margin::same(8), t().side_top, t().side_bottom);
@@ -169,6 +170,7 @@ impl App {
                 ui.add_space(14.0);
                 ui.label(RichText::new(tr!("video-keys")).color(t().text_weak).size(12.0));
             });
+        self.edit_tools_grip(ui, panel.response.rect);
     }
 
     /// Above the editor's bottom bar: play / pause, the time, the sound, and the filmstrip.

@@ -799,11 +799,21 @@ edit-tab-effects = Effetti
 edit-undo = Annulla
 edit-undo-hint = Annulla l'ultima modifica (Ctrl+Z)
 edit-redo = Ripeti
-edit-list = Modifiche di questa foto:
-edit-list-none = (nessuna: è l'originale)
-edit-step-hint =
-    { $label }
-    Clicca per tornare a questo passaggio (quelli successivi vengono rimossi; Annulla li ripristina)
+edit-history = Cronologia
+edit-history-original = Originale
+edit-history-opened = All'apertura
+edit-history-opened-hint =
+    Le modifiche della foto quando è stata aperta:
+    { $steps }
+edit-history-hint = Clicca per tornare a questo punto (le modifiche successive restano qui, per Ripeti)
+edit-history-resize = Trascina per rendere la cronologia più alta o più bassa
+edit-history-removed = Rimosso: { $label }
+edit-history-back = Torna al passaggio { $n }
+edit-history-changed = Modifiche cambiate
+edit-history-added = { $label } e { $n ->
+        [one] un'altra
+       *[other] altre { $n }
+    }
 edit-copy-hint = Copia queste modifiche per incollarle su altre foto (Ctrl+Maiusc+C)
 edit-paste-n = Incolla { $n }
 edit-paste-hint = Aggiungi le modifiche copiate a questa foto (Ctrl+Maiusc+V)
