@@ -355,13 +355,26 @@ pub enum CompareMode {
     TwoPhotos,
 }
 
-pub type Histogram = [[u32; 256]; 3];
+pub struct Histogram {
+    /// Red, green and blue counts per level.
+    pub channels: [[u32; 256]; 3],
+    /// Pixels black in all three channels (lost shadows); one channel at 0 alone is
+    /// just a saturated colour, like a deep blue sky without red.
+    pub black: u32,
+    /// Pixels white in all three channels (blown highlights).
+    pub white: u32,
+}
 
 pub fn histogram(img: &RgbaImage) -> Histogram {
-    let mut h = [[0u32; 256]; 3];
+    let mut h = Histogram { channels: [[0u32; 256]; 3], black: 0, white: 0 };
     for p in img.pixels() {
         for c in 0..3 {
-            h[c][p[c] as usize] += 1;
+            h.channels[c][p[c] as usize] += 1;
+        }
+        if p[0] == 0 && p[1] == 0 && p[2] == 0 {
+            h.black += 1;
+        } else if p[0] == 255 && p[1] == 255 && p[2] == 255 {
+            h.white += 1;
         }
     }
     h
