@@ -302,6 +302,8 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
+          # The FFmpeg build is only an input of the Linux packages, not a download.
+          rm -f dist/albumcraft-ffmpeg-*
           (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
           args=(--title "AlbumCraft ${VERSION}")
           [[ "$VERSION" == *-* ]] && args+=(--prerelease)
