@@ -1579,7 +1579,9 @@ impl App {
                         steps::grip_at(s, (p.x, p.y), reach)
                     };
                     if resp.drag_started() {
-                        let at = resp.interact_pointer_pos();
+                        // where the button went down, not where the pointer is once the move
+                        // passed egui's drag threshold: the grip must be the one the cursor showed
+                        let at = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
                         self.edit.drag_start = at.map(to_norm);
                         // an edge, a corner or the inside of the box: change it; elsewhere: a new box
                         self.edit.crop_grip = match (grip_under(self.edit.sel, at), self.edit.sel, at) {
