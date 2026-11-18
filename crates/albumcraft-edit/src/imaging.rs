@@ -73,6 +73,7 @@ pub enum EditOp {
 impl EditOp {
     pub fn label(&self) -> String {
         match self {
+            EditOp::Rotate(n) if n.rem_euclid(4) == 2 => "Rotate 180°".into(),
             EditOp::Rotate(n) if *n > 0 => "Rotate right".into(),
             EditOp::Rotate(_) => "Rotate left".into(),
             EditOp::Crop(_) => "Crop".into(),

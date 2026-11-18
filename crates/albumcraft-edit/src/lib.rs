@@ -6,6 +6,7 @@
 //! shown or exported: the desktop app, a server, or a browser (it builds for
 //! `wasm32-unknown-unknown`; rayon then runs on the calling thread).
 
+pub mod auto;
 pub mod decor;
 pub mod develop;
 pub mod imaging;

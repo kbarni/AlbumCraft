@@ -171,6 +171,7 @@ impl App {
             m.edits.push(EditOp::Decor(crate::decor::Decor::Text(crate::decor::TextOverlay { text: "Summer 2009".into(), anchor: 7, size: 0.07, color: [40, 40, 40], halo: false })));
             self.open_editor(4);
             self.edit.tab = Tab::Effects;
+            self.edit.decor = Some(crate::steps::Slot::Text(0));
         }
         if shot_view == "slideshow" {
             let list: Vec<usize> = (0..self.photos.len()).collect();

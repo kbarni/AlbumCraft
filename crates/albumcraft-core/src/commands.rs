@@ -231,7 +231,10 @@ const EDIT_DOC: &str = "An edit step, as JSON. Forms: {\"Rotate\": n} (quarter t
 {\"Look\": {\"look\": name, \"amount\": 0-1}} with name one of vivid, soft_film, polaroid, cross_process, lomo, matte, teal_orange, high_key, cool, warm, black_white, dramatic_bw, sepia, soft_focus, glow, film_grain, focal_bw; \
 {\"Decor\": {\"kind\": \"vignette\", \"amount\": -1..1, \"size\": 0..1}} | {\"kind\": \"border\", \"width\": 0..0.5, \"bottom\": 0..0.5, \"color\": [r,g,b]} | \
 {\"kind\": \"shadow\", \"size\", \"opacity\", \"background\": [r,g,b]} | {\"kind\": \"rounded\", \"radius\", \"background\"} | \
-{\"kind\": \"text\", \"text\", \"anchor\": 0-8 (top-left..bottom-right), \"size\": fraction of height, \"color\": [r,g,b], \"halo\": bool}.";
+{\"kind\": \"text\", \"text\", \"anchor\": 0-8 (top-left..bottom-right), \"size\": fraction of height, \"color\": [r,g,b], \"halo\": bool}. \
+A picture's steps are kept in a fixed order whatever the order they are added in: turn, straighten, perspective, crop, adjustment, look, \
+then vignette, rounded corners, border, text, shadow. A picture has one of each (texts excepted): adding a step of a kind it has replaces that one \
+(an Adjust replaces the whole adjustment, a Rotate is added to the turn).";
 
 pub fn specs() -> Vec<Spec> {
     vec![
@@ -360,7 +363,7 @@ Call `rescan` afterwards to see the new pictures in the library.",
         },
         Spec {
             name: "auto_fix",
-            description: "One-click fixes: lucky (white balance, exposure, black point, vibrance), exposure, white_balance, contrast, or straighten (levels a tilted horizon; reports when nothing to do).",
+            description: "One-click fixes, each setting slider values of the picture's one adjustment (returned) rather than adding a step: lucky (white balance, exposure, contrast, vibrance), exposure (exposure, shadows), white_balance (temperature, tint), contrast (black point, white point, contrast), or straighten (sets the straighten angle and the vertical perspective from the picture's upright lines, or its horizon; null when no clear lines are found).",
             schema: || keys_schema(json!({ "fix": { "type": "string", "enum": ["lucky", "exposure", "white_balance", "contrast", "straighten"] } })),
         },
         Spec {
@@ -375,7 +378,7 @@ Call `rescan` afterwards to see the new pictures in the library.",
         },
         Spec {
             name: "copy_edits",
-            description: "Add the edit steps of picture `from` (red-eye fixes excepted) after the edits of each of `keys`.",
+            description: "Put the edit steps of picture `from` (red-eye fixes excepted) on each of `keys`: a step of a kind the picture has (adjustment, look, crop, border…) replaces that one.",
             schema: || keys_schema(json!({ "from": { "type": "string" } })),
         },
         Spec {
@@ -1318,7 +1321,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let op = parse_edit(args.get("edit").ok_or("`edit` is required")?)?;
             for &id in &ids {
                 if let Some(m) = meta_mut(host, id) {
-                    m.edits.push(op.clone());
+                    crate::steps::put(&mut m.edits, op.clone());
                 }
                 host.changed(id);
             }
@@ -1334,51 +1337,38 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             for &id in &ids {
                 let key = host.photos()[id].key.clone();
                 let mut edits = edits_of(host, id);
-                let op = if fix == "contrast" {
-                    Some(EditOp::AutoContrast)
-                } else {
-                    let base = imaging::load_source(&key, library::BIG_DIM).ok_or_else(|| format!("{key}: the picture can't be read"))?;
-                    // look at the picture before its last adjustment step, which the fix replaces
-                    let last_adjust = match edits.last() {
-                        Some(EditOp::Adjust(a)) => Some(*a),
-                        _ => None,
-                    };
-                    let before: Vec<EditOp> = if last_adjust.is_some() { edits[..edits.len() - 1].to_vec() } else { edits.clone() };
-                    let img = imaging::apply_all(&base, &before);
-                    let mut a = last_adjust.unwrap_or_default();
-                    match fix.as_str() {
-                        "lucky" => a = develop::Adjust { clarity: a.clarity, sharpen: a.sharpen, noise: a.noise, ..develop::lucky(&img) },
-                        "exposure" => a.exposure = develop::auto_exposure(&img),
-                        "white_balance" => (a.temp, a.tint) = develop::auto_white_balance(&img),
-                        _ => {
-                            let full = imaging::apply_all(&base, &edits);
-                            let angle = develop::auto_straighten(&full).filter(|a| a.abs() >= 0.2);
-                            results.push(json!({ "key": key, "straighten": angle }));
-                            if let (Some(angle), Some(m)) = (angle, meta_mut(host, id)) {
-                                m.edits.push(EditOp::Straighten((angle * 10.0).round() / 10.0));
-                            }
-                            host.changed(id);
-                            continue;
-                        }
-                    }
-                    if last_adjust.is_some() {
-                        edits.pop();
-                    }
-                    edits.push(EditOp::Adjust(a.clamped()));
-                    if let Some(m) = meta_mut(host, id) {
-                        m.edits = edits;
+                let base = imaging::load_source(&key, library::BIG_DIM).ok_or_else(|| format!("{key}: the picture can't be read"))?;
+                if fix == "straighten" {
+                    // looks at the picture with only its quarter turns, and sets the straighten
+                    // angle and the vertical perspective as a whole
+                    let turns: Vec<EditOp> = edits.iter().filter(|e| matches!(e, EditOp::Rotate(_))).cloned().collect();
+                    let found = crate::auto::geometry(&imaging::apply_all(&base, &turns));
+                    results.push(json!({ "key": key, "straighten": found.map(|g| g.angle), "vertical_perspective": found.map(|g| g.vertical) }));
+                    if let (Some(g), Some(m)) = (found, meta_mut(host, id)) {
+                        let horizontal = crate::steps::geometry_of(&m.edits).1.1;
+                        crate::steps::set_geometry(&mut m.edits, EditOp::Straighten(g.angle));
+                        crate::steps::set_geometry(&mut m.edits, EditOp::Perspective { vertical: g.vertical, horizontal });
                     }
                     host.changed(id);
-                    results.push(json!({ "key": key, "adjust": a.label() }));
-                    None
-                };
-                if let Some(op) = op {
-                    if let Some(m) = meta_mut(host, id) {
-                        m.edits.push(op);
-                    }
-                    host.changed(id);
-                    results.push(json!({ "key": key, "edit": "Auto Contrast" }));
+                    continue;
                 }
+                // look at the picture without its adjustment, whose sliders the fix sets
+                let mut before = edits.clone();
+                crate::steps::set_adjust(&mut before, develop::Adjust::default());
+                let img = imaging::apply_all(&base, &before);
+                let mut a = crate::steps::adjust_of(&edits);
+                match fix.as_str() {
+                    "lucky" => a = crate::auto::lucky(&img, a),
+                    "exposure" => a = crate::auto::exposure(&img, a),
+                    "contrast" => a = crate::auto::contrast(&img, a),
+                    _ => (a.temp, a.tint) = crate::auto::white_balance(&img),
+                }
+                crate::steps::set_adjust(&mut edits, a);
+                if let Some(m) = meta_mut(host, id) {
+                    m.edits = edits;
+                }
+                host.changed(id);
+                results.push(json!({ "key": key, "adjust": a.clamped() }));
             }
             now(Value::Array(results))
         }
@@ -1406,7 +1396,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let ids = ids(host, args)?;
             for &id in &ids {
                 if let Some(m) = meta_mut(host, id) {
-                    m.edits.extend(ops.iter().cloned());
+                    crate::steps::merge(&mut m.edits, &ops);
                 }
                 host.changed(id);
             }

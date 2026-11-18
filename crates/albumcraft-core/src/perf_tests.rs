@@ -205,3 +205,61 @@ fn perf_check_embedded_previews() {
     }
     println!("{used} of {} pictures use the embedded preview ({turned} turned); worst mean difference {worst:.1} / 255", files.len());
 }
+
+/// The automatic fixes on real pictures, to look at:
+/// `ALBUMCRAFT_AUTO_PHOTOS=<folder> ALBUMCRAFT_AUTO_OUT=<folder> cargo test --release -p albumcraft-core real_auto_fixes -- --ignored --nocapture`
+/// writes, for each picture (folders inside included), a sheet with the picture as it is, after
+/// "I'm feeling lucky" and after auto straighten, and prints the slider values.
+#[test]
+#[ignore]
+fn real_auto_fixes() {
+    use crate::imaging::EditOp;
+    let (Ok(dir), Ok(out)) = (std::env::var("ALBUMCRAFT_AUTO_PHOTOS"), std::env::var("ALBUMCRAFT_AUTO_OUT")) else {
+        println!("set ALBUMCRAFT_AUTO_PHOTOS and ALBUMCRAFT_AUTO_OUT");
+        return;
+    };
+    std::fs::create_dir_all(&out).unwrap();
+    let mut files = vec![];
+    let mut dirs = vec![std::path::PathBuf::from(dir)];
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("jpg") || x.eq_ignore_ascii_case("jpeg")) {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+    for (n, path) in files.iter().enumerate() {
+        let Some(img) = crate::imaging::load_source(&path.to_string_lossy(), 700) else { continue };
+        let t = Instant::now();
+        let a = crate::auto::lucky(&img, Default::default());
+        let tone_time = t.elapsed();
+        let t = Instant::now();
+        let g = crate::auto::geometry(&img);
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        println!(
+            "{n:02} {name}: temp {} tint {} exposure {} shadows {} blacks {} contrast {} ({tone_time:?}); geometry {g:?} ({:?})",
+            a.temp,
+            a.tint,
+            a.exposure,
+            a.shadows,
+            a.blacks,
+            a.contrast,
+            t.elapsed()
+        );
+        let lucky = crate::imaging::apply_all(&img, &[EditOp::Adjust(a)]);
+        let level = match g {
+            Some(g) => crate::imaging::apply_all(&img, &[EditOp::Straighten(g.angle), EditOp::Perspective { vertical: g.vertical, horizontal: 0.0 }]),
+            None => image::RgbaImage::from_pixel(img.width(), img.height(), image::Rgba([40, 40, 40, 255])),
+        };
+        let (w, h) = img.dimensions();
+        let mut sheet = image::RgbaImage::new(w * 3 + 8, h);
+        image::imageops::overlay(&mut sheet, &img, 0, 0);
+        image::imageops::overlay(&mut sheet, &lucky, i64::from(w) + 4, 0);
+        image::imageops::overlay(&mut sheet, &level, i64::from(w) * 2 + 8, 0);
+        image::DynamicImage::ImageRgba8(sheet).to_rgb8().save(std::path::Path::new(&out).join(format!("{n:02}.jpg"))).unwrap();
+    }
+}

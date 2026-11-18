@@ -1,6 +1,5 @@
-//! The Advanced adjustments (white balance, exposure, tone, colour, detail) as one edit step, and
-//! the picture analysis behind the one-click fixes (auto exposure, auto white balance, I'm feeling
-//! lucky, auto straighten).
+//! The Advanced adjustments (white balance, exposure, tone, colour, detail) as one edit step.
+//! The picture analysis behind the one-click fixes is in `auto`.
 //!
 //! Units are the ones shown on the sliders: exposure in EV (−3…+3), sharpen and noise reduction
 //! 0…100, everything else −100…+100. Spatial effects (clarity, sharpen, noise reduction) scale their
@@ -107,7 +106,7 @@ fn linear_to_srgb(v: f32) -> f32 {
     if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
 }
 
-fn to_linear_lut() -> &'static [f32; 256] {
+pub(crate) fn to_linear_lut() -> &'static [f32; 256] {
     static T: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
     T.get_or_init(|| std::array::from_fn(|i| srgb_to_linear(i as f32 / 255.0)))
 }
@@ -124,7 +123,7 @@ fn lin_to_srgb_fast(v: f32) -> f32 {
     to_srgb_lut()[i.min(OUT_STEPS)]
 }
 
-fn luma(r: f32, g: f32, b: f32) -> f32 {
+pub(crate) fn luma(r: f32, g: f32, b: f32) -> f32 {
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
@@ -154,6 +153,60 @@ fn tone_lut(a: &Adjust) -> Vec<f32> {
         .collect()
 }
 
+/// The part of an adjustment that works pixel by pixel (white balance, exposure, tone curve,
+/// saturation, vibrance), prepared once for a picture. The automatic fixes try settings with it
+/// on a sample of the picture.
+pub(crate) struct Curve {
+    gains: [f32; 3],
+    ev: f32,
+    tone: Option<Vec<f32>>,
+    sat: f32,
+    vib: f32,
+}
+
+impl Curve {
+    pub(crate) fn new(a: &Adjust) -> Curve {
+        let tone_on = a.blacks != 0.0 || a.shadows != 0.0 || a.highlights != 0.0 || a.contrast != 0.0;
+        Curve { gains: wb_gains(a.temp, a.tint), ev: 2f32.powf(a.exposure), tone: tone_on.then(|| tone_lut(a)), sat: a.saturation / 100.0, vib: a.vibrance / 100.0 }
+    }
+
+    /// The pixel after the adjustment, each channel 0…1 as on screen (not clamped).
+    #[inline]
+    pub(crate) fn pixel(&self, p: [u8; 3]) -> [f32; 3] {
+        let lin = to_linear_lut();
+        // white balance and exposure in linear light
+        let mut c = [0f32; 3];
+        for k in 0..3 {
+            c[k] = lin_to_srgb_fast(lin[p[k] as usize] * self.gains[k] * self.ev);
+        }
+        if let Some(tone) = &self.tone {
+            let last = (tone.len() - 1) as f32;
+            let y = luma(c[0], c[1], c[2]);
+            let y2 = tone[((y * last) as usize).min(tone.len() - 1)];
+            if y > 0.02 {
+                let s = (y2 / y).min(4.0);
+                for v in &mut c {
+                    *v *= s;
+                }
+            } else {
+                for v in &mut c {
+                    *v += y2 - y;
+                }
+            }
+        }
+        if self.sat != 0.0 || self.vib != 0.0 {
+            let y = luma(c[0], c[1], c[2]);
+            let colourful = (c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])).clamp(0.0, 1.0);
+            // vibrance acts most on the less colourful parts
+            let f = (1.0 + self.sat + self.vib * (1.0 - colourful) * (1.0 - colourful)).max(0.0);
+            for v in &mut c {
+                *v = y + (*v - y) * f;
+            }
+        }
+        c
+    }
+}
+
 // ------------------------------------------------------------------ applying
 
 pub fn apply(img: &mut RgbaImage, a: &Adjust) {
@@ -165,44 +218,11 @@ pub fn apply(img: &mut RgbaImage, a: &Adjust) {
     if w == 0 || h == 0 {
         return;
     }
-    let gains = wb_gains(a.temp, a.tint);
-    let ev = 2f32.powf(a.exposure);
-    let tone = tone_lut(&a);
-    let tone_on = a.blacks != 0.0 || a.shadows != 0.0 || a.highlights != 0.0 || a.contrast != 0.0;
-    let (sat, vib) = (a.saturation / 100.0, a.vibrance / 100.0);
-    let lin = to_linear_lut();
-    let last = (tone.len() - 1) as f32;
+    let curve = Curve::new(&a);
     let row = w as usize * 4;
     img.as_mut().par_chunks_mut(row).for_each(|line| {
         for p in line.as_chunks_mut::<4>().0 {
-            // white balance and exposure in linear light
-            let mut c = [0f32; 3];
-            for k in 0..3 {
-                c[k] = lin_to_srgb_fast(lin[p[k] as usize] * gains[k] * ev);
-            }
-            if tone_on {
-                let y = luma(c[0], c[1], c[2]);
-                let y2 = tone[((y * last) as usize).min(tone.len() - 1)];
-                if y > 0.02 {
-                    let s = (y2 / y).min(4.0);
-                    for v in &mut c {
-                        *v *= s;
-                    }
-                } else {
-                    for v in &mut c {
-                        *v += y2 - y;
-                    }
-                }
-            }
-            if sat != 0.0 || vib != 0.0 {
-                let y = luma(c[0], c[1], c[2]);
-                let colourful = (c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])).clamp(0.0, 1.0);
-                // vibrance acts most on the less colourful parts
-                let f = (1.0 + sat + vib * (1.0 - colourful) * (1.0 - colourful)).max(0.0);
-                for v in &mut c {
-                    *v = y + (*v - y) * f;
-                }
-            }
+            let c = curve.pixel([p[0], p[1], p[2]]);
             for k in 0..3 {
                 p[k] = (c[k].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             }
@@ -363,126 +383,10 @@ pub fn neutralize(rgb: [u8; 3]) -> (f32, f32) {
     wb_for_logs(r, g, b)
 }
 
-fn wb_for_logs(lr: f32, lg: f32, lb: f32) -> (f32, f32) {
+pub(crate) fn wb_for_logs(lr: f32, lg: f32, lb: f32) -> (f32, f32) {
     let temp = (lb - lr) / (2.0 * K_TEMP);
     let tint = (lg - (lr + lb) / 2.0) / K_TINT;
     (temp.clamp(-100.0, 100.0), tint.clamp(-100.0, 100.0))
-}
-
-/// Gray-world white balance: the average of the picture's mid-tones becomes neutral.
-pub fn auto_white_balance(img: &RgbaImage) -> (f32, f32) {
-    let lin = to_linear_lut();
-    let (mut sum, mut n) = ([0f64; 3], 0u64);
-    for p in sample(img) {
-        let c = [lin[p[0] as usize], lin[p[1] as usize], lin[p[2] as usize]];
-        let y = luma(c[0], c[1], c[2]);
-        // leave out the darkest and clipped pixels
-        if (0.01..0.9).contains(&y) && p[0] < 250 && p[1] < 250 && p[2] < 250 {
-            for k in 0..3 {
-                sum[k] += c[k] as f64;
-            }
-            n += 1;
-        }
-    }
-    if n < 50 {
-        return (0.0, 0.0);
-    }
-    let m = sum.map(|s| ((s / n as f64) as f32).max(1e-4).ln());
-    let (t, ti) = wb_for_logs(m[0], m[1], m[2]);
-    // a little short of full gray-world, which over-corrects sunsets and the like
-    ((t * 0.8).round(), (ti * 0.8).round())
-}
-
-/// Exposure (EV) that brings the picture's average brightness to a mid gray, without pushing
-/// its brightest parts much past white.
-pub fn auto_exposure(img: &RgbaImage) -> f32 {
-    let lin = to_linear_lut();
-    let mut ys: Vec<f32> = sample(img).map(|p| luma(lin[p[0] as usize], lin[p[1] as usize], lin[p[2] as usize])).collect();
-    if ys.is_empty() {
-        return 0.0;
-    }
-    let log_mean = ys.iter().map(|y| (y + 1e-3).ln()).sum::<f32>() / ys.len() as f32;
-    let mut ev = (0.18f32.ln() - log_mean) / std::f32::consts::LN_2;
-    ys.sort_by(f32::total_cmp);
-    let p99 = ys[(ys.len() * 99 / 100).min(ys.len() - 1)].max(1e-3);
-    if ev > 0.0 {
-        ev = ev.min((1.0 / p99).log2().max(0.0));
-    }
-    ((ev * 0.8).clamp(-2.0, 2.0) * 10.0).round() / 10.0
-}
-
-/// "I'm feeling lucky": white balance, exposure, a touch of black point and vibrance.
-pub fn lucky(img: &RgbaImage) -> Adjust {
-    let (temp, tint) = auto_white_balance(img);
-    let exposure = auto_exposure(img);
-    let mut ys: Vec<u8> = sample(img).map(|p| luma(p[0] as f32, p[1] as f32, p[2] as f32) as u8).collect();
-    ys.sort_unstable();
-    let dark = ys.get(ys.len() / 200).copied().unwrap_or(0) as f32 / 255.0;
-    // a washed-out black point gets deepened a little
-    let blacks = -((dark - 0.02) / 0.1 * 60.0).clamp(0.0, 60.0).round();
-    Adjust { temp, tint, exposure, blacks, contrast: 10.0, vibrance: 20.0, ..Default::default() }
-}
-
-/// Every pixel of a picture up to ~250,000 pixels, otherwise an even sample of about that many.
-fn sample(img: &RgbaImage) -> impl Iterator<Item = &image::Rgba<u8>> {
-    let n = img.width() as usize * img.height() as usize;
-    let step = (n / 250_000).max(1);
-    img.pixels().step_by(step)
-}
-
-/// The tilt of the picture's dominant near-horizontal or near-vertical lines, as the
-/// `Straighten` angle (degrees) that levels them; `None` when no clear lines are found.
-pub fn auto_straighten(img: &RgbaImage) -> Option<f32> {
-    const MAX: f32 = 12.0;
-    const BIN: f32 = 0.1;
-    let small = {
-        let (w, h) = crate::imaging::fit(img.width(), img.height(), 600);
-        image::imageops::resize(img, w, h, image::imageops::FilterType::Triangle)
-    };
-    let (w, h) = (small.width() as usize, small.height() as usize);
-    if w < 16 || h < 16 {
-        return None;
-    }
-    let g: Vec<f32> = small.pixels().map(|p| luma(p[0] as f32, p[1] as f32, p[2] as f32)).collect();
-    let at = |x: usize, y: usize| g[y * w + x];
-    let nbins = (2.0 * MAX / BIN) as usize + 1;
-    let mut hist = vec![0f32; nbins];
-    let mut total = 0f32;
-    for y in 1..h - 1 {
-        for x in 1..w - 1 {
-            let gx = (at(x + 1, y - 1) + 2.0 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2.0 * at(x - 1, y) + at(x - 1, y + 1));
-            let gy = (at(x - 1, y + 1) + 2.0 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2.0 * at(x, y - 1) + at(x + 1, y - 1));
-            let m = (gx * gx + gy * gy).sqrt();
-            if m < 40.0 {
-                continue;
-            }
-            // direction of the edge line, folded so horizontal and vertical lines both give ~0
-            let line = gy.atan2(gx).to_degrees() + 90.0;
-            let a = (line + 45.0).rem_euclid(90.0) - 45.0;
-            total += m;
-            if a.abs() <= MAX {
-                let i = ((a + MAX) / BIN).round() as usize;
-                if let Some(b) = hist.get_mut(i) {
-                    *b += m;
-                }
-            }
-        }
-    }
-    if total <= 0.0 {
-        return None;
-    }
-    // smooth over ±0.5°
-    let win = (0.5 / BIN) as isize;
-    let smooth: Vec<f32> = (0..nbins as isize)
-        .map(|i| (-win..=win).filter_map(|d| hist.get((i + d) as usize).copied()).sum())
-        .collect();
-    let (best, &peak) = smooth.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
-    let angle = best as f32 * BIN - MAX;
-    // weak or flat: no clear lines
-    if peak < total * 0.04 {
-        return None;
-    }
-    Some(-angle)
 }
 
 #[cfg(test)]
@@ -525,27 +429,6 @@ mod tests {
     }
 
     #[test]
-    fn auto_white_balance_removes_a_cast() {
-        let mut img = crate::imaging::sample_image(7, 160, 120);
-        for p in img.pixels_mut() {
-            p[2] = (p[2] as f32 * 0.7) as u8; // a yellow cast
-        }
-        let (temp, _) = auto_white_balance(&img);
-        assert!(temp < -10.0, "temp {temp}");
-    }
-
-    #[test]
-    fn auto_exposure_brightens_a_dark_picture() {
-        let mut img = crate::imaging::sample_image(3, 160, 120);
-        for p in img.pixels_mut() {
-            for c in 0..3 {
-                p[c] /= 4;
-            }
-        }
-        assert!(auto_exposure(&img) > 0.5);
-    }
-
-    #[test]
     fn tone_curve_is_monotonic_at_the_extremes() {
         for v in [-100.0, 100.0] {
             let a = Adjust { blacks: v, shadows: v, highlights: v, contrast: v, ..Default::default() };
@@ -563,22 +446,6 @@ mod tests {
             assert_eq!(img.dimensions(), base.dimensions());
             assert_ne!(img, base, "{a:?} did nothing");
         }
-    }
-
-    /// A picture with strong horizontal stripes, turned by `deg`.
-    fn stripes(deg: f32) -> RgbaImage {
-        let img = RgbaImage::from_fn(400, 300, |_, y| if (y / 15) % 2 == 0 { Rgba([230, 230, 230, 255]) } else { Rgba([30, 30, 30, 255]) });
-        crate::imaging::apply(img, &crate::imaging::EditOp::Straighten(deg))
-    }
-
-    #[test]
-    fn auto_straighten_levels_a_tilted_picture() {
-        let tilted = stripes(4.0);
-        let fix = auto_straighten(&tilted).expect("lines found");
-        let fixed = crate::imaging::apply(tilted, &crate::imaging::EditOp::Straighten(fix));
-        let left = auto_straighten(&fixed).unwrap_or(0.0);
-        assert!(fix.abs() > 2.5, "fix {fix}");
-        assert!(left.abs() < 0.6, "fix {fix}, left {left}");
     }
 
     /// `cargo test --release develop_speed -- --ignored --nocapture`
@@ -607,10 +474,5 @@ mod tests {
                 println!("{w}x{h} {name}: {:?}", t.elapsed());
             }
         }
-    }
-
-    #[test]
-    fn auto_straighten_finds_nothing_in_a_flat_picture() {
-        assert_eq!(auto_straighten(&flat([90, 120, 150])), None);
     }
 }

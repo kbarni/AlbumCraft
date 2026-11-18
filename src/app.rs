@@ -287,6 +287,8 @@ pub struct EditState {
     pub tab: Tab,
     /// The Edit tab shows the sliders (Advanced) instead of the one-click fixes (Basic).
     pub advanced: bool,
+    /// The effect whose settings the Effects tab shows.
+    pub decor: Option<crate::steps::Slot>,
     pub tool: Tool,
     pub aspect: CropAspect,
     pub angle: f32,
@@ -745,6 +747,7 @@ impl App {
                 list: vec![],
                 tab: Tab::Edit,
                 advanced: false,
+                decor: None,
                 tool: Tool::None,
                 aspect: CropAspect::Manual,
                 crop_portrait: false,
@@ -1439,8 +1442,9 @@ impl App {
         self.refresh_thumb(id);
     }
 
+    /// Add a step at its place in the picture's edits (`steps::put`).
     pub fn push_edit(&mut self, id: usize, op: EditOp) {
-        self.change_edits(id, "", |e| e.push(op));
+        self.change_edits(id, "", |e| crate::steps::put(e, op));
     }
 
     /// Copy a picture's edits (all but red-eye fixes, which belong to that picture's eyes).
@@ -1455,8 +1459,8 @@ impl App {
         self.toast(crate::i18n::tr!("copied-edits", n = n));
     }
 
-    /// Add the copied edits after each picture's own edits (undo them one by one in the editor,
-    /// or with "Undo all edits").
+    /// Put the copied edits into each picture's own (`steps::merge`: a copied adjustment, look,
+    /// crop or border takes the place of the picture's).
     pub fn paste_edits(&mut self, ids: &[usize]) {
         let Some(ops) = self.copied_edits.clone() else {
             self.toast(crate::i18n::tr!("paste-first"));
@@ -1464,7 +1468,7 @@ impl App {
         };
         let ids: Vec<usize> = ids.iter().copied().filter(|&id| id < self.photos.len()).collect();
         for &id in &ids {
-            self.change_edits(id, "", |e| e.extend(ops.iter().cloned()));
+            self.change_edits(id, "", |e| crate::steps::merge(e, &ops));
         }
         let n = ids.len();
         self.toast(crate::i18n::tr!("pasted-edits", n = n));
@@ -1472,16 +1476,7 @@ impl App {
 
     pub fn rotate(&mut self, ids: &[usize], dir: i32) {
         for &id in ids {
-            self.change_edits(id, "", |e| {
-                if let Some(EditOp::Rotate(n)) = e.last_mut() {
-                    *n += dir;
-                    if n.rem_euclid(4) == 0 {
-                        e.pop();
-                    }
-                } else {
-                    e.push(EditOp::Rotate(dir));
-                }
-            });
+            self.change_edits(id, "", |e| crate::steps::turn(e, dir));
         }
     }
 

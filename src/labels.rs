@@ -196,6 +196,7 @@ pub fn decor(d: &Decor) -> String {
 /// An entry of a picture's list of edits (`EditOp::label` in the language of the window).
 pub fn op(e: &EditOp) -> String {
     match e {
+        EditOp::Rotate(n) if n.rem_euclid(4) == 2 => tr!("op-rotate-half"),
         EditOp::Rotate(n) if *n > 0 => tr!("op-rotate-right"),
         EditOp::Rotate(_) => tr!("op-rotate-left"),
         EditOp::Crop(_) => tr!("op-crop"),

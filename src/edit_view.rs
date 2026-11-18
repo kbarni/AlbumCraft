@@ -90,6 +90,7 @@ enum AutoFix {
     Lucky,
     Exposure,
     WhiteBalance,
+    Contrast,
     Straighten,
 }
 
@@ -201,32 +202,54 @@ impl App {
         Some(imaging::apply_all(base, &ops))
     }
 
+    /// The picture with only its quarter turns (what auto straighten looks at: it sets the
+    /// straighten angle and the perspective as a whole, not on top of the ones there).
+    fn geometry_image(&self, id: usize) -> Option<image::RgbaImage> {
+        let base = self.big.get(&id).map(|b| &b.base).or_else(|| self.thumb_base.get(&id))?;
+        let turns: Vec<EditOp> = self.edits(id).into_iter().filter(|e| matches!(e, EditOp::Rotate(_))).collect();
+        Some(imaging::apply_all(base, &turns))
+    }
+
+    /// A one-click fix: it sets sliders of the Advanced panel (the adjustment, or the straighten
+    /// angle and the vertical perspective), never a step of its own.
     fn auto_fix(&mut self, id: usize, what: AutoFix) {
+        use crate::auto;
+        if let AutoFix::Straighten = what {
+            let Some(img) = self.geometry_image(id) else {
+                self.toast(tr!("edit-loading"));
+                return;
+            };
+            let (now, (now_v, horizontal)) = self.current_geometry(id);
+            match auto::geometry(&img) {
+                Some(g) if (g.angle - now).abs() < 0.2 && (g.vertical - now_v).abs() < 0.03 => self.toast(tr!("edit-already-level")),
+                Some(g) => {
+                    self.change_edits(id, "", |e| {
+                        crate::steps::set_geometry(e, EditOp::Straighten(g.angle));
+                        crate::steps::set_geometry(e, EditOp::Perspective { vertical: g.vertical, horizontal });
+                    });
+                    let angle = crate::locale::decimal(&format!("{:+.1}", g.angle));
+                    if (g.vertical - now_v).abs() < 0.03 {
+                        self.toast(tr!("edit-straightened", angle = angle));
+                    } else {
+                        let vertical = format!("{:+.0}", g.vertical * 100.0);
+                        self.toast(tr!("edit-straightened-perspective", angle = angle, vertical = vertical));
+                    }
+                }
+                None => self.toast(tr!("edit-no-horizon")),
+            }
+            return;
+        }
         let Some(img) = self.analysis_image(id) else {
             self.toast(tr!("edit-loading"));
             return;
         };
         let mut a = self.current_adjust(id);
         match what {
-            AutoFix::Lucky => {
-                let l = develop::lucky(&img);
-                a = Adjust { clarity: a.clarity, sharpen: a.sharpen, noise: a.noise, ..l };
-            }
-            AutoFix::Exposure => a.exposure = develop::auto_exposure(&img),
-            AutoFix::WhiteBalance => (a.temp, a.tint) = develop::auto_white_balance(&img),
-            AutoFix::Straighten => {
-                match develop::auto_straighten(&img) {
-                    Some(angle) if angle.abs() >= 0.2 => {
-                        let angle = (angle * 10.0).round() / 10.0;
-                        let total = (self.current_geometry(id).0 + angle).clamp(-45.0, 45.0);
-                        self.set_geometry(id, EditOp::Straighten(total), "");
-                        self.toast(tr!("edit-straightened", angle = crate::locale::decimal(&format!("{angle:+.1}"))));
-                    }
-                    Some(_) => self.toast(tr!("edit-already-level")),
-                    None => self.toast(tr!("edit-no-horizon")),
-                }
-                return;
-            }
+            AutoFix::Lucky => a = auto::lucky(&img, a),
+            AutoFix::Exposure => a = auto::exposure(&img, a),
+            AutoFix::Contrast => a = auto::contrast(&img, a),
+            AutoFix::WhiteBalance => (a.temp, a.tint) = auto::white_balance(&img),
+            AutoFix::Straighten => {}
         }
         self.set_adjust(id, a, "");
     }
@@ -667,6 +690,47 @@ impl App {
                             self.redo();
                         }
                     });
+                    ui.label(RichText::new(tr!("edit-list")).size(12.0).weak());
+                    if edits.is_empty() {
+                        ui.label(RichText::new(tr!("edit-list-none")).size(12.0).weak());
+                    }
+                    // a fixed height for up to six steps: inside a bottom panel, a scroll area left
+                    // to size itself can get stuck at the panel's first, tiny height (one line)
+                    let row = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(12.0))).max(ui.spacing().interact_size.y) + ui.spacing().item_spacing.y;
+                    let h = row * edits.len().clamp(0, 6) as f32;
+                    let (mut open, mut remove) = (None, None);
+                    egui::ScrollArea::vertical().id_salt("edit_steps").min_scrolled_height(h).max_height(h).show(ui, |ui| {
+                        for (i, e) in edits.iter().enumerate() {
+                            let label = crate::labels::op(e);
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let x = ui.add(egui::Label::new(RichText::new(icons::CLOSE).size(12.0).weak()).selectable(false).sense(Sense::click()));
+                                    if x.on_hover_text(tr!("edit-step-remove")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                        remove = Some(i);
+                                    }
+                                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                        let shown = self.step_shown(&edits, i);
+                                        let t = RichText::new(&label).size(12.0);
+                                        let r = ui.add(egui::Label::new(if shown { t.strong() } else { t }).truncate().selectable(false).sense(Sense::click()));
+                                        if Self::step_opens(e) {
+                                            if r.on_hover_text(tr!("edit-step-hint", label = label)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                                open = Some(i);
+                                            }
+                                        } else {
+                                            r.on_hover_text(&label);
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                    });
+                    if let Some(i) = open {
+                        self.open_step(id, i);
+                    }
+                    if let Some(i) = remove {
+                        self.change_edits(id, "", |e| crate::steps::remove_step(e, i));
+                    }
                     self.history_list(ui, &edits);
                     // wraps: in some languages the three buttons are wider than the panel
                     ui.horizontal_wrapped(|ui| {
@@ -821,7 +885,7 @@ impl App {
                     }
                     ui.end_row();
                     if tool_button(ui, bw, icons::CONTRAST, &tr!("edit-auto-contrast")).on_hover_text(tr!("edit-auto-contrast-hint")).clicked() {
-                        self.push_edit(id, EditOp::AutoContrast);
+                        self.auto_fix(id, AutoFix::Contrast);
                     }
                     if tool_button(ui, bw, icons::STRAIGHTEN, &tr!("edit-auto-straighten")).on_hover_text(tr!("edit-auto-straighten-hint")).clicked() {
                         self.auto_fix(id, AutoFix::Straighten);
@@ -883,7 +947,7 @@ impl App {
                 if ui.selectable_label(false, tr!("wb-auto")).clicked()
                     && let Some(img) = self.analysis_image(id)
                 {
-                    (a.temp, a.tint) = develop::auto_white_balance(&img);
+                    (a.temp, a.tint) = crate::auto::white_balance(&img);
                 }
             });
             if ui.button(format!("{} {}", icons::EYEDROPPER, tr!("edit-wb-pick"))).on_hover_text(tr!("edit-wb-pick-hint")).clicked() {
@@ -1104,23 +1168,47 @@ impl App {
         }
     }
 
-    /// The effect being edited: the last edit step when it is one.
-    fn current_decor(&self, id: usize) -> Option<Decor> {
-        match self.meta(id).and_then(|m| m.edits.last()) {
-            Some(EditOp::Decor(d)) => Some(d.clone()),
-            _ => None,
+    /// The step has settings a click on it brings back.
+    fn step_opens(e: &EditOp) -> bool {
+        matches!(e, EditOp::Crop(_) | EditOp::Straighten(_) | EditOp::Perspective { .. } | EditOp::Adjust(_) | EditOp::Look { .. } | EditOp::Decor(_))
+    }
+
+    /// The step at `i` is the effect whose settings the Effects tab is showing.
+    fn step_shown(&self, edits: &[EditOp], i: usize) -> bool {
+        self.edit.tab == Tab::Effects && self.edit.decor.is_some() && crate::steps::slot_at(edits, i) == self.edit.decor
+    }
+
+    /// Bring back the settings of the step at `i` of the picture's edits: the panel that made it,
+    /// showing its values (the crop tool for a crop).
+    fn open_step(&mut self, id: usize, i: usize) {
+        let edits = self.edits(id);
+        match edits.get(i) {
+            Some(EditOp::Crop(_)) => {
+                self.edit.tab = Tab::Edit;
+                self.start_crop();
+            }
+            Some(EditOp::Straighten(_) | EditOp::Perspective { .. } | EditOp::Adjust(_)) => {
+                self.edit.tab = Tab::Edit;
+                self.edit.advanced = true;
+            }
+            Some(EditOp::Look { .. }) => self.edit.tab = Tab::Presets,
+            Some(EditOp::Decor(_)) => {
+                self.edit.tab = Tab::Effects;
+                self.edit.decor = crate::steps::slot_at(&edits, i);
+            }
+            _ => {}
         }
     }
 
-    /// Change the last effect when it is of the same kind, otherwise add this one.
-    fn set_decor(&mut self, id: usize, d: Decor) {
-        self.change_edits(id, "decor", |e| match e.last_mut() {
-            Some(EditOp::Decor(cur)) if cur.same_kind(&d) => *cur = d,
-            _ => e.push(EditOp::Decor(d)),
-        });
+    /// The effect whose settings the Effects tab shows, when the picture has it.
+    fn current_decor(&self, id: usize) -> Option<(crate::steps::Slot, Decor)> {
+        let slot = self.edit.decor?;
+        let d = crate::steps::decor_of(self.meta(id).map(|m| m.edits.as_slice()).unwrap_or(&[]), slot)?;
+        Some((slot, d))
     }
 
     fn effects_tab(&mut self, ui: &mut egui::Ui) {
+        use crate::steps::Slot;
         let id = self.edit.id;
         ui.label(RichText::new(tr!("edit-effects-add")).size(12.0).weak());
         let white = [255, 255, 255];
@@ -1132,23 +1220,62 @@ impl App {
             (icons::ROUNDED, tr!("decor-rounded"), Decor::Rounded { radius: 0.06, background: white }),
             (icons::TEXT, tr!("edit-add-text"), Decor::Text(TextOverlay { text: tr!("edit-your-text"), ..Default::default() })),
         ];
+        // the plain border and the instant frame are the same effect: which of the two it is
+        let instant = |d: &Decor| matches!(d, Decor::Border { bottom, .. } if *bottom > 0.0);
+        let edits = self.edits(id);
         let mut add = None;
+        let mut show = None;
         let bw = tool_width(ui);
         egui::Grid::new("decor_add").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
             for (i, (icon, label, d)) in adds.iter().enumerate() {
-                if tool_button(ui, bw, icon, label).clicked() {
-                    add = Some(d.clone());
+                // the one the picture has: a click shows its settings instead of adding another
+                let has = match d {
+                    Decor::Text(_) => None,
+                    _ => crate::steps::slot_at(std::slice::from_ref(&EditOp::Decor(d.clone())), 0)
+                        .filter(|&slot| crate::steps::decor_of(&edits, slot).is_some_and(|cur| instant(&cur) == instant(d))),
+                };
+                let mut r = tool_button(ui, bw, icon, label);
+                if has.is_some() {
+                    r = r.highlight();
+                }
+                if r.clicked() {
+                    match has {
+                        Some(slot) => show = Some(slot),
+                        None => add = Some(d.clone()),
+                    }
                 }
                 if i % 2 == 1 {
                     ui.end_row();
                 }
             }
         });
-        if let Some(d) = add {
-            // always a new step (adding two borders makes a double frame)
-            self.push_edit(id, EditOp::Decor(d));
+        if let Some(slot) = show {
+            self.edit.decor = Some(slot);
         }
-        let Some(mut d) = self.current_decor(id) else {
+        if let Some(d) = add {
+            // one vignette, border, shadow and rounding per picture (a new one takes the place of
+            // the old), any number of texts; each goes to its place in the order
+            let mut slot = None;
+            self.change_edits(id, "", |e| slot = Some(crate::steps::add_decor(e, d)));
+            self.edit.decor = slot;
+        }
+        // the texts, to choose the one to change
+        let texts: Vec<(Slot, String)> = self
+            .edits(id)
+            .iter()
+            .filter_map(|e| if let EditOp::Decor(d @ Decor::Text(_)) = e { Some(crate::labels::decor(d)) } else { None })
+            .enumerate()
+            .map(|(n, label)| (Slot::Text(n), label))
+            .collect();
+        if texts.len() > 1 {
+            ui.add_space(4.0);
+            for (slot, label) in texts {
+                if ui.add(egui::Button::selectable(self.edit.decor == Some(slot), RichText::new(label).size(12.0)).truncate()).clicked() {
+                    self.edit.decor = Some(slot);
+                }
+            }
+        }
+        let Some((slot, mut d)) = self.current_decor(id) else {
             ui.add_space(8.0);
             ui.label(RichText::new(tr!("edit-effects-note")).size(11.5).weak());
             return;
@@ -1210,11 +1337,12 @@ impl App {
             }
         }
         if d != before {
-            self.set_decor(id, d);
+            self.change_edits(id, "decor", |e| crate::steps::set_decor(e, slot, Some(d)));
         }
         ui.add_space(6.0);
         if ui.button(tr!("edit-remove-effect")).clicked() {
-            self.undo();
+            self.change_edits(id, "", |e| crate::steps::set_decor(e, slot, None));
+            self.edit.decor = None;
         }
     }
 

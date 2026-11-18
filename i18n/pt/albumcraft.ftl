@@ -697,6 +697,7 @@ effect-focal-bw = P&B focal
 effect-graduated-tint = Matiz graduado
 op-rotate-right = Girar para a direita
 op-rotate-left = Girar para a esquerda
+op-rotate-half = Girar 180°
 op-crop = Recortar
 op-straighten = Endireitar { $angle }°
 op-perspective-v = Perspectiva, vertical { $v }
@@ -762,6 +763,7 @@ edit-slider-hint =
     Clique duplo para redefinir
 edit-loading = A foto ainda está sendo carregada.
 edit-straightened = Endireitada em { $angle }°.
+edit-straightened-perspective = Endireitada em { $angle }°, perspectiva corrigida ({ $vertical }).
 edit-already-level = Esta foto já parece estar reta.
 edit-no-horizon = Nenhum horizonte nem linha vertical nítida foi encontrado para endireitar.
 edit-histogram = Histograma e informações da câmera
@@ -814,6 +816,12 @@ edit-history-added = { $label } e { $n ->
         [one] mais uma
        *[other] mais { $n }
     }
+edit-list = Edições desta foto:
+edit-list-none = (nenhuma: é o original)
+edit-step-hint =
+    { $label }
+    Clique para alterá-la
+edit-step-remove = Remover esta edição
 edit-copy-hint = Copiar essas edições para colá-las em outras fotos (Ctrl+Shift+C)
 edit-paste-n = Colar { $n }
 edit-paste-hint = Adicionar as edições copiadas a esta foto (Ctrl+Shift+V)
@@ -893,7 +901,7 @@ edit-effects-add = Adicionar sobre ou ao redor da foto
 edit-add-instant = Moldura de instantâneo
 edit-add-text = Texto
 edit-your-text = Seu texto
-edit-effects-note = Os efeitos são aplicados por cima de todas as outras edições. Adicione um para ajustá-lo aqui.
+edit-effects-note = Os efeitos são aplicados por cima de todas as outras edições, sempre na mesma ordem: vinheta, cantos arredondados, borda, texto, sombra. Escolha um para ajustá-lo aqui.
 edit-p-amount = Intensidade
 edit-p-size = Tamanho
 edit-p-width = Largura

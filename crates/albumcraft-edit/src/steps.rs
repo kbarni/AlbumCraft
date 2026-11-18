@@ -1,18 +1,56 @@
-//! Editing a picture's list of edit steps the way the editor's panels do: one adjustment, one
-//! look, one straighten, one perspective and one crop per picture, each changed where it stands
-//! in the list instead of stacking a new step every time.
+//! Editing a picture's list of edit steps the way the editor's panels do. The list is a recipe
+//! with a fixed order, not a history: the steps that move or cut the picture first (turn,
+//! straighten, perspective, crop), then the colours (adjustment, look), then what is drawn on or
+//! around the picture (vignette, rounded corners, border, text, shadow). There is one step of
+//! each kind (only texts and red-eye fixes can be several), changed where it stands; a new step
+//! goes to its place in that order (`rank`), wherever it is added from.
 //!
 //! The list itself (`Vec<EditOp>`, applied in order by `imaging::apply_all`) stays what is
-//! saved, so lists made before (or by other means: pasted edits, imported notes, commands) keep
-//! working: when a list holds several steps of a kind, the last one is "the" one edited here,
-//! the earlier ones stay as they are.
+//! saved, and lists made before this order existed are left as they are, so those pictures keep
+//! their look: when such a list holds several steps of a kind, the last one is "the" one edited
+//! here, and a new step goes after the last step that belongs before it.
 
+use crate::decor::Decor;
 use crate::develop::Adjust;
 use crate::imaging::EditOp;
 use crate::looks::Look;
 
 fn last(edits: &[EditOp], is: impl Fn(&EditOp) -> bool) -> Option<usize> {
     edits.iter().rposition(is)
+}
+
+/// Where a step stands in the fixed order (lower first; steps of the same rank stay in the order
+/// they were added).
+pub fn rank(op: &EditOp) -> u8 {
+    match op {
+        EditOp::Rotate(_) => 0,
+        EditOp::Straighten(_) => 1,
+        EditOp::Perspective { .. } => 2,
+        EditOp::Crop(_) => 3,
+        EditOp::Redeye(_) => 4,
+        EditOp::Lucky | EditOp::AutoContrast | EditOp::AutoColor | EditOp::Tune { .. } => 5,
+        EditOp::Adjust(_) => 6,
+        EditOp::Look { .. } => 7,
+        EditOp::Effect(_) => 8,
+        EditOp::Decor(Decor::Vignette { .. }) => 9,
+        EditOp::Decor(Decor::Rounded { .. }) => 10,
+        EditOp::Decor(Decor::Border { .. }) => 11,
+        EditOp::Decor(Decor::Text(_)) => 12,
+        EditOp::Decor(Decor::Shadow { .. }) => 13,
+    }
+}
+
+/// Where a new step of that rank goes: after the last step that belongs before it or beside it.
+fn place(edits: &[EditOp], rank_of_new: u8) -> usize {
+    last(edits, |e| rank(e) <= rank_of_new).map_or(0, |i| i + 1)
+}
+
+/// The list is in the fixed order, with one step of each kind that has only one.
+pub fn in_order(edits: &[EditOp]) -> bool {
+    edits.windows(2).all(|w| {
+        let (a, b) = (rank(&w[0]), rank(&w[1]));
+        a < b || (a == b && matches!(a, 4 | 5 | 8 | 12))
+    })
 }
 
 /// Steps that move or cut the picture (the others only change colours or draw on it).
@@ -28,8 +66,8 @@ pub fn adjust_of(edits: &[EditOp]) -> Adjust {
     }
 }
 
-/// Set the picture's adjustment: changed where it stands, added at the end when there is none,
-/// removed when it is neutral.
+/// Set the picture's adjustment: changed where it stands, added at its place when there is
+/// none, removed when it is neutral.
 pub fn set_adjust(edits: &mut Vec<EditOp>, a: Adjust) {
     let a = a.clamped();
     match last(edits, |e| matches!(e, EditOp::Adjust(_))) {
@@ -38,7 +76,7 @@ pub fn set_adjust(edits: &mut Vec<EditOp>, a: Adjust) {
         }
         Some(i) => edits[i] = EditOp::Adjust(a),
         None if a.is_neutral() => {}
-        None => edits.push(EditOp::Adjust(a)),
+        None => edits.insert(place(edits, 6), EditOp::Adjust(a)),
     }
 }
 
@@ -58,11 +96,8 @@ pub fn set_look(edits: &mut Vec<EditOp>, look: Option<(Look, f32)>) {
         (Some(i), None) => {
             edits.remove(i);
         }
-        (None, Some((look, amount))) => {
-            // under the effects drawn on the picture (borders, text), which stay on top
-            let at = edits.iter().position(|e| matches!(e, EditOp::Decor(_))).unwrap_or(edits.len());
-            edits.insert(at, EditOp::Look { look, amount: amount.clamp(0.0, 1.0) });
-        }
+        // under the effects drawn on the picture (borders, text), which stay on top
+        (None, Some((look, amount))) => edits.insert(place(edits, 7), EditOp::Look { look, amount: amount.clamp(0.0, 1.0) }),
         (None, None) => {}
     }
 }
@@ -101,16 +136,180 @@ pub fn set_geometry(edits: &mut Vec<EditOp>, op: EditOp) {
         }
         Some(i) => edits[i] = op,
         None if neutral => {}
+        None => edits.insert(place(edits, rank(&op)), op),
+    }
+}
+
+/// Where a new crop goes: after the steps that move the picture, before the others.
+fn crop_place(edits: &[EditOp]) -> usize {
+    place(edits, 3)
+}
+
+/// Which effect of the Effects tab: the one vignette, rounded corners, border or shadow, or one
+/// of the texts (counted from the first).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Slot {
+    Vignette,
+    Rounded,
+    Border,
+    Shadow,
+    Text(usize),
+}
+
+fn is_text(op: &EditOp) -> bool {
+    matches!(op, EditOp::Decor(Decor::Text(_)))
+}
+
+/// The slot of the step at `i`, when it is an effect.
+pub fn slot_at(edits: &[EditOp], i: usize) -> Option<Slot> {
+    match edits.get(i)? {
+        EditOp::Decor(Decor::Vignette { .. }) => Some(Slot::Vignette),
+        EditOp::Decor(Decor::Rounded { .. }) => Some(Slot::Rounded),
+        EditOp::Decor(Decor::Border { .. }) => Some(Slot::Border),
+        EditOp::Decor(Decor::Shadow { .. }) => Some(Slot::Shadow),
+        EditOp::Decor(Decor::Text(_)) => Some(Slot::Text(edits[..i].iter().filter(|e| is_text(e)).count())),
+        _ => None,
+    }
+}
+
+/// Where the effect of that slot stands in the list (the last one, in a list with several).
+fn slot_index(edits: &[EditOp], slot: Slot) -> Option<usize> {
+    match slot {
+        Slot::Text(n) => edits.iter().enumerate().filter(|(_, e)| is_text(e)).nth(n).map(|(i, _)| i),
+        _ => (0..edits.len()).rev().find(|&i| slot_at(edits, i) == Some(slot)),
+    }
+}
+
+/// The effect in that slot.
+pub fn decor_of(edits: &[EditOp], slot: Slot) -> Option<Decor> {
+    match slot_index(edits, slot).and_then(|i| edits.get(i)) {
+        Some(EditOp::Decor(d)) => Some(d.clone()),
+        _ => None,
+    }
+}
+
+/// Add an effect: a vignette, rounded corners, border or shadow takes the place of the one the
+/// picture has; a text is one more text. The slot it is in.
+pub fn add_decor(edits: &mut Vec<EditOp>, d: Decor) -> Slot {
+    let op = EditOp::Decor(d);
+    let at = match slot_at(std::slice::from_ref(&op), 0) {
+        Some(slot @ (Slot::Vignette | Slot::Rounded | Slot::Border | Slot::Shadow)) => slot_index(edits, slot),
+        _ => None,
+    };
+    let i = match at {
+        Some(i) => {
+            edits[i] = op;
+            i
+        }
         None => {
-            let at = last(edits, |e| matches!(e, EditOp::Crop(_))).unwrap_or_else(|| crop_place(edits));
-            edits.insert(at, op);
+            let i = place(edits, rank(&op));
+            edits.insert(i, op);
+            i
+        }
+    };
+    slot_at(edits, i).unwrap_or(Slot::Text(0))
+}
+
+/// Change the effect in that slot (to one of the same kind), or remove it with None.
+pub fn set_decor(edits: &mut Vec<EditOp>, slot: Slot, d: Option<Decor>) {
+    let Some(i) = slot_index(edits, slot) else { return };
+    match d {
+        None => {
+            edits.remove(i);
+        }
+        Some(d) => {
+            if let EditOp::Decor(cur) = &mut edits[i]
+                && cur.same_kind(&d)
+            {
+                *cur = d;
+            }
         }
     }
 }
 
-/// Where a new crop goes: after the steps that move or cut the picture, before the others.
-fn crop_place(edits: &[EditOp]) -> usize {
-    last(edits, is_geometry).map_or(0, |i| i + 1)
+/// The perspective sliders' values after `turns` quarter turns clockwise of the picture.
+fn turn_perspective((mut v, mut h): (f32, f32), turns: i32) -> (f32, f32) {
+    for _ in 0..turns.rem_euclid(4) {
+        // the top becomes the right side, the right side the bottom
+        (v, h) = (-h, v);
+    }
+    (v, h)
+}
+
+/// Turn the picture by `dir` quarter turns clockwise. The turn joins the picture's one turn
+/// step at the start of the list: the straighten, perspective and crop made since are turned
+/// with it, so the picture comes out the same, only turned. What is drawn on the picture after
+/// (border, text, shadow) is not turned: a caption stays readable under the turned picture.
+pub fn turn(edits: &mut Vec<EditOp>, dir: i32) {
+    let dir = dir.rem_euclid(4);
+    if dir == 0 {
+        return;
+    }
+    let mut i = edits.iter().position(|e| matches!(e, EditOp::Decor(_))).unwrap_or(edits.len());
+    while i > 0 {
+        match &mut edits[i - 1] {
+            EditOp::Rotate(n) => {
+                // -1…2, so that a quarter turn left is still called that
+                let sum = (*n + dir).rem_euclid(4);
+                if sum == 0 {
+                    edits.remove(i - 1);
+                } else {
+                    *n = if sum == 3 { -1 } else { sum };
+                }
+                return;
+            }
+            EditOp::Crop(r) | EditOp::Redeye(r) => *r = turn_rect(*r, dir),
+            EditOp::Perspective { vertical, horizontal } => (*vertical, *horizontal) = turn_perspective((*vertical, *horizontal), dir),
+            // the same whichever way up the picture is
+            EditOp::Straighten(_) | EditOp::Adjust(_) | EditOp::Look { .. } => {}
+            // older colour steps, some of which depend on the way up: the turn stays after them
+            _ => break,
+        }
+        i -= 1;
+    }
+    edits.insert(i, EditOp::Rotate(if dir == 3 { -1 } else { dir }));
+}
+
+/// Put a step into the list the way the editor would: a turn joins the turn, an adjustment,
+/// look, straighten, perspective, crop, vignette, rounded corners, border or shadow takes the
+/// place of the one the picture has, a text or red-eye fix is added at its place in the order.
+pub fn put(edits: &mut Vec<EditOp>, op: EditOp) {
+    match op {
+        EditOp::Rotate(n) => turn(edits, n),
+        EditOp::Straighten(_) | EditOp::Perspective { .. } => set_geometry(edits, op),
+        EditOp::Crop(r) => set_crop(edits, Some(r)),
+        EditOp::Adjust(a) => set_adjust(edits, a),
+        EditOp::Look { look, amount } => set_look(edits, Some((look, amount))),
+        EditOp::Decor(d) => {
+            // the same text twice (edits pasted again) is one text
+            if !(matches!(d, Decor::Text(_)) && edits.iter().any(|e| matches!(e, EditOp::Decor(x) if *x == d))) {
+                add_decor(edits, d);
+            }
+        }
+        _ => edits.insert(place(edits, rank(&op)), op),
+    }
+}
+
+/// Put every one of `ops` into the list (pasted edits).
+pub fn merge(edits: &mut Vec<EditOp>, ops: &[EditOp]) {
+    for op in ops {
+        put(edits, op.clone());
+    }
+}
+
+/// Take the step at `i` out of the list. A turn is taken back as a turn the other way, so that
+/// the crop and perspective made on the turned picture still fit.
+pub fn remove_step(edits: &mut Vec<EditOp>, i: usize) {
+    match edits.get(i) {
+        Some(EditOp::Rotate(n)) => {
+            let n = *n;
+            turn(edits, -n);
+        }
+        Some(_) => {
+            edits.remove(i);
+        }
+        None => {}
+    }
 }
 
 /// The picture's crop box (x0, y0, x1, y1 as fractions of the picture at that step).
@@ -300,6 +499,138 @@ mod tests {
 
     fn adj(exposure: f32) -> Adjust {
         Adjust { exposure, ..Default::default() }
+    }
+
+    fn border() -> Decor {
+        Decor::Border { width: 0.05, bottom: 0.0, color: [255, 255, 255] }
+    }
+
+    fn text(t: &str) -> Decor {
+        Decor::Text(crate::decor::TextOverlay { text: t.into(), ..Default::default() })
+    }
+
+    #[test]
+    fn steps_go_to_their_place_whatever_the_order_they_are_made_in() {
+        let mut e = vec![];
+        put(&mut e, EditOp::Decor(border()));
+        put(&mut e, EditOp::Decor(Decor::Vignette { amount: 0.5, size: 0.5 }));
+        put(&mut e, EditOp::Look { look: Look::Vivid, amount: 0.5 });
+        put(&mut e, EditOp::Adjust(adj(0.3)));
+        put(&mut e, EditOp::Crop([0.1, 0.1, 0.9, 0.9]));
+        put(&mut e, EditOp::Decor(text("a")));
+        put(&mut e, EditOp::Straighten(2.0));
+        put(&mut e, EditOp::Decor(Decor::Shadow { size: 0.04, opacity: 0.5, background: [255, 255, 255] }));
+        put(&mut e, EditOp::Rotate(1));
+        put(&mut e, EditOp::Perspective { vertical: 0.2, horizontal: 0.0 });
+        put(&mut e, EditOp::Decor(Decor::Rounded { radius: 0.05, background: [255, 255, 255] }));
+        let ranks: Vec<u8> = e.iter().map(rank).collect();
+        assert_eq!(ranks, vec![0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 13], "{e:?}");
+        assert!(in_order(&e));
+        // the adjustment is under the border, not on it
+        assert!(e.iter().position(|x| matches!(x, EditOp::Adjust(_))) < e.iter().position(|x| matches!(x, EditOp::Decor(_))));
+    }
+
+    #[test]
+    fn one_effect_of_each_kind_but_several_texts() {
+        let mut e = vec![];
+        assert_eq!(add_decor(&mut e, border()), Slot::Border);
+        // a second border (here the instant frame) takes the place of the first
+        let instant = Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] };
+        assert_eq!(add_decor(&mut e, instant.clone()), Slot::Border);
+        assert_eq!(e, vec![EditOp::Decor(instant.clone())]);
+        assert_eq!(add_decor(&mut e, text("a")), Slot::Text(0));
+        assert_eq!(add_decor(&mut e, text("b")), Slot::Text(1));
+        assert_eq!(e.len(), 3);
+        assert_eq!(decor_of(&e, Slot::Text(1)), Some(text("b")));
+        assert_eq!(slot_at(&e, 2), Some(Slot::Text(1)));
+        // changed in its slot; another kind is not taken
+        set_decor(&mut e, Slot::Text(0), Some(text("c")));
+        set_decor(&mut e, Slot::Border, Some(text("x")));
+        assert_eq!(e, vec![EditOp::Decor(instant), EditOp::Decor(text("c")), EditOp::Decor(text("b"))]);
+        set_decor(&mut e, Slot::Text(0), None);
+        assert_eq!(decor_of(&e, Slot::Text(0)), Some(text("b")));
+        set_decor(&mut e, Slot::Border, None);
+        set_decor(&mut e, Slot::Shadow, None);
+        assert_eq!(e, vec![EditOp::Decor(text("b"))]);
+    }
+
+    #[test]
+    fn pasted_edits_take_the_place_of_the_pictures_own() {
+        let mut e = vec![EditOp::Adjust(adj(0.3)), EditOp::Decor(border()), EditOp::Decor(text("a"))];
+        let pasted = [EditOp::Adjust(adj(0.8)), EditOp::Look { look: Look::Sepia, amount: 1.0 }, EditOp::Decor(border()), EditOp::Decor(text("a"))];
+        merge(&mut e, &pasted);
+        assert_eq!(e, vec![EditOp::Adjust(adj(0.8)), EditOp::Look { look: Look::Sepia, amount: 1.0 }, EditOp::Decor(border()), EditOp::Decor(text("a"))]);
+        // pasted again: nothing more
+        let same = e.clone();
+        merge(&mut e, &pasted);
+        assert_eq!(e, same);
+    }
+
+    #[test]
+    fn lists_made_before_keep_their_steps() {
+        // two borders and an adjustment after them, as older versions could make
+        let old = vec![EditOp::Decor(border()), EditOp::Decor(border()), EditOp::Adjust(adj(0.3))];
+        assert!(!in_order(&old));
+        let mut e = old.clone();
+        set_adjust(&mut e, adj(0.5));
+        assert_eq!(e.len(), 3);
+        assert_eq!(e[2], EditOp::Adjust(adj(0.5)));
+        assert_eq!(e[..2], old[..2]);
+    }
+
+    /// Mean difference per channel value between two pictures of the same size.
+    fn difference(a: &image::RgbaImage, b: &image::RgbaImage) -> f32 {
+        assert_eq!(a.dimensions(), b.dimensions());
+        let sum: u64 = a.as_raw().iter().zip(b.as_raw()).map(|(x, y)| u64::from(x.abs_diff(*y))).sum();
+        sum as f32 / a.as_raw().len() as f32
+    }
+
+    #[test]
+    fn a_turn_keeps_the_picture_and_turns_it() {
+        let img = sample_image(3, 120, 80);
+        let geometry = vec![
+            EditOp::Straighten(3.0),
+            EditOp::Perspective { vertical: 0.5, horizontal: -0.3 },
+            EditOp::Crop([0.25, 0.25, 0.75, 1.0]),
+            EditOp::Adjust(adj(0.3)),
+        ];
+        for dir in [1, 2, 3, -1] {
+            // turned after everything else: what the result has to look like
+            let mut after = geometry.clone();
+            after.push(EditOp::Rotate(dir));
+            let want = apply_all(&img, &after);
+            let mut e = geometry.clone();
+            turn(&mut e, dir);
+            assert!(matches!(e[0], EditOp::Rotate(_)) && in_order(&e), "{e:?}");
+            let got = apply_all(&img, &e);
+            // not pixel for pixel (the straighten samples between pixels), but the same picture
+            assert!(difference(&want, &got) < 2.0, "turn {dir}: {}", difference(&want, &got));
+            // and a wrong turn of the perspective would not be
+            let mut wrong = e.clone();
+            wrong[2] = EditOp::Perspective { vertical: 0.5, horizontal: -0.3 };
+            if dir.rem_euclid(4) != 2 {
+                assert!(difference(&want, &apply_all(&img, &wrong)) > difference(&want, &got), "turn {dir}");
+            }
+        }
+    }
+
+    #[test]
+    fn turns_join_and_leave_the_effects_as_they_are() {
+        let mut e = vec![EditOp::Crop([0.0, 0.0, 0.5, 1.0]), EditOp::Decor(text("a"))];
+        turn(&mut e, 1);
+        assert_eq!(e, vec![EditOp::Rotate(1), EditOp::Crop(turn_rect([0.0, 0.0, 0.5, 1.0], 1)), EditOp::Decor(text("a"))]);
+        turn(&mut e, 1);
+        assert_eq!(e[0], EditOp::Rotate(2));
+        turn(&mut e, 1);
+        assert_eq!(e[0], EditOp::Rotate(-1));
+        turn(&mut e, 1);
+        assert_eq!(e, vec![EditOp::Crop([0.0, 0.0, 0.5, 1.0]), EditOp::Decor(text("a"))]);
+        // removing the turn step takes the crop back with it
+        turn(&mut e, -1);
+        remove_step(&mut e, 0);
+        assert_eq!(e, vec![EditOp::Crop([0.0, 0.0, 0.5, 1.0]), EditOp::Decor(text("a"))]);
+        remove_step(&mut e, 0);
+        assert_eq!(e, vec![EditOp::Decor(text("a"))]);
     }
 
     #[test]

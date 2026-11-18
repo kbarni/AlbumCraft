@@ -697,6 +697,7 @@ effect-focal-bw = Fokus-S/W
 effect-graduated-tint = Verlaufstönung
 op-rotate-right = Nach rechts drehen
 op-rotate-left = Nach links drehen
+op-rotate-half = Um 180° drehen
 op-crop = Zuschneiden
 op-straighten = Ausrichten { $angle }°
 op-perspective-v = Perspektive, vertikal { $v }
@@ -762,6 +763,7 @@ edit-slider-hint =
     Doppelklick zum Zurücksetzen
 edit-loading = Das Foto wird noch geladen.
 edit-straightened = Um { $angle }° ausgerichtet.
+edit-straightened-perspective = Um { $angle }° ausgerichtet, Perspektive korrigiert ({ $vertical }).
 edit-already-level = Dieses Foto scheint bereits gerade zu sein.
 edit-no-horizon = Kein klarer Horizont und keine klare senkrechte Linie zum Ausrichten gefunden.
 edit-histogram = Histogramm und Kamerainfos
@@ -814,6 +816,12 @@ edit-history-added = { $label } und { $n ->
         [one] eine weitere
        *[other] { $n } weitere
     }
+edit-list = Bearbeitungen dieses Fotos:
+edit-list-none = (keine – es ist das Original)
+edit-step-hint =
+    { $label }
+    Klicken, um sie zu ändern
+edit-step-remove = Diese Bearbeitung entfernen
 edit-copy-hint = Diese Bearbeitungen kopieren, um sie in andere Fotos einzufügen (Strg+Umschalt+C)
 edit-paste-n = { $n } einfügen
 edit-paste-hint = Die kopierten Bearbeitungen zu diesem Foto hinzufügen (Strg+Umschalt+V)
@@ -893,7 +901,7 @@ edit-effects-add = Auf dem Foto oder um das Foto hinzufügen
 edit-add-instant = Sofortbildrahmen
 edit-add-text = Text
 edit-your-text = Ihr Text
-edit-effects-note = Effekte werden über allen anderen Bearbeitungen angewendet. Fügen Sie einen hinzu, um ihn hier einzustellen.
+edit-effects-note = Effekte werden über allen anderen Bearbeitungen angewendet, immer in derselben Reihenfolge: Vignette, abgerundete Ecken, Rand, Text, Schatten. Wählen Sie einen aus, um ihn hier einzustellen.
 edit-p-amount = Stärke
 edit-p-size = Größe
 edit-p-width = Breite
