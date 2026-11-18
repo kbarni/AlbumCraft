@@ -258,11 +258,12 @@ impl App {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), Sense::hover());
                 let p = &ui.painter_at(rect.expand(1.0));
                 p.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t().text_weak));
-                let Some(h) = self.big.get(&id).and_then(|e| e.hist.as_ref()) else {
+                let Some(hist) = self.big.get(&id).and_then(|e| e.hist.as_ref()) else {
                     p.text(rect.center(), egui::Align2::CENTER_CENTER, "…", egui::FontId::proportional(12.0), t().text_weak);
                     draw_camera(ui);
                     return;
                 };
+                let h = &hist.channels;
                 // ignore the two extreme bins when scaling so clipped pixels don't flatten the curve
                 let peak = h.iter().flat_map(|c| c[1..255].iter()).copied().max().unwrap_or(1).max(1) as f32;
                 let colours = [
@@ -285,10 +286,10 @@ impl App {
                     let line = Color32::from_rgb(col.r(), col.g(), col.b());
                     p.add(egui::Shape::line(pts, Stroke::new(1.0, line)));
                 }
-                // clipping: the share of pixels with a channel at pure black or pure white
+                // clipping: the share of pixels that are pure black or pure white
                 let total = h[1].iter().sum::<u32>().max(1) as f32;
-                let dark = (0..3).map(|c| h[c][0]).max().unwrap_or(0) as f32 / total * 100.0;
-                let bright = (0..3).map(|c| h[c][255]).max().unwrap_or(0) as f32 / total * 100.0;
+                let dark = hist.black as f32 / total * 100.0;
+                let bright = hist.white as f32 / total * 100.0;
                 if dark >= 0.5 || bright >= 0.5 {
                     let mut parts = vec![];
                     if dark >= 0.5 {
