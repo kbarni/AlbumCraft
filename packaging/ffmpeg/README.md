@@ -97,3 +97,7 @@ PKG_CONFIG_PATH_x86_64_unknown_linux_gnu = { value = ".tools/ffmpeg/linux-x86_64
 - **Windows**: there is no rpath. The DLLs (`bin/*.dll`) go beside `albumcraft.exe`; to run
   from a Cargo build, put `.tools\ffmpeg\windows-x86_64\bin` on `PATH`. They need only Windows'
   own DLLs (the C runtime comes with Windows 10 and later); gcc's runtime is linked in.
+  Building the bindings needs MSYS2's pkg-config and libclang
+  (`pacman -S mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-clang`), e.g. in the local
+  `.cargo/config.toml`'s `[env]`: `PKG_CONFIG = "C:/msys64/ucrt64/bin/pkg-config.exe"` and
+  `LIBCLANG_PATH = "C:/msys64/ucrt64/bin"`.

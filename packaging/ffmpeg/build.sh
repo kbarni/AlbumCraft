@@ -168,6 +168,10 @@ echo "==> FFmpeg $FFMPEG_VERSION"
   make -j "$JOBS" >/dev/null
   make install >/dev/null
 )
+# No hardware decoding in this build, so the headers of the hardware frame types are of no use.
+# Left in, ffmpeg-sys-next's bindgen reads each one whose system SDK header it finds (on Windows
+# d3d11.h, hence all of windows.h, whose compiler intrinsics break the bindings).
+rm -f "$STAGE"/include/libavutil/hwcontext_?*.h
 if [[ "$STAGE" != "$PREFIX" ]]; then
   mkdir -p "$PREFIX"
   cp -R "$STAGE"/. "$PREFIX"/
