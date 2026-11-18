@@ -276,13 +276,26 @@ impl App {
         painter.circle_filled(Pos2::new(head, rect.top() + 3.0), 4.0, Color32::WHITE);
         painter.rect_stroke(rect, 4.0, Stroke::new(1.0, t().border), egui::StrokeKind::Inside);
 
-        // what the mouse does: a drag that starts on a mark moves it, any other moves the play head
+        // what the mouse does: a drag that starts on a mark moves it, any other moves the play head.
+        // A mark is caught from a little outside its line to the end of its bracket's arms; when
+        // both are, the nearer line.
+        let mark_at = |x: f32| -> u8 {
+            let on_in = (xa - 6.0..=xa + 12.0).contains(&x);
+            let on_out = (xb - 12.0..=xb + 6.0).contains(&x);
+            match (on_in, on_out) {
+                (true, true) => if (x - xa).abs() <= (x - xb).abs() { 1 } else { 2 },
+                (true, false) => 1,
+                (false, true) => 2,
+                (false, false) => 0,
+            }
+        };
         let grab = egui::Id::unique("video_strip_grab");
+        // where the button went down: egui reports the drag only once the pointer has moved a few
+        // points, by then often off the mark
         if resp.drag_started()
-            && let Some(pt) = resp.interact_pointer_pos()
+            && let Some(pt) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
         {
-            let which = if (pt.x - xa).abs() < 7.0 { 1u8 } else if (pt.x - xb).abs() < 7.0 { 2 } else { 0 };
-            ui.ctx().data_mut(|d| d.insert_temp(grab, which));
+            ui.ctx().data_mut(|d| d.insert_temp(grab, mark_at(pt.x)));
         }
         let which: u8 = ui.ctx().data(|d| d.get_temp(grab)).unwrap_or(0);
         if (resp.dragged() || resp.clicked())
@@ -305,7 +318,7 @@ impl App {
             ui.ctx().data_mut(|d| d.remove::<u8>(grab));
         }
         if resp.hovered() {
-            let near = resp.hover_pos().is_some_and(|pt| (pt.x - xa).abs() < 7.0 || (pt.x - xb).abs() < 7.0);
+            let near = which != 0 || resp.hover_pos().is_some_and(|pt| mark_at(pt.x) != 0);
             ui.ctx().set_cursor_icon(if near { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::PointingHand });
         }
     }
