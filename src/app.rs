@@ -358,6 +358,8 @@ pub enum CompareMode {
 pub struct Histogram {
     /// Red, green and blue counts per level.
     pub channels: [[u32; 256]; 3],
+    /// Counts per luminance level (Rec. 709 weights).
+    pub luma: [u32; 256],
     /// Pixels black in all three channels (lost shadows); one channel at 0 alone is
     /// just a saturated colour, like a deep blue sky without red.
     pub black: u32,
@@ -366,11 +368,14 @@ pub struct Histogram {
 }
 
 pub fn histogram(img: &RgbaImage) -> Histogram {
-    let mut h = Histogram { channels: [[0u32; 256]; 3], black: 0, white: 0 };
+    let mut h = Histogram { channels: [[0u32; 256]; 3], luma: [0u32; 256], black: 0, white: 0 };
     for p in img.pixels() {
         for c in 0..3 {
             h.channels[c][p[c] as usize] += 1;
         }
+        // weights out of 256 (0.2126, 0.7152, 0.0722): white stays 255
+        let y = (54 * p[0] as u32 + 183 * p[1] as u32 + 19 * p[2] as u32 + 128) >> 8;
+        h.luma[y as usize] += 1;
         if p[0] == 0 && p[1] == 0 && p[2] == 0 {
             h.black += 1;
         } else if p[0] == 255 && p[1] == 255 && p[2] == 255 {

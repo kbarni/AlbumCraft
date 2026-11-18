@@ -221,8 +221,8 @@ impl App {
         }
     }
 
-    /// "Histogram" box in the bottom-left panel: red, green and blue curves of the
-    /// edited picture, drawn over each other with see-through fills.
+    /// "Histogram" box in the bottom-left panel: the edited picture's luminance curve, or its
+    /// red, green and blue curves drawn over each other with see-through fills (`Store.hist_rgb`).
     fn histogram_box(&mut self, ui: &mut egui::Ui, id: usize) {
         let cam = self.camera_info(id);
         egui::Frame::new()
@@ -231,7 +231,22 @@ impl App {
             .corner_radius(3)
             .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
-                ui.label(RichText::new(tr!("edit-histogram")).size(12.5));
+                ui.horizontal(|ui| {
+                    // the switch on the right, the title cut short in what it leaves
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let rgb = self.store.hist_rgb;
+                        let small = |s: String| RichText::new(s).size(11.0);
+                        let a = ui.selectable_label(rgb, small(tr!("edit-hist-rgb"))).on_hover_text(tr!("edit-hist-rgb-hint"));
+                        let b = ui.selectable_label(!rgb, small(tr!("edit-hist-luma"))).on_hover_text(tr!("edit-hist-luma-hint"));
+                        if a.clicked() || b.clicked() {
+                            self.store.hist_rgb = a.clicked();
+                            self.dirty |= self.store.hist_rgb != rgb;
+                        }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(RichText::new(tr!("edit-histogram")).size(12.5)).truncate());
+                        });
+                    });
+                });
                 // the main camera settings, always visible under the curves (
                 // make / model and focal length on the left; shutter, aperture, ISO on the right)
                 let draw_camera = |ui: &mut egui::Ui| {
@@ -264,18 +279,24 @@ impl App {
                     return;
                 };
                 let h = &hist.channels;
+                // the curves to draw: luminance alone, or red, green and blue over each other
+                let curves: Vec<(&[u32; 256], Color32)> = if self.store.hist_rgb {
+                    vec![
+                        (&h[0], Color32::from_rgba_unmultiplied(230, 60, 60, 90)),
+                        (&h[1], Color32::from_rgba_unmultiplied(60, 180, 70, 90)),
+                        (&h[2], Color32::from_rgba_unmultiplied(70, 90, 230, 90)),
+                    ]
+                } else {
+                    let c = t().text;
+                    vec![(&hist.luma, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 90))]
+                };
                 // ignore the two extreme bins when scaling so clipped pixels don't flatten the curve
-                let peak = h.iter().flat_map(|c| c[1..255].iter()).copied().max().unwrap_or(1).max(1) as f32;
-                let colours = [
-                    Color32::from_rgba_unmultiplied(230, 60, 60, 90),
-                    Color32::from_rgba_unmultiplied(60, 180, 70, 90),
-                    Color32::from_rgba_unmultiplied(70, 90, 230, 90),
-                ];
-                for (c, col) in colours.iter().enumerate() {
+                let peak = curves.iter().flat_map(|(c, _)| c[1..255].iter()).copied().max().unwrap_or(1).max(1) as f32;
+                for (curve, col) in &curves {
                     let pts: Vec<Pos2> = (0..256)
                         .map(|i| {
                             let x = rect.left() + rect.width() * i as f32 / 255.0;
-                            let y = rect.bottom() - rect.height() * (h[c][i] as f32 / peak).min(1.0);
+                            let y = rect.bottom() - rect.height() * (curve[i] as f32 / peak).min(1.0);
                             Pos2::new(x, y)
                         })
                         .collect();
