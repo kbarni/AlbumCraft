@@ -263,6 +263,8 @@ pub struct Store {
     pub bar_style: BarStyle,
     /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
     pub edit_advanced: bool,
+    /// The editor's histogram shows the red, green and blue curves rather than luminance.
+    pub hist_rgb: bool,
     /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
     pub export_size: u32,
     pub export_quality: u8,
@@ -334,6 +336,7 @@ impl Default for Store {
             sort: Sort::Name,
             bar_style: BarStyle::Compact,
             edit_advanced: false,
+            hist_rgb: false,
             export_size: 0,
             export_quality: 90,
             analysis_paused: false,
