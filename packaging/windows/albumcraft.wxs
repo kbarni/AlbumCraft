@@ -51,8 +51,10 @@
       <Component><File Id="LicenseMit" Source="$(var.StageDir)\LICENSE-MIT" /></Component>
       <Component><File Id="LicenseApache" Source="$(var.StageDir)\LICENSE-APACHE" /></Component>
       <Component><File Id="Notice" Source="$(var.StageDir)\NOTICE" /></Component>
-      <!-- the Visual C++ runtime DLLs, copied beside the exe by package.ps1 -->
+      <!-- the Visual C++ runtime DLLs and the FFmpeg DLLs (videos), copied beside the exe by package.ps1 -->
       <Files Include="$(var.StageDir)\*.dll" />
+      <!-- the FFmpeg and dav1d licence texts (FFmpeg-COPYING.LGPLv2.1, dav1d-COPYING); none with -NoVideo -->
+      <Files Include="$(var.StageDir)\*-COPYING*" />
     </ComponentGroup>
   </Fragment>
 </Wix>

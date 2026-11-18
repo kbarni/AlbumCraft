@@ -2,8 +2,8 @@
 # Build the FFmpeg libraries AlbumCraft plays videos with: a playback-only build (decoders and
 # file readers for camera and phone videos, nothing else), plus dav1d for AV1.
 #
-#   .tools/ffmpeg/<os>-<arch>/          include/, lib/ (libraries or, on Windows, import libraries,
-#                                       and pkg-config files), bin/ (Windows: the DLLs),
+#   .tools/ffmpeg/<os>-<arch>/          include/, lib/ (libraries or, on Windows, import libraries
+#                                       for GNU ld and MSVC, and pkg-config files), bin/ (Windows: the DLLs),
 #                                       share/licenses/
 #
 # Usage: packaging/ffmpeg/build.sh [--prefix DIR] [--jobs N] [--archive]
@@ -176,6 +176,9 @@ if [[ "$STAGE" != "$PREFIX" ]]; then
   mkdir -p "$PREFIX"
   cp -R "$STAGE"/. "$PREFIX"/
 fi
+# FFmpeg puts the import libraries for MSVC's linker (avcodec.lib, …) beside the DLLs; with
+# FFMPEG_DIR (packaging/windows/package.ps1), ffmpeg-sys-next looks for them in lib/
+[[ "$OS" != windows ]] || mv "$PREFIX"/bin/*.lib "$PREFIX"/lib/
 # the pkg-config files name the folder they are in, not where they were built (on Windows that
 # is also written as C:/msys64/…)
 STAGE_WIN="$(cygpath -m "$STAGE" 2>/dev/null || echo "$STAGE")"

@@ -17,6 +17,13 @@ machine and used on another.
 Licence: LGPL 2.1 or later (FFmpeg, without its GPL and non-free parts) and BSD (dav1d). The
 licence texts are in `share/licenses/`; they go into the packages with the libraries.
 
+## Where the releases get them
+
+`.github/workflows/release.yml` builds them for each package, cached until `build.sh` changes:
+Linux on Ubuntu 22.04 (job `ffmpeg-linux`, so they need no newer glibc than the program; then
+`packaging/linux/package.sh` puts them in every package), Windows in MSYS2 UCRT64 (then
+`packaging/windows/package.ps1`), macOS on the arm64 runner (into `Contents/Frameworks`).
+
 ## Building on a Mac (for someone without one)
 
 You need a Mac with Apple silicon (M1 or later) and about 2 GB of free space. It takes
@@ -92,10 +99,13 @@ PKG_CONFIG_PATH_x86_64_unknown_linux_gnu = { value = ".tools/ffmpeg/linux-x86_64
 - **Linux**: the libraries look for each other in their own folder (`$ORIGIN`); the program
   looks beside itself, in `../lib/albumcraft` and in the build folder (`rpath.rs`).
 - **macOS**: the libraries are named `@rpath/<file>` and look for each other in their own
-  folder (`@loader_path`); the app bundle must carry them (e.g. in `Contents/Frameworks`) with
-  an rpath to that folder. Not wired into `build.rs` or the `.dmg` yet.
-- **Windows**: there is no rpath. The DLLs (`bin/*.dll`) go beside `albumcraft.exe`; to run
-  from a Cargo build, put `.tools\ffmpeg\windows-x86_64\bin` on `PATH`. They need only Windows'
+  folder (`@loader_path`); the program looks in the app bundle's `Contents/Frameworks` and in
+  the build folder (`rpath.rs`). The release workflow copies them into the bundle and removes the
+  build folder's rpath.
+- **Windows**: there is no rpath. The DLLs (`bin/*.dll`) go beside `albumcraft.exe`
+  (`packaging/windows/package.ps1` puts them and the licence texts there, for the MSI and the
+  portable zip; it builds with `FFMPEG_DIR`, so MSVC links the `lib/*.lib` import libraries);
+  to run from a Cargo build, put `.tools\ffmpeg\windows-x86_64\bin` on `PATH`. They need only Windows'
   own DLLs (the C runtime comes with Windows 10 and later); gcc's runtime is linked in.
   Building the bindings needs MSYS2's pkg-config and libclang
   (`pacman -S mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-clang`), e.g. in the local

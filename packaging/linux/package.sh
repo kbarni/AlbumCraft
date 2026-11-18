@@ -21,6 +21,11 @@
 # (unpacks Ubuntu 22.04's libxkbcommon-x11, which it carries) and patchelf (likewise downloaded
 # when missing). Optional:
 # desktop-file-validate and appstreamcli check the metadata, zsyncmake writes the .zsync.
+#
+# Videos: the FFmpeg libraries of packaging/ffmpeg/build.sh, built on a system with glibc
+# $GLIBC or older (Ubuntu 22.04: release.yml's ffmpeg-linux job), in .tools/ffmpeg/linux-<arch>
+# or the folder named by $ALBUMCRAFT_FFMPEG. They go where the program looks: beside it in the
+# .tar.gz, /usr/lib/albumcraft in the others, with their licence texts.
 set -euo pipefail
 # shellcheck source=../common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
@@ -60,6 +65,15 @@ esac
 TARGET="$ARCH-unknown-linux-gnu"
 BASENAME="albumcraft-$VERSION-linux-$ARCH"
 echo "==> AlbumCraft $VERSION for Linux $ARCH ($FORMATS)"
+
+FFMPEG="${ALBUMCRAFT_FFMPEG:-$ROOT/.tools/ffmpeg/linux-$ARCH}"
+[[ -f "$FFMPEG/lib/pkgconfig/libavcodec.pc" && -f "$FFMPEG/share/licenses/FFmpeg-COPYING.LGPLv2.1" ]] || {
+  echo "error: no FFmpeg build in $FFMPEG: run packaging/ffmpeg/build.sh (on glibc $GLIBC or older)" >&2; exit 1
+}
+FFMPEG="$(cd "$FFMPEG" && pwd)"
+# cargo finds them with pkg-config (and build.rs gives the program an rpath to them, besides the
+# package folders)
+export "PKG_CONFIG_PATH_$(echo "$TARGET" | tr '-' '_')=$FFMPEG/lib/pkgconfig"
 
 if [[ "$SKIP_BUILD" = 0 ]]; then
   command -v cargo-zigbuild >/dev/null || { echo "error: cargo-zigbuild not found (cargo install --locked cargo-zigbuild)" >&2; exit 1; }
@@ -109,11 +123,37 @@ copy_onnxruntime() {
   install -Dm644 "$ONNXRUNTIME_DIR/ThirdPartyNotices.txt" "$docs/ThirdPartyNotices-ONNXRuntime.txt"
 }
 
+# ---- FFmpeg: the libraries videos are played with ----------------------------------------------
+# Each under the name the program and the others ask for (its SONAME, libavcodec.so.62), not the
+# libavcodec.so symlinks; they find each other through their own $ORIGIN (build.sh checks).
+FFMPEG_LIBS=()
+for f in "$FFMPEG"/lib/*.so.*; do
+  [[ -L "$f" ]] && continue
+  soname="$(objdump -p "$f" | awk '$1 == "SONAME" {print $2}')"
+  [[ -n "$soname" ]] || { echo "error: $f has no SONAME" >&2; exit 1; }
+  check_glibc "$f"
+  FFMPEG_LIBS+=("$f:$soname")
+done
+[[ ${#FFMPEG_LIBS[@]} -ge 6 ]] || { echo "error: expected 6 FFmpeg and dav1d libraries in $FFMPEG/lib, found ${#FFMPEG_LIBS[@]}" >&2; exit 1; }
+# every FFmpeg library the program asks for is one of them
+for needed in $(objdump -p "$BIN" | awk '$1 == "NEEDED" {print $2}' | grep -E '^lib(av|sw)'); do
+  [[ " ${FFMPEG_LIBS[*]} " == *":$needed "* ]] || { echo "error: the program needs $needed, which $FFMPEG/lib doesn't have" >&2; exit 1; }
+done
+copy_ffmpeg() {
+  local lib="$1" docs="$2" entry
+  for entry in "${FFMPEG_LIBS[@]}"; do
+    install -Dm644 "${entry%%:*}" "$lib/${entry#*:}"
+  done
+  install -Dm644 "$FFMPEG/share/licenses/FFmpeg-COPYING.LGPLv2.1" "$docs/FFmpeg-COPYING.LGPLv2.1"
+  install -Dm644 "$FFMPEG/share/licenses/dav1d-COPYING" "$docs/dav1d-COPYING"
+}
+
 # ---- an FHS tree shared by the .deb, the AppImage and the Flatpak ------------------------------
 install -Dm755 "$BIN" "$STAGE/usr/bin/albumcraft"
 strip "$STAGE/usr/bin/albumcraft" 2>/dev/null || true
 # where the program looks for it: ../lib/albumcraft from its own folder
 copy_onnxruntime "$STAGE/usr/lib/albumcraft" "$STAGE/usr/share/doc/albumcraft"
+copy_ffmpeg "$STAGE/usr/lib/albumcraft" "$STAGE/usr/share/doc/albumcraft"
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$BUILD_DATE/g" \
@@ -145,6 +185,7 @@ if has tar; then
   copy_docs "$dir"
   # beside the program, the other place it looks
   copy_onnxruntime "$dir" "$dir"
+  copy_ffmpeg "$dir" "$dir"
   tar -C "$WORK/tar" -czf "$DIST/$BASENAME.tar.gz" "$BASENAME"
   echo "wrote $DIST/$BASENAME.tar.gz"
 fi

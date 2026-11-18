@@ -10,16 +10,23 @@
   The names follow the Craft apps' convention (<stem>-<version>-<os>-<arch>), which the update
   check (src/updates.rs, craft-update) reads to pick the file for a copy: keep them.
 
-  The binary links the C runtime statically, so neither needs the Visual C++ redistributable.
+  The Visual C++ runtime DLLs go beside the exe, so neither needs the Visual C++ redistributable.
   Needs Rust (MSVC toolchain), the Windows SDK (rc.exe, for the icon) and WiX v5:
     dotnet tool install --global wix --version 5.0.2
     wix extension add -g WixToolset.UI.wixext/5.0.2
 
+  Videos (the `video` feature) need the FFmpeg libraries of packaging/ffmpeg/build.sh, built in
+  an MSYS2 UCRT64 shell (or unpacked from its --archive) into .tools\ffmpeg\windows-x86_64, or
+  the folder named by $env:ALBUMCRAFT_FFMPEG; and libclang for the bindings (LLVM, found in
+  C:\Program Files\LLVM or through $env:LIBCLANG_PATH). Their DLLs and licence texts go beside
+  the exe. -NoVideo builds without videos.
+
 .EXAMPLE
   pwsh packaging/windows/package.ps1
   pwsh packaging/windows/package.ps1 -SkipBuild
+  pwsh packaging/windows/package.ps1 -NoVideo
 #>
-param([switch] $SkipBuild)
+param([switch] $SkipBuild, [switch] $NoVideo)
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
@@ -48,12 +55,36 @@ $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Pa
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 Write-Output "AlbumCraft $Version for Windows x64"
 
+# The FFmpeg libraries (packaging/ffmpeg/build.sh): bin\ the DLLs, lib\ the import libraries,
+# include\ the headers, share\licenses\ their licence texts.
+$FFmpeg = $null
+if (-not $NoVideo) {
+  $FFmpeg = if ($env:ALBUMCRAFT_FFMPEG) { $env:ALBUMCRAFT_FFMPEG } else { Join-Path $Root '.tools\ffmpeg\windows-x86_64' }
+  foreach ($f in 'lib\avcodec.lib', 'include\libavcodec\avcodec.h', 'share\licenses\FFmpeg-COPYING.LGPLv2.1') {
+    if (-not (Test-Path (Join-Path $FFmpeg $f))) {
+      throw "no FFmpeg build in $FFmpeg ($f is missing): run packaging/ffmpeg/build.sh in an MSYS2 UCRT64 shell, or package with -NoVideo"
+    }
+  }
+  $FFmpegDlls = Get-ChildItem (Join-Path $FFmpeg 'bin') -Filter *.dll
+  if (-not $FFmpegDlls) { throw "no FFmpeg DLLs in $FFmpeg\bin" }
+  Write-Output "FFmpeg libraries from $FFmpeg"
+}
+
 if (-not $SkipBuild) {
   # The dynamic C runtime: ONNX Runtime's prebuilt library (the AI features) is built against it
   # and can't be linked with +crt-static. Its DLLs are shipped beside the exe (below).
   # Fail the build instead of warning when the icon can't be embedded.
   $env:ALBUMCRAFT_REQUIRE_ICON = '1'
-  Invoke-Native 'cargo build' { cargo build --release --locked -p albumcraft --target $Target }
+  if ($NoVideo) {
+    Invoke-Native 'cargo build (without videos)' { cargo build --release --locked -p albumcraft --target $Target --no-default-features --features onnx }
+  } else {
+    # ffmpeg-sys-next takes the headers and import libraries from FFMPEG_DIR (with the MSVC
+    # toolchain it would otherwise ask vcpkg)
+    $env:FFMPEG_DIR = $FFmpeg
+    $Llvm = Join-Path $env:ProgramFiles 'LLVM\bin'
+    if (-not $env:LIBCLANG_PATH -and (Test-Path (Join-Path $Llvm 'libclang.dll'))) { $env:LIBCLANG_PATH = $Llvm }
+    Invoke-Native 'cargo build' { cargo build --release --locked -p albumcraft --target $Target }
+  }
 }
 $Exe = Join-Path $TargetDir "$Target\release\albumcraft.exe"
 
@@ -88,6 +119,22 @@ $Crt = Get-ChildItem (Join-Path $Vs 'VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT') -D
 if (-not $Crt) { throw "no Visual C++ runtime under $Vs\VC\Redist\MSVC" }
 Copy-Item (Join-Path $Crt.FullName '*.dll') $Stage
 Write-Output "ok C++ runtime: $((Get-ChildItem $Stage -Filter *.dll).Name -join ', ') from $($Crt.FullName)"
+
+# The FFmpeg DLLs beside the exe, where Windows looks for them first; they need only Windows' own
+# DLLs (build.sh checks). Their licence texts (LGPL 2.1, dav1d's BSD) go with them.
+if ($FFmpeg) {
+  $FFmpegDlls | Copy-Item -Destination $Stage
+  Copy-Item (Join-Path $FFmpeg 'share\licenses\*') $Stage
+  Write-Output "ok FFmpeg: $($FFmpegDlls.Name -join ', ')"
+  # the exe must ask for the DLLs that were copied (same FFmpeg versions as it was built with)
+  $text = [Text.Encoding]::ASCII.GetString($bytes)
+  foreach ($dll in 'avcodec-', 'avformat-', 'avutil-', 'swscale-', 'swresample-') {
+    $m = [regex]::Match($text, "$dll\d+\.dll", 'IgnoreCase')
+    if (-not $m.Success) { throw "albumcraft.exe doesn't use $dll*.dll: was it built with the video feature?" }
+    if (-not (Test-Path (Join-Path $Stage $m.Value))) { throw "albumcraft.exe needs $($m.Value), which $FFmpeg\bin doesn't have" }
+  }
+  Write-Output 'ok albumcraft.exe uses those FFmpeg DLLs'
+}
 
 # ---- MSI ---------------------------------------------------------------------------------------
 $Msi = Join-Path $Dist "$Name.msi"
