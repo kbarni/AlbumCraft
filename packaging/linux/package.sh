@@ -50,16 +50,16 @@ GLIBC=2.35
 # Microsoft's ONNX Runtime release packaged with the program: the version the `ort` crate's own
 # prebuilt library has (ort-sys's dist.tsv), so every platform runs the same one.
 ONNXRUNTIME_VERSION=1.31.0
+# of the NuGet package Microsoft.ML.OnnxRuntime (every platform in one file)
+ONNXRUNTIME_SHA256=7e35fdb4f5adb62f01e60798e2e5ed05108f5fbbe1cca03fbcc37903cf7c5e3b
 case "$ARCH" in
   x86_64)
     DEB_ARCH=amd64
-    ONNXRUNTIME_ARCH=x64
-    ONNXRUNTIME_SHA256=cc5c72baf5ae5c8238a6841f0897227be2d02826b9cf98eaf02fdefaeeb03a57 ;;
+    ONNXRUNTIME_ARCH=x64 ;;
   aarch64 | arm64)
     ARCH=aarch64
     DEB_ARCH=arm64
-    ONNXRUNTIME_ARCH=aarch64
-    ONNXRUNTIME_SHA256=c5b8b3cca31f3d643a3b313b8f42e2d0f16a4fcefd02cda343d97bd5306afaab ;;
+    ONNXRUNTIME_ARCH=arm64 ;;
   *) echo "unsupported architecture $ARCH" >&2; exit 2 ;;
 esac
 TARGET="$ARCH-unknown-linux-gnu"
@@ -102,23 +102,26 @@ check_glibc() {
 check_glibc "$BIN"
 
 # ---- ONNX Runtime: Microsoft's release, loaded by the program when an AI feature first runs ----
-ONNXRUNTIME="onnxruntime-linux-$ONNXRUNTIME_ARCH-$ONNXRUNTIME_VERSION"
-if [[ ! -f "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz" ]]; then
-  curl --proto '=https' -fsSL -o "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz.download" \
-    "https://github.com/microsoft/onnxruntime/releases/download/v$ONNXRUNTIME_VERSION/$ONNXRUNTIME.tgz"
-  verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz.download"
-  mv "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz.download" "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz"
+# From Microsoft's NuGet package, which carries the same libonnxruntime.so for each platform (the
+# GitHub repository with the release tarballs, microsoft/onnxruntime, is gone since November 2026).
+ONNXRUNTIME="microsoft.ml.onnxruntime.$ONNXRUNTIME_VERSION.nupkg"
+if [[ ! -f "$CARGO_TARGET_DIR/$ONNXRUNTIME" ]]; then
+  curl --proto '=https' -fsSL -o "$CARGO_TARGET_DIR/$ONNXRUNTIME.download" \
+    "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$ONNXRUNTIME_VERSION/$ONNXRUNTIME"
+  verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME.download"
+  mv "$CARGO_TARGET_DIR/$ONNXRUNTIME.download" "$CARGO_TARGET_DIR/$ONNXRUNTIME"
 fi
-verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz"
-mkdir -p "$WORK/onnxruntime"
-tar -C "$WORK/onnxruntime" -xzf "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz" \
-  "$ONNXRUNTIME/lib/libonnxruntime.so.$ONNXRUNTIME_VERSION" "$ONNXRUNTIME/LICENSE" "$ONNXRUNTIME/ThirdPartyNotices.txt"
-ONNXRUNTIME_DIR="$WORK/onnxruntime/$ONNXRUNTIME"
-check_glibc "$ONNXRUNTIME_DIR/lib/libonnxruntime.so.$ONNXRUNTIME_VERSION"
+verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME"
+command -v unzip >/dev/null || { echo "error: unzip not found (it unpacks ONNX Runtime's NuGet package)" >&2; exit 1; }
+ONNXRUNTIME_DIR="$WORK/onnxruntime"
+mkdir -p "$ONNXRUNTIME_DIR"
+unzip -q -j "$CARGO_TARGET_DIR/$ONNXRUNTIME" "runtimes/linux-$ONNXRUNTIME_ARCH/native/libonnxruntime.so" \
+  LICENSE ThirdPartyNotices.txt -d "$ONNXRUNTIME_DIR"
+check_glibc "$ONNXRUNTIME_DIR/libonnxruntime.so"
 # The library and its licence texts, into a package directory.
 copy_onnxruntime() {
   local lib="$1" docs="$2"
-  install -Dm644 "$ONNXRUNTIME_DIR/lib/libonnxruntime.so.$ONNXRUNTIME_VERSION" "$lib/libonnxruntime.so"
+  install -Dm644 "$ONNXRUNTIME_DIR/libonnxruntime.so" "$lib/libonnxruntime.so"
   install -Dm644 "$ONNXRUNTIME_DIR/LICENSE" "$docs/LICENSE-ONNXRuntime"
   install -Dm644 "$ONNXRUNTIME_DIR/ThirdPartyNotices.txt" "$docs/ThirdPartyNotices-ONNXRuntime.txt"
 }
