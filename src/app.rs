@@ -298,10 +298,12 @@ pub struct EditState {
     pub crop_autofit: bool,
     /// Show the alignment grid on the picture until this time (geometry sliders in use).
     pub grid_until: f64,
-    /// The picture's edit lists as they were before each change made here, oldest first (Undo).
-    pub undo: Vec<Vec<EditOp>>,
-    /// The lists taken back by Undo, to put back with Redo.
-    pub redo: Vec<Vec<EditOp>>,
+    /// The picture's edit lists as they were before each change made here, oldest first (Undo),
+    /// each with the name of the change made from it (the history list shows them).
+    pub undo: Vec<(Vec<EditOp>, String)>,
+    /// The lists taken back by Undo, to put back with Redo, newest first at the end, each with
+    /// the name of the change that leads to it.
+    pub redo: Vec<(Vec<EditOp>, String)>,
     /// What the user is in the middle of (dragging a slider…): further changes of the same kind
     /// belong to the same Undo step. Cleared when the mouse button is let go.
     pub gesture: Option<&'static str>,
@@ -403,6 +405,9 @@ pub struct Slideshow {
     pub settings: crate::slides::SlideSettings,
     /// Started as the full-screen viewer (F11): its fade, motion and music switches are not saved.
     pub viewer: bool,
+    /// The video being shown, when the current slide is one: it plays its part (in to out
+    /// point), then the show moves on.
+    pub video: Option<crate::player::Player>,
 }
 
 pub struct BigEntry {
@@ -533,6 +538,12 @@ pub struct App {
     pub dims_pending: bool,
     /// When each picture was taken (from its header; the file's date when it has no EXIF date).
     pub taken: HashMap<usize, i64>,
+    /// Each video's length in seconds (from its header, with the shapes), for the grid's badge.
+    pub durations: HashMap<usize, f32>,
+    /// The video open in the editor, playing or paused (`video_view`).
+    pub player: Option<crate::player::Player>,
+    /// Its filmstrip's frames.
+    pub strip: Option<crate::player::Filmstrip>,
     /// Changes when dates taken arrived (the order by date changes), at most once a second
     /// (`taken_new`, `taken_at`), so a first look through a large library does not sort it
     /// again for every batch.
@@ -714,6 +725,9 @@ impl App {
             tray_set: None,
             list_pick: None,
             real_dims: HashMap::new(),
+            durations: HashMap::new(),
+            player: None,
+            strip: None,
             dims_pending: false,
             taken: HashMap::new(),
             taken_rev: 0,
@@ -832,6 +846,7 @@ impl App {
         let cat = crate::catalogue::Catalogue::of(&self.folders, &self.photos, |id| crate::catalogue::Details {
             dims: self.real_dims.get(&id).copied(),
             taken: self.taken.get(&id).copied(),
+            secs: self.durations.get(&id).copied(),
         });
         self.lib.save_catalogue(cat, closing);
     }
@@ -924,6 +939,7 @@ impl App {
         map_of(&mut self.real_dims, keep);
         map_of(&mut self.exif_cache, keep);
         map_of(&mut self.taken, keep);
+        map_of(&mut self.durations, keep);
         map_of(&mut self.exif_thumbs, keep);
         map_of(&mut self.big, keep);
         self.big_order = self.big_order.iter().filter_map(|&id| keep(id)).filter(|id| self.big.contains_key(id)).collect();
@@ -1403,18 +1419,23 @@ impl App {
         if after == before {
             return;
         }
-        self.meta_mut(id).edits = after;
         if self.edit.id == id {
             let same = !gesture.is_empty() && self.edit.gesture == Some(gesture);
-            if !same {
-                self.edit.undo.push(before);
-                if self.edit.undo.len() > 200 {
-                    self.edit.undo.remove(0);
+            match self.edit.undo.last_mut() {
+                // the same slider still moving: its step is named after where it is now
+                Some((from, name)) if same => *name = crate::labels::change(from, &after),
+                _ => {
+                    let name = crate::labels::change(&before, &after);
+                    self.edit.undo.push((before, name));
+                    if self.edit.undo.len() > 200 {
+                        self.edit.undo.remove(0);
+                    }
                 }
             }
             self.edit.gesture = (!gesture.is_empty()).then_some(gesture);
             self.edit.redo.clear();
         }
+        self.meta_mut(id).edits = after;
         self.refresh_thumb(id);
     }
 
@@ -1496,11 +1517,25 @@ impl App {
         if id >= self.photos.len() {
             return;
         }
-        if let Some(list) = self.edit.undo.pop() {
+        if let Some((list, name)) = self.edit.undo.pop() {
             let now = std::mem::replace(&mut self.meta_mut(id).edits, list);
-            self.edit.redo.push(now);
+            self.edit.redo.push((now, name));
             self.edit.gesture = None;
             self.refresh_thumb(id);
+        }
+    }
+
+    /// Go to point `k` of the history: 0 is the picture as it was opened, `undo.len()` where it
+    /// is now; further ones are the changes Undo took back.
+    pub fn history_go(&mut self, k: usize) {
+        if self.edit.id >= self.photos.len() {
+            return;
+        }
+        while self.edit.undo.len() > k && !self.edit.undo.is_empty() {
+            self.undo();
+        }
+        while self.edit.undo.len() < k && !self.edit.redo.is_empty() {
+            self.redo();
         }
     }
 
@@ -1509,9 +1544,9 @@ impl App {
         if id >= self.photos.len() {
             return;
         }
-        if let Some(list) = self.edit.redo.pop() {
+        if let Some((list, name)) = self.edit.redo.pop() {
             let now = std::mem::replace(&mut self.meta_mut(id).edits, list);
-            self.edit.undo.push(now);
+            self.edit.undo.push((now, name));
             self.edit.gesture = None;
             self.refresh_thumb(id);
         }
@@ -1860,7 +1895,7 @@ impl App {
         let now = self.ctx.input(|i| i.time);
         let pos = list.iter().position(|&x| x == start).unwrap_or(0);
         let music = self.start_music(&settings);
-        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music, settings, viewer });
+        self.slide = Some(Slideshow { list, pos, playing: true, started: now, prev: None, paused_at: None, from: self.view, last_move: now, music, settings, viewer, video: None });
         self.view = View::Slideshow;
         if self.shot.is_none() {
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
@@ -2236,6 +2271,9 @@ impl App {
                             if let Some(t) = d.taken {
                                 self.taken.insert(id, t);
                             }
+                            if let Some(s) = d.secs {
+                                self.durations.insert(id, s);
+                            }
                         }
                         self.shape_rev += 1;
                         self.taken_rev += 1;
@@ -2282,6 +2320,14 @@ impl App {
                         self.on_import_file(key, dim, img);
                     }
                 }
+                Done::Filmstrip { key, index, count, img } => {
+                    if let (Some(s), Some(img)) = (self.strip.as_mut(), img)
+                        && s.key == key
+                        && s.frames.len() == count
+                    {
+                        s.arrived(&self.ctx, index, &img);
+                    }
+                }
                 Done::Dims(found) => {
                     self.dims_pending = false;
                     self.shape_rev += 1;
@@ -2293,6 +2339,9 @@ impl App {
                             // and don't ask again
                             self.real_dims.insert(id, d.dims.unwrap_or((3, 2)));
                             self.taken.insert(id, d.taken.unwrap_or(p.modified));
+                            if let Some(s) = d.secs {
+                                self.durations.insert(id, s);
+                            }
                             self.taken_new = true;
                             self.catalogue_dirty = true;
                         }
@@ -2521,6 +2570,11 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let t0 = std::time::Instant::now();
+        // the editor's video stops (its thread and sound end) once the editor is left
+        if self.view != View::Edit && (self.player.is_some() || self.strip.is_some()) {
+            self.player = None;
+            self.strip = None;
+        }
         match self.view {
             View::Library => self.library_ui(ui),
             View::Edit => self.edit_ui(ui),

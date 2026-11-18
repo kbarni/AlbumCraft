@@ -22,7 +22,9 @@ jobs:
     uses: storytold/craft-common-actions/.github/workflows/gate.yml@main
     with:
       os: '["ubuntu-24.04", "windows-latest", "macos-latest"]'
-      command: cargo build --locked --all-targets && cargo test --locked
+      # The FFmpeg libraries videos are played with, built from source (Linux only for now)
+      setup-command: packaging/ffmpeg/ci-setup.sh
+      command: packaging/ci-gate.sh
       # No craft-fonts, wasm target or extra cargo tools needed (yet).
       craft-fonts-ref: ""
       targets: ""
@@ -32,3 +34,4 @@ jobs:
       packages: >-
         pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev
         libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev libasound2-dev
+        nasm meson ninja-build libclang-dev ffmpeg

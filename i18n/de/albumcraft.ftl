@@ -799,11 +799,21 @@ edit-tab-effects = Effekte
 edit-undo = Rückgängig
 edit-undo-hint = Letzte Änderung rückgängig machen (Strg+Z)
 edit-redo = Wiederholen
-edit-list = Bearbeitungen dieses Fotos:
-edit-list-none = (keine – es ist das Original)
-edit-step-hint =
-    { $label }
-    Klicken, um zu diesem Schritt zurückzukehren (die folgenden werden entfernt; Rückgängig holt sie zurück)
+edit-history = Verlauf
+edit-history-original = Original
+edit-history-opened = Beim Öffnen
+edit-history-opened-hint =
+    Die Bearbeitungen des Fotos beim Öffnen:
+    { $steps }
+edit-history-hint = Klicken, um zu diesem Punkt zurückzukehren (die späteren Änderungen bleiben hier, für Wiederholen)
+edit-history-resize = Ziehen, um den Verlauf höher oder niedriger zu machen
+edit-history-removed = Entfernt: { $label }
+edit-history-back = Zurück zu Schritt { $n }
+edit-history-changed = Bearbeitungen geändert
+edit-history-added = { $label } und { $n ->
+        [one] eine weitere
+       *[other] { $n } weitere
+    }
 edit-copy-hint = Diese Bearbeitungen kopieren, um sie in andere Fotos einzufügen (Strg+Umschalt+C)
 edit-paste-n = { $n } einfügen
 edit-paste-hint = Die kopierten Bearbeitungen zu diesem Foto hinzufügen (Strg+Umschalt+V)
@@ -1810,3 +1820,27 @@ update-managed = { $app } { $version } folgt der im Launcher gewählten Version 
 update-manual = Diese Installationsart kann sich nicht selbst aktualisieren. Bitte laden Sie die neue Version herunter.
 update-start-failed = Das Update konnte nicht gestartet werden ({ $error })
 update-wait-for-work = Warten Sie, bis die laufende Arbeit (Export, Import…) fertig ist; das Update startet die App neu.
+
+## Videos (video_view.rs)
+info-length = Länge
+video-panel = Video
+video-details = { $width } × { $height } · { $fps } B/s · { $codec }
+video-no-sound = Ohne Ton
+video-part = Abgespielter Teil
+video-plays = Von { $from } bis { $to }
+video-set-start = Hier beginnen
+video-set-start-hint = Das Video beginnt beim gezeigten Bild ([)
+video-set-end = Hier enden
+video-set-end-hint = Das Video endet beim gezeigten Bild (])
+video-whole = Ganzes Video abspielen
+video-thumbnail = Vorschaubild
+video-use-frame = Dieses Bild verwenden
+video-use-frame-hint = Die Bibliothek zeigt für dieses Video das gezeigte Bild
+video-default-frame = Standardbild
+video-keys = Leertaste spielt ab und hält an, [ und ] setzen Anfang und Ende, Komma und Punkt gehen ein Bild weiter, M schaltet den Ton aus und ein.
+video-play = Abspielen (Leertaste)
+video-pause = Anhalten (Leertaste)
+video-sound-on = Ton
+video-sound-off = Stumm
+video-sound-hint = Ton aus- oder einschalten (M)
+video-unreadable = Dieses Video kann nicht abgespielt werden.

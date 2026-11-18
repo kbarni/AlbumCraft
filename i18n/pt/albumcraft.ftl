@@ -799,11 +799,21 @@ edit-tab-effects = Efeitos
 edit-undo = Desfazer
 edit-undo-hint = Desfazer a última alteração (Ctrl+Z)
 edit-redo = Refazer
-edit-list = Edições desta foto:
-edit-list-none = (nenhuma: é o original)
-edit-step-hint =
-    { $label }
-    Clique para voltar a esta etapa (as seguintes são removidas; Desfazer as traz de volta)
+edit-history = Histórico
+edit-history-original = Original
+edit-history-opened = Ao abrir
+edit-history-opened-hint =
+    As edições da foto quando foi aberta:
+    { $steps }
+edit-history-hint = Clique para voltar a este ponto (as alterações seguintes ficam aqui, para Refazer)
+edit-history-resize = Arraste para deixar o histórico mais alto ou mais baixo
+edit-history-removed = Removido: { $label }
+edit-history-back = Voltar à etapa { $n }
+edit-history-changed = Edições alteradas
+edit-history-added = { $label } e { $n ->
+        [one] mais uma
+       *[other] mais { $n }
+    }
 edit-copy-hint = Copiar essas edições para colá-las em outras fotos (Ctrl+Shift+C)
 edit-paste-n = Colar { $n }
 edit-paste-hint = Adicionar as edições copiadas a esta foto (Ctrl+Shift+V)
@@ -1810,3 +1820,27 @@ update-managed = { $app } { $version } segue a versão escolhida no inicializado
 update-manual = Este tipo de instalação não pode se atualizar sozinho. Baixe a nova versão.
 update-start-failed = Não foi possível iniciar a atualização ({ $error })
 update-wait-for-work = Espere o trabalho em andamento (exportação, importação…) terminar; a atualização reinicia o app.
+
+## Videos (video_view.rs)
+info-length = Duração
+video-panel = Vídeo
+video-details = { $width } × { $height } · { $fps } fps · { $codec }
+video-no-sound = Sem som
+video-part = Parte reproduzida
+video-plays = De { $from } a { $to }
+video-set-start = Começar aqui
+video-set-start-hint = O vídeo começa no fotograma mostrado ([)
+video-set-end = Terminar aqui
+video-set-end-hint = O vídeo termina no fotograma mostrado (])
+video-whole = Reproduzir o vídeo inteiro
+video-thumbnail = Miniatura
+video-use-frame = Usar este fotograma
+video-use-frame-hint = A biblioteca mostra o fotograma mostrado para este vídeo
+video-default-frame = Fotograma predefinido
+video-keys = Espaço reproduz e pausa, [ e ] definem o início e o fim, vírgula e ponto avançam um fotograma, M tira e repõe o som.
+video-play = Reproduzir (Espaço)
+video-pause = Pausa (Espaço)
+video-sound-on = Som
+video-sound-off = Sem som
+video-sound-hint = Tirar ou repor o som (M)
+video-unreadable = Este vídeo não pode ser reproduzido.

@@ -277,6 +277,9 @@ pub fn file_gps(path: &str) -> Option<LatLon> {
     if path.starts_with(crate::imaging::SAMPLE_PREFIX) {
         return None;
     }
+    if crate::video::is_video(path) {
+        return crate::video::probe(path)?.gps;
+    }
     let file = std::fs::File::open(path).ok()?;
     let mut reader = std::io::BufReader::new(file);
     let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;

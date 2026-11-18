@@ -99,6 +99,12 @@ pub trait Library {
     /// Forget the cached thumbnails of these pictures, off the window's thread; then
     /// `Done::ThumbsForgotten` says to ask for them again.
     fn forget_thumbs(&self, keys: Vec<String>);
+    /// Play a video from `at` seconds (`video::Playback`: frames at most `max_dim` pixels and
+    /// its sound, sent ahead from its own thread, which wakes the window).
+    fn open_video(&self, key: &str, at: f64, max_dim: u32) -> crate::video::Playback;
+    /// `count` frames spread over a video of `duration` seconds, at most `max_dim` pixels, each
+    /// sent as `Done::Filmstrip` when read. Setting the returned switch stops it.
+    fn filmstrip(&self, key: &str, duration: f64, count: usize, max_dim: u32) -> Arc<AtomicBool>;
     /// Small copies of these pictures, attached to a new message in the mail program
     /// (`mail::email`).
     fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, opts: crate::export::Options);
@@ -455,6 +461,25 @@ impl Library for LocalLibrary {
             }
             send(Done::ThumbsForgotten(keys));
         });
+    }
+
+    fn open_video(&self, key: &str, at: f64, max_dim: u32) -> crate::video::Playback {
+        crate::video::Playback::open(key, at, max_dim, self.wake.clone())
+    }
+
+    fn filmstrip(&self, key: &str, duration: f64, count: usize, max_dim: u32) -> Arc<AtomicBool> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let (send, key, halt) = (self.sender(), key.to_string(), stop.clone());
+        std::thread::spawn(move || {
+            crate::video::filmstrip(&key, duration, count, max_dim, &|d| {
+                if halt.load(std::sync::atomic::Ordering::Relaxed) {
+                    return false;
+                }
+                send(d);
+                true
+            });
+        });
+        stop
     }
 
     fn email(&self, task: Task, jobs: Vec<crate::commands::ExportJob>, subject: String, with_location: bool, opts: crate::export::Options) {

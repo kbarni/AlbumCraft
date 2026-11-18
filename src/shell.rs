@@ -1197,8 +1197,13 @@ impl App {
         if rating > 0 && img.width() > 70.0 && !stars_shown {
             paint_rating(p, Pos2::new(x - 6.0, y), rating, 5.0, Color32::from_black_alpha(140));
         }
+        // a video: its length in a pill at the bottom right (the edited mark beside it)
+        let mut right = img.right();
+        if self.photos.get(id).is_some_and(|p| crate::video::is_video(&p.key)) && img.width() >= 48.0 {
+            right = paint_video_badge(p, Pos2::new(img.right() - 6.0, img.bottom() - 6.0), self.durations.get(&id).copied()) - 4.0;
+        }
         if m.is_some_and(|m| !m.edits.is_empty()) {
-            let c = Pos2::new(img.right() - 12.0, img.bottom() - 12.0);
+            let c = Pos2::new(right - 12.0, img.bottom() - 12.0);
             p.circle_filled(c, 5.0, Color32::from_rgb(80, 190, 110));
             p.circle_stroke(c, 5.0, Stroke::new(1.0, Color32::WHITE));
         }
@@ -1299,6 +1304,30 @@ enum TileAction {
     Rate(u8),
 }
 
+/// A video's mark on a thumbnail: a play triangle and its length (when known) in a dark pill
+/// whose bottom right corner is `corner`. Returns the pill's left edge. Drawn on top of the
+/// picture, so white on dark in both themes.
+pub fn paint_video_badge(p: &egui::Painter, corner: Pos2, secs: Option<f32>) -> f32 {
+    let font = egui::FontId::proportional(11.0);
+    let text = secs.map(|s| crate::video::fmt_duration(f64::from(s))).unwrap_or_default();
+    let galley = p.layout_no_wrap(text, font, Color32::WHITE);
+    let h = 18.0;
+    let tri = 8.0;
+    let gap = if galley.size().x > 0.0 { 4.0 } else { 0.0 };
+    let w = 6.0 + tri + gap + galley.size().x + 6.0;
+    let rect = Rect::from_min_max(Pos2::new(corner.x - w, corner.y - h), corner);
+    p.rect_filled(rect, h / 2.0, Color32::from_black_alpha(150));
+    let cx = rect.left() + 6.0;
+    let cy = rect.center().y;
+    p.add(egui::Shape::convex_polygon(
+        vec![Pos2::new(cx, cy - tri / 2.0 - 0.5), Pos2::new(cx + tri, cy), Pos2::new(cx, cy + tri / 2.0 + 0.5)],
+        Color32::WHITE,
+        Stroke::NONE,
+    ));
+    p.galley(Pos2::new(cx + tri + gap, cy - galley.size().y / 2.0), galley, Color32::WHITE);
+    rect.left()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1331,3 +1360,4 @@ mod tests {
         assert_eq!((go(4, Step::First), go(0, Step::Last)), (Some(0), Some(7)));
     }
 }
+

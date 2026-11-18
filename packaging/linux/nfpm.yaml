@@ -21,7 +21,8 @@ description: |-
   modify the originals. Export, collage, printing, slideshows, web galleries
   and slideshow movies. Includes an MCP server (albumcraft --mcp).
 
-# The binary links only glibc (package.sh's GLIBC) and ALSA directly. Windowing (X11, Wayland,
+# The binary links only glibc (package.sh's GLIBC), ALSA and the FFmpeg libraries it carries in
+# /usr/lib/albumcraft (built for the same glibc) directly. Windowing (X11, Wayland,
 # xkbcommon), the GPU (Vulkan, or EGL/GL) and ONNX Runtime (/usr/lib/albumcraft, which needs
 # libstdc++ and libgcc_s) are loaded at runtime, so they are listed here rather than in the ELF
 # file.

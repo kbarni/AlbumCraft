@@ -124,6 +124,12 @@ fn largest_box(ratio: f32, w: f32, h: f32) -> [f32; 4] {
 /// A slider with its name before it; a double-click on the name sets it back to zero.
 fn labelled_slider(ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, decimals: usize, suffix: &str, tip: &str) -> egui::Response {
     ui.horizontal(|ui| {
+        // compact rows: the value has no box around it until it is hovered
+        let idle = &mut ui.visuals_mut().widgets.inactive;
+        idle.bg_stroke = Stroke::NONE;
+        idle.weak_bg_fill = Color32::TRANSPARENT;
+        ui.spacing_mut().interact_size.y = 18.0;
+        ui.spacing_mut().button_padding.y = 0.0;
         let l = ui.add_sized([74.0, 18.0], egui::Label::new(RichText::new(label).size(12.5)).sense(Sense::click())).on_hover_text(tr!("edit-slider-hint", tip = tip));
         if l.double_clicked() {
             *v = 0.0;
@@ -133,8 +139,45 @@ fn labelled_slider(ui: &mut egui::Ui, label: &str, v: &mut f32, range: std::ops:
     .inner
 }
 
-fn tool_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
-    ui.add_sized([112.0, 46.0], egui::Button::new(RichText::new(format!("{icon}\n{label}")).size(12.5)))
+/// Widths of the editor's side panels: what was dragged (`Store`), or the starting width,
+/// kept within `range` and a third of the window.
+pub(crate) fn panel_width(ctx: &egui::Context, saved: f32, start: f32, range: std::ops::RangeInclusive<f32>) -> f32 {
+    let w = if saved > 0.0 { saved } else { start };
+    let most = (ctx.content_rect().width() / 3.0).max(*range.start());
+    w.clamp(*range.start(), range.end().min(most))
+}
+
+/// A grip on the inner edge of a side panel (`panel`: its rect; `left`: the panel is on the
+/// left, so its right edge moves): dragging it sets `width`. Drawn by hand, since a resizable
+/// egui panel forgets a dragged size. True when the drag ends (time to save).
+pub(crate) fn side_grip(ui: &egui::Ui, salt: &str, panel: Rect, left: bool, width: &mut f32, range: std::ops::RangeInclusive<f32>) -> bool {
+    let x = if left { panel.right() } else { panel.left() };
+    let rect = Rect::from_x_y_ranges(x - 4.0..=x + 4.0, panel.y_range());
+    let r = ui.interact(rect, ui.scope_id().with(salt), Sense::drag());
+    if r.hovered() || r.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        ui.painter().vline(x, panel.y_range(), Stroke::new(2.0, t().text_weak));
+    }
+    if r.dragged()
+        && let Some(p) = r.interact_pointer_pos()
+    {
+        let w = if left { p.x - panel.left() } else { panel.right() - p.x };
+        let most = (ui.ctx().content_rect().width() / 3.0).max(*range.start());
+        *width = w.clamp(*range.start(), range.end().min(most));
+    }
+    r.drag_stopped()
+}
+
+/// The width of a tool button in a grid of two filling the panel.
+/// How narrow and wide the editor's left panel can be made.
+const EDIT_TOOLS_W: std::ops::RangeInclusive<f32> = 240.0..=520.0;
+
+fn tool_width(ui: &egui::Ui) -> f32 {
+    ((ui.available_width() - 6.0) / 2.0).floor().max(100.0)
+}
+
+fn tool_button(ui: &mut egui::Ui, w: f32, icon: &str, label: &str) -> egui::Response {
+    ui.add_sized([w, 46.0], egui::Button::new(RichText::new(format!("{icon}\n{label}")).size(12.5)))
 }
 
 impl App {
@@ -218,6 +261,67 @@ impl App {
             if id != self.edit.id {
                 self.edit_go(PendingLeave::Photo(id));
             }
+        }
+    }
+
+    /// The undo history of the open picture: where it started, each change made since (named
+    /// after what it did), and the changes Undo took back (dimmed, for Redo). A click goes to
+    /// that point; the handle under the list makes it taller or shorter (`Store.history_h`).
+    fn history_list(&mut self, ui: &mut egui::Ui, edits: &[EditOp]) {
+        ui.label(RichText::new(tr!("edit-history")).size(12.0).weak());
+        let font = egui::FontId::proportional(12.0);
+        let row = ui.fonts_mut(|f| f.row_height(&font)) + ui.spacing().item_spacing.y;
+        let (min_h, max_h) = (row * 2.0, (ui.ctx().content_rect().height() * 0.5).max(row * 3.0));
+        let h = if self.store.history_h > 0.0 { self.store.history_h } else { row * 6.0 }.clamp(min_h, max_h);
+        let start = self.edit.undo.first().map(|(e, _)| e.as_slice()).unwrap_or(edits);
+        let start_hint = (!start.is_empty()).then(|| {
+            let steps: Vec<String> = start.iter().enumerate().map(|(i, e)| format!("{}. {}", i + 1, crate::labels::op(e))).collect();
+            tr!("edit-history-opened-hint", steps = steps.join("
+"))
+        });
+        let mut names = vec![if start.is_empty() { tr!("edit-history-original") } else { tr!("edit-history-opened") }];
+        names.extend(self.edit.undo.iter().map(|(_, n)| n.clone()));
+        names.extend(self.edit.redo.iter().rev().map(|(_, n)| n.clone()));
+        let now = self.edit.undo.len();
+        let mut go = None;
+        egui::Frame::new().fill(t().surface).stroke(Stroke::new(1.0, t().border)).corner_radius(3).inner_margin(egui::Margin::symmetric(4, 2)).show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("edit_history")
+                .auto_shrink([false, false])
+                .min_scrolled_height(h)
+                .max_height(h)
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for (k, name) in names.iter().enumerate() {
+                        let text = RichText::new(name).size(12.0);
+                        let text = if k == now { text.strong() } else if k > now { text.color(t().text_weak).italics() } else { text };
+                        let r = ui.add(egui::Label::new(text).truncate().sense(Sense::click()));
+                        let r = match (&start_hint, k) {
+                            (Some(hint), 0) => r.on_hover_text(hint.as_str()),
+                            _ => r,
+                        };
+                        if k != now && r.on_hover_text(tr!("edit-history-hint")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            go = Some(k);
+                        }
+                    }
+                });
+        });
+        // the handle: drag it to make the list taller or shorter
+        let (grip, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 7.0), Sense::drag());
+        let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical).on_hover_text(tr!("edit-history-resize"));
+        let c = if resp.hovered() || resp.dragged() { t().text } else { t().text_weak };
+        let mid = grip.center();
+        for dy in [-1.5, 1.5] {
+            ui.painter().line_segment([Pos2::new(mid.x - 14.0, mid.y + dy), Pos2::new(mid.x + 14.0, mid.y + dy)], Stroke::new(1.0, c));
+        }
+        if resp.dragged() {
+            self.store.history_h = (h + resp.drag_delta().y).clamp(min_h, max_h);
+        }
+        if resp.drag_stopped() {
+            self.dirty = true;
+        }
+        if let Some(k) = go {
+            self.history_go(k);
         }
     }
 
@@ -341,6 +445,16 @@ impl App {
         }
         self.edit_keys(ui.ctx());
         let id = self.edit.id;
+        if id >= self.photos.len() {
+            return;
+        }
+        let video = crate::video::is_video(&self.photos[id].key);
+        if video {
+            self.video_keys(ui.ctx());
+        } else {
+            self.player = None;
+            self.strip = None;
+        }
         self.tick_zoom_anim(ui.ctx());
 
         // ---- top bar
@@ -374,7 +488,8 @@ impl App {
                         ui.separator();
                         // one picture, two pictures, or before / after; with two halves shown, two more
                         // buttons: side by side or one above the other, and which half the edits go to
-                        if self.edit.compare != CompareMode::Single {
+                        // (not for a video, which has no edits)
+                        if !video && self.edit.compare != CompareMode::Single {
                             let layout_icon = if self.edit.vertical { icons::SIDE_BY_SIDE } else { icons::ABOVE_BELOW };
                             if ui
                                 .button(RichText::new(layout_icon).size(15.0))
@@ -392,7 +507,7 @@ impl App {
                             }
                         }
                         let two = self.edit.compare == CompareMode::TwoPhotos;
-                        if ui
+                        if !video && ui
                             .add(egui::Button::new(RichText::new(tr!("edit-compare")).size(12.5)).selected(two))
                             .on_hover_text(tr!("edit-compare-hint"))
                             .clicked()
@@ -401,13 +516,15 @@ impl App {
                         }
                         // the picture without its edits, for as long as the button (or O) is held
                         let has_edits = self.meta(id).is_some_and(|m| !m.edits.is_empty());
-                        let r = ui
-                            .add_enabled(has_edits, egui::Button::new(RichText::new(tr!("edit-original")).size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
-                            .on_hover_text(tr!("edit-original-hint"));
-                        if r.is_pointer_button_down_on() {
-                            self.edit.show_original = true;
+                        if !video {
+                            let r = ui
+                                .add_enabled(has_edits, egui::Button::new(RichText::new(tr!("edit-original")).size(12.5)).sense(Sense::drag()).selected(self.edit.show_original))
+                                .on_hover_text(tr!("edit-original-hint"));
+                            if r.is_pointer_button_down_on() {
+                                self.edit.show_original = true;
+                            }
+                            ui.separator();
                         }
-                        ui.separator();
                         if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::PLAY, tr!("edit-slideshow")), 13.5))).clicked() {
                             let list = self.edit.list.clone();
                             self.start_slideshow(list, id);
@@ -433,12 +550,25 @@ impl App {
                 });
             });
 
-        self.edit_tools_panel(ui);
+        if video {
+            self.video_panel(ui);
+        } else {
+            self.edit_tools_panel(ui);
+        }
         self.edit_bottom_panel(ui);
+        // the info panel before the video's play bar, so the bar takes only the room between
+        // the side panels, under the video
         if self.store.info_open {
             self.info_panel(ui);
         }
-        self.edit_canvas(ui);
+        if video {
+            self.video_bar(ui);
+        }
+        if video {
+            self.video_canvas(ui);
+        } else {
+            self.edit_canvas(ui);
+        }
     }
 
     fn edit_keys(&mut self, ctx: &egui::Context) {
@@ -509,12 +639,15 @@ impl App {
 
     fn edit_tools_panel(&mut self, ui: &mut egui::Ui) {
         let id = self.edit.id;
-        egui::Panel::left("edit_tools")
-            .exact_size(260.0)
+        let w = self.edit_tools_width(ui.ctx());
+        let panel = egui::Panel::left("edit_tools")
+            .exact_size(w)
             .frame(egui::Frame::new().fill(t().left_bg).inner_margin(egui::Margin::same(8)).stroke(Stroke::new(1.0, t().border)))
             .show(ui, |ui| {
                 crate::theme::panel_gradient(ui, egui::Margin::same(8), t().side_top, t().side_bottom);
-                ui.horizontal(|ui| {
+                // wraps: in some languages the three tabs are wider than a narrow panel, and
+                // anything wider than the panel would widen everything under it
+                ui.horizontal_wrapped(|ui| {
                     for (t, label) in [(Tab::Edit, tr!("edit-tab-edit")), (Tab::Presets, tr!("edit-tab-presets")), (Tab::Effects, tr!("edit-tab-effects"))] {
                         if ui.selectable_label(self.edit.tab == t, RichText::new(label).strong()).clicked() {
                             self.edit.tab = t;
@@ -524,7 +657,7 @@ impl App {
                 ui.separator();
 
                 // history at the bottom
-                egui::Panel::bottom("history").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6))).show(ui, |ui| {
+                egui::Panel::bottom("history").resizable(false).frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6))).show(ui, |ui| {
                     let edits = self.edits(id);
                     ui.horizontal(|ui| {
                         if ui.add_enabled(!self.edit.undo.is_empty(), egui::Button::new(format!("{} {}", icons::UNDO, tr!("edit-undo")))).on_hover_text(tr!("edit-undo-hint")).clicked() {
@@ -534,31 +667,10 @@ impl App {
                             self.redo();
                         }
                     });
-                    ui.label(RichText::new(tr!("edit-list")).size(12.0).weak());
-                    if edits.is_empty() {
-                        ui.label(RichText::new(tr!("edit-list-none")).size(12.0).weak());
-                    }
-                    // a fixed height for up to six steps: inside a bottom panel, a scroll area left
-                    // to size itself can get stuck at the panel's first, tiny height (one line)
-                    let row = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(12.0))) + ui.spacing().item_spacing.y;
-                    let h = row * edits.len().clamp(0, 6) as f32;
-                    let mut back_to = None;
-                    egui::ScrollArea::vertical().id_salt("edit_steps").min_scrolled_height(h).max_height(h).show(ui, |ui| {
-                        for (i, e) in edits.iter().enumerate() {
-                            let t = RichText::new(format!("{}. {}", i + 1, crate::labels::op(e))).size(12.0);
-                            let last = i + 1 == edits.len();
-                            let r = ui.add(egui::Label::new(if last { t.strong() } else { t }).truncate().sense(Sense::click()));
-                            if !last && r.on_hover_text(tr!("edit-step-hint", label = crate::labels::op(e))).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                                back_to = Some(i + 1);
-                            }
-                        }
-                    });
-                    if let Some(n) = back_to {
-                        self.change_edits(id, "", |e| e.truncate(n));
-                    }
+                    self.history_list(ui, &edits);
                     // wraps: in some languages the three buttons are wider than the panel
                     ui.horizontal_wrapped(|ui| {
-                        if !edits.is_empty() && ui.small_button(tr!("menu-undo-edits")).clicked() {
+                        if !edits.is_empty() && ui.add(egui::Button::new(tr!("menu-undo-edits")).small().truncate()).clicked() {
                             self.change_edits(id, "", |e| e.clear());
                         }
                         if !edits.is_empty() && ui.small_button(tr!("menu-copy-edits")).on_hover_text(tr!("edit-copy-hint")).clicked() {
@@ -579,6 +691,21 @@ impl App {
                     Tab::Effects => self.effects_tab(ui),
                 }
             });
+        self.edit_tools_grip(ui, panel.response.rect);
+    }
+
+    /// The width of the editor's left panel (tools, or the video's panel).
+    pub(crate) fn edit_tools_width(&self, ctx: &egui::Context) -> f32 {
+        panel_width(ctx, self.store.edit_tools_w, 260.0, EDIT_TOOLS_W)
+    }
+
+    /// The handle on the left panel's right edge.
+    pub(crate) fn edit_tools_grip(&mut self, ui: &egui::Ui, panel: Rect) {
+        let mut w = self.edit_tools_width(ui.ctx());
+        if side_grip(ui, "edit_tools_grip", panel, true, &mut w, EDIT_TOOLS_W) {
+            self.dirty = true;
+        }
+        self.store.edit_tools_w = w;
     }
 
     fn edit_tab(&mut self, ui: &mut egui::Ui) {
@@ -684,45 +811,47 @@ impl App {
                     self.auto_fix(id, AutoFix::Lucky);
                 }
                 ui.add_space(4.0);
+                let bw = tool_width(ui);
                 egui::Grid::new("auto").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-                    if tool_button(ui, icons::WB_SUNNY, &tr!("edit-auto-exposure")).on_hover_text(tr!("edit-auto-exposure-hint")).clicked() {
+                    if tool_button(ui, bw, icons::WB_SUNNY, &tr!("edit-auto-exposure")).on_hover_text(tr!("edit-auto-exposure-hint")).clicked() {
                         self.auto_fix(id, AutoFix::Exposure);
                     }
-                    if tool_button(ui, icons::PALETTE, &tr!("edit-auto-colour")).on_hover_text(tr!("edit-auto-colour-hint")).clicked() {
+                    if tool_button(ui, bw, icons::PALETTE, &tr!("edit-auto-colour")).on_hover_text(tr!("edit-auto-colour-hint")).clicked() {
                         self.auto_fix(id, AutoFix::WhiteBalance);
                     }
                     ui.end_row();
-                    if tool_button(ui, icons::CONTRAST, &tr!("edit-auto-contrast")).on_hover_text(tr!("edit-auto-contrast-hint")).clicked() {
+                    if tool_button(ui, bw, icons::CONTRAST, &tr!("edit-auto-contrast")).on_hover_text(tr!("edit-auto-contrast-hint")).clicked() {
                         self.push_edit(id, EditOp::AutoContrast);
                     }
-                    if tool_button(ui, icons::STRAIGHTEN, &tr!("edit-auto-straighten")).on_hover_text(tr!("edit-auto-straighten-hint")).clicked() {
+                    if tool_button(ui, bw, icons::STRAIGHTEN, &tr!("edit-auto-straighten")).on_hover_text(tr!("edit-auto-straighten-hint")).clicked() {
                         self.auto_fix(id, AutoFix::Straighten);
                     }
                     ui.end_row();
                 });
                 ui.add_space(10.0);
                 ui.label(RichText::new(tr!("edit-tools")).size(12.0).weak());
+                let bw = tool_width(ui);
                 egui::Grid::new("basic").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
-                    if tool_button(ui, icons::CROP, &tr!("op-crop")).clicked() {
+                    if tool_button(ui, bw, icons::CROP, &tr!("op-crop")).clicked() {
                         self.start_crop();
                     }
-                    if tool_button(ui, icons::STRAIGHTEN, &tr!("edit-straighten-title")).clicked() {
+                    if tool_button(ui, bw, icons::STRAIGHTEN, &tr!("edit-straighten-title")).clicked() {
                         self.edit.tool = Tool::Straighten;
                         self.edit.angle = 0.0;
                     }
                     ui.end_row();
-                    if tool_button(ui, icons::REDEYE, &tr!("op-redeye")).clicked() {
+                    if tool_button(ui, bw, icons::REDEYE, &tr!("op-redeye")).clicked() {
                         self.edit.tool = Tool::Redeye;
                         self.edit.sel = None;
                     }
-                    if tool_button(ui, icons::EYEDROPPER, &tr!("edit-pick-neutral")).on_hover_text(tr!("edit-pick-neutral-hint")).clicked() {
+                    if tool_button(ui, bw, icons::EYEDROPPER, &tr!("edit-pick-neutral")).on_hover_text(tr!("edit-pick-neutral-hint")).clicked() {
                         self.edit.tool = Tool::PickNeutral;
                     }
                     ui.end_row();
-                    if tool_button(ui, icons::ROTATE_LEFT, &tr!("menu-rotate-left")).clicked() {
+                    if tool_button(ui, bw, icons::ROTATE_LEFT, &tr!("menu-rotate-left")).clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if tool_button(ui, icons::ROTATE_RIGHT, &tr!("menu-rotate-right")).clicked() {
+                    if tool_button(ui, bw, icons::ROTATE_RIGHT, &tr!("menu-rotate-right")).clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.end_row();
@@ -739,7 +868,8 @@ impl App {
             ui.add_space(6.0);
             ui.label(RichText::new(title).size(12.0).strong().color(t().text_weak));
         };
-        ui.spacing_mut().slider_width = 108.0;
+        ui.spacing_mut().slider_width = (ui.available_width() - 136.0).max(90.0);
+        ui.spacing_mut().item_spacing.y = 3.0;
         self.geometry_section(ui, id);
         section(ui, &tr!("edit-sec-wb"));
         let preset = develop::WB_PRESETS.iter().find(|(_, t, ti)| *t == a.temp && *ti == a.tint).map(|(n, _, _)| crate::labels::wb_preset(n)).unwrap_or_else(|| tr!("wb-custom"));
@@ -1003,9 +1133,10 @@ impl App {
             (icons::TEXT, tr!("edit-add-text"), Decor::Text(TextOverlay { text: tr!("edit-your-text"), ..Default::default() })),
         ];
         let mut add = None;
+        let bw = tool_width(ui);
         egui::Grid::new("decor_add").num_columns(2).spacing([6.0, 6.0]).show(ui, |ui| {
             for (i, (icon, label, d)) in adds.iter().enumerate() {
-                if tool_button(ui, icon, label).clicked() {
+                if tool_button(ui, bw, icon, label).clicked() {
                     add = Some(d.clone());
                 }
                 if i % 2 == 1 {
@@ -1099,6 +1230,8 @@ impl App {
                     // a narrow window (or a language with longer words) leaves out the rotate buttons
                     // (the Tools panel has them) and the zoom slider
                     let narrow = ui.available_width() < 820.0;
+                    // a video: no turning, zooming, printing or exporting (yet)
+                    let video = crate::video::is_video(&self.photos[id].key);
                     if pick_button(ui, self.flag(id) == Flag::Pick, egui::vec2(34.0, 28.0)).on_hover_text(tr!("tile-pick-hint")).clicked() {
                         self.toggle_flag(&[id], Flag::Pick);
                     }
@@ -1109,10 +1242,10 @@ impl App {
                         self.set_rating(&[id], n);
                     }
                     ui.add_space(6.0);
-                    if !narrow && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
+                    if !narrow && !video && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_LEFT).size(17.0))).on_hover_text(tr!("menu-rotate-left")).clicked() {
                         self.rotate(&[id], -1);
                     }
-                    if !narrow && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
+                    if !narrow && !video && ui.add_sized([34.0, 28.0], egui::Button::new(RichText::new(icons::ROTATE_RIGHT).size(17.0))).on_hover_text(tr!("menu-rotate-right")).clicked() {
                         self.rotate(&[id], 1);
                     }
                     ui.separator();
@@ -1122,13 +1255,16 @@ impl App {
                         self.meta_mut(id).caption = caption;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("output-export")), 13.5))).clicked() {
+                        if !video && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("output-export")), 13.5))).clicked() {
                             self.open_export(vec![id]);
                         }
-                        if crate::print::available() && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::PRINT, tr!("output-print")), 13.5))).on_hover_text(tr!("edit-print-hint")).clicked() {
+                        if !video && crate::print::available() && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::PRINT, tr!("output-print")), 13.5))).on_hover_text(tr!("edit-print-hint")).clicked() {
                             self.open_print();
                         }
                         self.album_menu(ui, format!("{} {} {}", icons::ALBUM, tr!("edit-album"), icons::EXPAND_MORE), &[id]);
+                        if video {
+                            return;
+                        }
                         ui.separator();
                         // Zoom: Fit, 1:1 and the zoom slider:
                         // the slider runs from Fit (left) through 1:1 (middle) to 400 % (right).

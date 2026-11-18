@@ -61,6 +61,9 @@ fn file_name(path: &str) -> String {
 
 /// The EXIF "taken" time as Unix seconds (it is recorded in the camera's local time).
 pub(crate) fn date_taken(path: &str) -> Option<i64> {
+    if crate::video::is_video(path) {
+        return crate::video::probe(path)?.taken;
+    }
     // JPEG: from the header only; other files (TIFF, raw): the EXIF reader
     match crate::imaging::jpeg_head(path) {
         Some(head) => exif_date_of(&head.exif()?),

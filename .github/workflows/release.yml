@@ -42,8 +42,33 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  # The FFmpeg libraries videos are played with (packaging/ffmpeg/build.sh), built on Ubuntu 22.04
+  # so they need no newer glibc than the program (package.sh's GLIBC, 2.35); kept until build.sh
+  # changes (it pins the sources). Packed as a .tar.gz, which keeps the libraries' symlinks.
+  ffmpeg-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: FFmpeg libraries from the cache
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: dist/ffmpeg
+          key: ffmpeg-linux-x86_64-ubuntu22.04-${{ hashFiles('packaging/ffmpeg/build.sh') }}
+      - name: Build the FFmpeg libraries
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm meson ninja-build pkg-config
+          packaging/ffmpeg/build.sh --archive
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ffmpeg-linux
+          path: dist/ffmpeg/albumcraft-ffmpeg-linux-x86_64.tar.gz
+          if-no-files-found: error
+
   linux:
-    needs: version
+    needs: [version, ffmpeg-linux]
     # package.sh links against glibc 2.35 with cargo-zigbuild, whatever this machine has, and
     # packages Microsoft's ONNX Runtime library (AI features, glibc 2.28) beside the program: the
     # packages run on Ubuntu 22.04, Debian 12 and newer (the Flatpak brings its own runtime).
@@ -59,9 +84,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
             libxcursor-dev libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev libasound2-dev \
-            desktop-file-utils appstream zsync
+            desktop-file-utils appstream zsync libclang-dev
           rustup toolchain install stable --profile minimal
           rustup default stable
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ffmpeg-linux
+          path: dist/ffmpeg
+      - name: Unpack the FFmpeg libraries
+        run: |
+          mkdir -p .tools/ffmpeg
+          tar -xzf dist/ffmpeg/albumcraft-ffmpeg-linux-x86_64.tar.gz -C .tools/ffmpeg
+          rm -rf dist/ffmpeg
       - name: zig and cargo-zigbuild (linking against an older glibc)
         run: |
           set -euo pipefail
@@ -79,6 +113,7 @@ jobs:
           sudo apt-get install -y ./dist/release/*.deb
           albumcraft --version
           dpkg -L albumcraft | grep -E 'bin/|lib/albumcraft/|applications/|metainfo/|256x256'
+          dpkg -L albumcraft | grep -q 'lib/albumcraft/libavcodec\.so\.' || { echo "::error::the .deb has no FFmpeg libraries"; exit 1; }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux
@@ -117,6 +152,27 @@ jobs:
       - uses: storytold/craft-common-actions/actions/install-wix@main
         with:
           install-extensions: "true"
+      # The FFmpeg libraries videos are played with (packaging/ffmpeg/build.sh, ~10 min), built
+      # with MSYS2's UCRT64 gcc; kept until build.sh changes (it pins the sources).
+      - name: FFmpeg libraries from the cache
+        id: ffmpeg-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/ffmpeg/windows-x86_64
+          key: ffmpeg-windows-x86_64-${{ hashFiles('packaging/ffmpeg/build.sh') }}
+      - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make diffutils curl
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-meson mingw-w64-ucrt-x86_64-ninja
+      - name: Build the FFmpeg libraries
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: packaging/ffmpeg/build.sh
       - name: Build and package (msi, zip)
         shell: pwsh
         run: ./packaging/windows/package.ps1
@@ -128,12 +184,13 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 50; throw "install failed ($($p.ExitCode))" }
           $exe = Join-Path $env:ProgramFiles 'AlbumCraft\albumcraft.exe'
           if (-not (Test-Path $exe)) { throw "$exe is missing" }
+          if (-not (Get-ChildItem (Split-Path $exe) -Filter 'avcodec-*.dll')) { throw 'the FFmpeg DLLs are missing' }
           $lnk = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\AlbumCraft.lnk'
           if (-not (Test-Path $lnk)) { throw "$lnk is missing" }
           $p = Start-Process msiexec -ArgumentList '/x', "`"$msi`"", '/qn' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall failed ($($p.ExitCode))" }
           if (Test-Path $exe) { throw "$exe is still there after uninstalling" }
-          Write-Output 'ok: installed, found the exe and the shortcut, uninstalled'
+          Write-Output 'ok: installed, found the exe, the FFmpeg DLLs and the shortcut, uninstalled'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
@@ -145,11 +202,26 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The FFmpeg libraries videos are played with (packaging/ffmpeg/build.sh, built for macOS
+      # 13.4 and named @rpath/…), kept until build.sh changes (it pins the sources).
+      - name: FFmpeg libraries from the cache
+        id: ffmpeg-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/ffmpeg/macos-aarch64
+          key: ffmpeg-macos-aarch64-${{ hashFiles('packaging/ffmpeg/build.sh') }}
+      - name: Build the FFmpeg libraries
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          brew install pkgconf meson ninja
+          packaging/ffmpeg/build.sh
       - name: Build
         # macOS 13.4: the oldest the prebuilt ONNX Runtime (the AI features) is built for.
         env:
           MACOSX_DEPLOYMENT_TARGET: "13.4"
-        run: cargo build --release --locked
+        run: |
+          export PKG_CONFIG_PATH_aarch64_apple_darwin="$PWD/.tools/ffmpeg/macos-aarch64/lib/pkgconfig"
+          cargo build --release --locked
       - name: Package
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -168,6 +240,27 @@ jobs:
           done
           iconutil -c icns "$iconset" -o "$app/Contents/Resources/albumcraft.icns"
           cp README.md LICENSE-MIT LICENSE-APACHE NOTICE "$app/Contents/Resources/"
+          # The FFmpeg libraries, in Contents/Frameworks (the program's rpath, packaging/ffmpeg/rpath.rs),
+          # each under the name it is asked for by (its @rpath/… install name), with their licence texts.
+          ffmpeg=.tools/ffmpeg/macos-aarch64
+          bin="$app/Contents/MacOS/albumcraft"
+          mkdir -p "$app/Contents/Frameworks"
+          for f in "$ffmpeg"/lib/*.dylib; do
+            [ -L "$f" ] && continue
+            name=$(otool -D "$f" | tail -1)
+            cp "$f" "$app/Contents/Frameworks/${name#@rpath/}"
+          done
+          cp "$ffmpeg"/share/licenses/* "$app/Contents/Resources/"
+          # every @rpath library the program asks for is there
+          for lib in $(otool -L "$bin" | awk '$1 ~ /^@rpath\// {print $1}'); do
+            [ -f "$app/Contents/Frameworks/${lib#@rpath/}" ] || { echo "::error::the program needs $lib, which isn't in the app"; exit 1; }
+          done
+          ls "$app/Contents/Frameworks"
+          # leave out the build folder's rpath (only for cargo run / cargo test)
+          for p in $(otool -l "$bin" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}'); do
+            case "$p" in @*) ;; *) install_name_tool -delete_rpath "$p" "$bin" ;; esac
+          done
+          otool -l "$bin" | grep -A2 LC_RPATH
           # ad-hoc signature (no developer certificate): needed to run on Apple Silicon
           codesign --force --deep --sign - "$app"
           "$app/Contents/MacOS/albumcraft" --version

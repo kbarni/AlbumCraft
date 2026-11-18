@@ -25,9 +25,10 @@ pub fn trace_since(what: &str, start: std::time::Instant, min_ms: u128) {
 
 pub const EXTENSIONS: [&str; 9] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "jpe"];
 
-/// Whether a file with this (lower-case) extension is shown in the library.
+/// Whether a file with this (lower-case) extension is shown in the library: a picture, a raw
+/// file or (with the `video` feature) a video.
 pub fn is_picture_extension(ext: &str) -> bool {
-    EXTENSIONS.contains(&ext) || crate::raw::RAW_EXTENSIONS.contains(&ext)
+    EXTENSIONS.contains(&ext) || crate::raw::RAW_EXTENSIONS.contains(&ext) || crate::video::is_video_extension(ext)
 }
 
 /// Culling flag: keep it (pick), drop it (reject), or not decided.
@@ -68,6 +69,9 @@ pub struct Meta {
     /// Where the picture was taken, when the user set or removed it (else the file's GPS is used).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place: Option<crate::geo::Place>,
+    /// A video's in and out points and the frame its thumbnail shows, when the user set them.
+    #[serde(skip_serializing_if = "crate::video::VideoMeta::is_empty")]
+    pub video: crate::video::VideoMeta,
 }
 
 fn is_zero(v: &u8) -> bool {
@@ -88,6 +92,7 @@ impl Meta {
             && self.people.is_empty()
             && self.edits.is_empty()
             && self.place.is_none()
+            && self.video.is_empty()
     }
 
     /// Turn an old yes/no star into a pick, keep the rating in range and drop a damaged place.
@@ -99,6 +104,7 @@ impl Meta {
         if self.place.as_ref().is_some_and(|p| !p.is_valid()) {
             self.place = None;
         }
+        self.video.sanitize();
     }
 }
 
@@ -251,6 +257,9 @@ pub struct Store {
     /// Sections of the info panel opened (true) or closed (false) by the user; others use their
     /// default.
     pub info_sections: HashMap<String, bool>,
+    /// Videos play without their sound (the editor's sound button, M).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub video_muted: bool,
     /// Last used collage style, page and background.
     pub collage: crate::collage::CollageSettings,
     /// Last used contact sheet settings.
@@ -265,6 +274,13 @@ pub struct Store {
     pub edit_advanced: bool,
     /// The editor's histogram shows the red, green and blue curves rather than luminance.
     pub hist_rgb: bool,
+    /// Height of the editor's undo history list in points (dragged by its handle; 0 = the
+    /// starting height).
+    pub history_h: f32,
+    /// Widths of the editor's side panels in points, set by dragging their inner edge: the
+    /// tools on the left and the info panel on the right (0 = the starting width).
+    pub edit_tools_w: f32,
+    pub info_w: f32,
     /// The Export dialog's starting size (longest side in pixels, 0 = original) and JPEG quality.
     pub export_size: u32,
     pub export_quality: u8,
@@ -330,6 +346,7 @@ impl Default for Store {
             export_to: None,
             import_to: None,
             info_open: true,
+            video_muted: false,
             info_sections: HashMap::new(),
             collage: Default::default(),
             contact_sheet: Default::default(),
@@ -337,6 +354,9 @@ impl Default for Store {
             bar_style: BarStyle::Compact,
             edit_advanced: false,
             hist_rgb: false,
+            history_h: 0.0,
+            edit_tools_w: 0.0,
+            info_w: 0.0,
             export_size: 0,
             export_quality: 90,
             analysis_paused: false,
@@ -690,6 +710,19 @@ impl Store {
         for m in self.meta.values_mut() {
             m.upgrade();
         }
+        crate::video::sync_posters(&self.meta);
+    }
+
+    /// Set a video's in and out points and thumbnail frame (`VideoMeta`), keeping the frames
+    /// that thumbnails are read at in step (`video::sync_posters`). Returns whether the
+    /// thumbnail's frame changed: its cached thumbnails must then be made again.
+    pub fn set_video(&mut self, key: &str, mut v: crate::video::VideoMeta) -> bool {
+        v.sanitize();
+        let m = self.meta.entry(key.to_string()).or_default();
+        let poster_changed = m.video.poster != v.poster;
+        m.video = v;
+        crate::video::set_poster(key, m.video.poster);
+        poster_changed
     }
 
     pub fn save_to(&mut self, path: &Path) -> Result<(), String> {
@@ -838,6 +871,7 @@ impl Store {
         relist(&mut self.roots, &new_path);
         relist(&mut self.excluded, &new_path);
         relist(&mut self.imported_ini, &new_path);
+        crate::video::sync_posters(&self.meta);
     }
 
     /// The folder is in the library: inside a library folder and not left out.
@@ -1656,6 +1690,9 @@ pub enum Done {
     /// The cached thumbnails of these pictures were removed (`Library::forget_thumbs`): the
     /// window asks for them again.
     ThumbsForgotten(Vec<String>),
+    /// Frame `index` of `count` of a video's filmstrip (`video::filmstrip`, through
+    /// `Library::filmstrip`); None when it could not be read.
+    Filmstrip { key: String, index: usize, count: usize, img: Option<RgbaImage> },
     File { key: String, dim: u32, img: Option<RgbaImage> },
     /// (photo id, key, shown size and date taken) for each picture of a `Job::Dims`.
     Dims(Vec<FoundDims>),

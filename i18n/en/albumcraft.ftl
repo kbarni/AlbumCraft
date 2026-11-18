@@ -804,11 +804,21 @@ edit-tab-effects = Effects
 edit-undo = Undo
 edit-undo-hint = Take back the last change (Ctrl+Z)
 edit-redo = Redo
-edit-list = Edits on this picture:
-edit-list-none = (none — this is the original)
-edit-step-hint =
-    { $label }
-    Click to go back to this step (the later ones are removed; Undo brings them back)
+edit-history = History
+edit-history-original = Original
+edit-history-opened = As opened
+edit-history-opened-hint =
+    The picture's edits when it was opened:
+    { $steps }
+edit-history-hint = Click to go back to this point (the later changes stay here, for Redo)
+edit-history-resize = Drag to make the history taller or shorter
+edit-history-removed = Removed: { $label }
+edit-history-back = Back to step { $n }
+edit-history-changed = Edits changed
+edit-history-added = { $label } and { $n ->
+        [one] one more
+       *[other] { $n } more
+    }
 edit-copy-hint = Copy these edits to paste them on other pictures (Ctrl+Shift+C)
 edit-paste-n = Paste { $n }
 edit-paste-hint = Add the copied edits to this picture (Ctrl+Shift+V)
@@ -1816,3 +1826,27 @@ update-managed = { $app } { $version } follows the version chosen in the launche
 update-manual = Cannot auto-update this installation type. Please download manually.
 update-start-failed = Couldn't start the update ({ $error })
 update-wait-for-work = Wait for the work in progress (export, import…) to finish; the update restarts the app.
+
+## Videos (video_view.rs)
+info-length = Length
+video-panel = Video
+video-details = { $width } × { $height } · { $fps } fps · { $codec }
+video-no-sound = No sound
+video-part = Part played
+video-plays = From { $from } to { $to }
+video-set-start = Start here
+video-set-start-hint = The video starts playing at the frame shown ([)
+video-set-end = End here
+video-set-end-hint = The video stops playing at the frame shown (])
+video-whole = Play the whole video
+video-thumbnail = Thumbnail
+video-use-frame = Use this frame
+video-use-frame-hint = The library shows the frame shown for this video
+video-default-frame = Default frame
+video-keys = Space plays and pauses, [ and ] set the start and the end, comma and full stop step one frame, M turns the sound off and on.
+video-play = Play (Space)
+video-pause = Pause (Space)
+video-sound-on = Sound
+video-sound-off = Muted
+video-sound-hint = Turn the sound off or on (M)
+video-unreadable = This video can't be played.

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Bump when the meaning of a field changes; a cache of another version is ignored.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(default)]
@@ -48,6 +48,9 @@ pub struct CachedFile {
     /// it was read.
     #[serde(rename = "t", skip_serializing_if = "Option::is_none")]
     pub taken: Option<i64>,
+    /// A video's length in seconds, when it was read.
+    #[serde(rename = "s", skip_serializing_if = "Option::is_none")]
+    pub secs: Option<f32>,
 }
 
 /// What the header of a picture says: its shape and when it was taken. Either is None when the
@@ -56,6 +59,8 @@ pub struct CachedFile {
 pub struct Details {
     pub dims: Option<(u32, u32)>,
     pub taken: Option<i64>,
+    /// A video's length in seconds (None for pictures).
+    pub secs: Option<f32>,
 }
 
 /// (key, details) of a cached picture whose header was read before.
@@ -68,15 +73,19 @@ pub fn path() -> Option<PathBuf> {
 /// Read the shape and the date taken from the picture's header (JPEG: the first segments only).
 pub fn read_details(key: &str) -> Details {
     if let Some(seed) = key.strip_prefix(imaging::SAMPLE_PREFIX) {
-        return Details { dims: seed.parse().ok().map(imaging::sample_size), taken: None };
+        return Details { dims: seed.parse().ok().map(imaging::sample_size), ..Details::default() };
+    }
+    if crate::video::is_video(key) {
+        let info = crate::video::probe(key);
+        return Details { dims: info.as_ref().map(|i| (i.width, i.height)), taken: info.as_ref().and_then(|i| i.taken), secs: info.map(|i| i.duration as f32) };
     }
     if !crate::raw::is_raw(key)
         && let Some(head) = imaging::jpeg_head(key)
     {
         let taken = head.exif().and_then(|e| crate::import::exif_date_of(&e));
-        return Details { dims: Some(head.oriented_dims()), taken };
+        return Details { dims: Some(head.oriented_dims()), taken, secs: None };
     }
-    Details { dims: library::source_dims(key), taken: crate::import::date_taken(key) }
+    Details { dims: library::source_dims(key), taken: crate::import::date_taken(key), secs: None }
 }
 
 impl Catalogue {
@@ -94,7 +103,7 @@ impl Catalogue {
                         let p = photos.get(id)?;
                         let rest = p.key.strip_prefix(f.path.as_str())?.to_string();
                         let d = known(id);
-                        Some(CachedFile { rest, modified: p.modified, bytes: p.bytes, dims: d.dims, taken: d.taken })
+                        Some(CachedFile { rest, modified: p.modified, bytes: p.bytes, dims: d.dims, taken: d.taken, secs: d.secs })
                     })
                     .collect(),
             })
@@ -126,7 +135,7 @@ impl Catalogue {
             for c in f.files {
                 let key = format!("{}{}", f.path, c.rest);
                 if c.dims.is_some() || c.taken.is_some() {
-                    known.push((key.clone(), Details { dims: c.dims, taken: c.taken }));
+                    known.push((key.clone(), Details { dims: c.dims, taken: c.taken, secs: c.secs }));
                 }
                 files.push((key, c.modified, c.bytes));
             }
@@ -170,14 +179,14 @@ mod tests {
             Folder { path: "/pics/a".into(), name: "a".into(), date: 100, photos: vec![0, 1] },
             Folder { path: "/other/b".into(), name: "b".into(), date: 100, photos: vec![2] },
         ];
-        let cat = Catalogue::of(&folders, &photos, |id| if id == 1 { Details { dims: Some((30, 20)), taken: Some(42) } } else { Details::default() });
+        let cat = Catalogue::of(&folders, &photos, |id| if id == 1 { Details { dims: Some((30, 20)), taken: Some(42), secs: None } } else { Details::default() });
         let path = dir.join("catalogue.json");
         save_to(&path, &cat).unwrap();
         let back = load_from(&path).expect("readable");
         // only the folders inside the library's folders now
         let (scanned, known) = back.within(&["/pics".into()], 1000);
         assert_eq!(scanned, vec![("/pics/a".to_string(), vec![("/pics/a/1.jpg".to_string(), 100, 2000), ("/pics/a/2.jpg".to_string(), 100, 2000)])]);
-        assert_eq!(known, vec![("/pics/a/2.jpg".to_string(), Details { dims: Some((30, 20)), taken: Some(42) })]);
+        assert_eq!(known, vec![("/pics/a/2.jpg".to_string(), Details { dims: Some((30, 20)), taken: Some(42), secs: None })]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -218,7 +227,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("albumcraft-catalogue-perf-{}", std::process::id()));
         let path = dir.join("catalogue.json");
         let t = std::time::Instant::now();
-        let cat = Catalogue::of(&folders, &photos, |_| Details { dims: Some((4032, 3024)), taken: Some(1_600_000_000) });
+        let cat = Catalogue::of(&folders, &photos, |_| Details { dims: Some((4032, 3024)), taken: Some(1_600_000_000), secs: None });
         let built = t.elapsed();
         save_to(&path, &cat).unwrap();
         let saved = t.elapsed() - built;

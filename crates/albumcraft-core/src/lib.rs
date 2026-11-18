@@ -38,4 +38,5 @@ pub mod smart_search;
 pub mod tag_proposals;
 pub mod tags;
 pub mod thumbcache;
+pub mod video;
 pub mod vocabulary;

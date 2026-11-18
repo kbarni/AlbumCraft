@@ -799,11 +799,21 @@ edit-tab-effects = Effetti
 edit-undo = Annulla
 edit-undo-hint = Annulla l'ultima modifica (Ctrl+Z)
 edit-redo = Ripeti
-edit-list = Modifiche di questa foto:
-edit-list-none = (nessuna: è l'originale)
-edit-step-hint =
-    { $label }
-    Clicca per tornare a questo passaggio (quelli successivi vengono rimossi; Annulla li ripristina)
+edit-history = Cronologia
+edit-history-original = Originale
+edit-history-opened = All'apertura
+edit-history-opened-hint =
+    Le modifiche della foto quando è stata aperta:
+    { $steps }
+edit-history-hint = Clicca per tornare a questo punto (le modifiche successive restano qui, per Ripeti)
+edit-history-resize = Trascina per rendere la cronologia più alta o più bassa
+edit-history-removed = Rimosso: { $label }
+edit-history-back = Torna al passaggio { $n }
+edit-history-changed = Modifiche cambiate
+edit-history-added = { $label } e { $n ->
+        [one] un'altra
+       *[other] altre { $n }
+    }
 edit-copy-hint = Copia queste modifiche per incollarle su altre foto (Ctrl+Maiusc+C)
 edit-paste-n = Incolla { $n }
 edit-paste-hint = Aggiungi le modifiche copiate a questa foto (Ctrl+Maiusc+V)
@@ -1810,3 +1820,27 @@ update-managed = { $app } { $version } segue la versione scelta nel launcher, qu
 update-manual = Questo tipo di installazione non può aggiornarsi da solo. Scarica la nuova versione.
 update-start-failed = Impossibile avviare l'aggiornamento ({ $error })
 update-wait-for-work = Attendi la fine del lavoro in corso (esportazione, importazione…); l'aggiornamento riavvia l'app.
+
+## Videos (video_view.rs)
+info-length = Durata
+video-panel = Video
+video-details = { $width } × { $height } · { $fps } fps · { $codec }
+video-no-sound = Senza audio
+video-part = Parte riprodotta
+video-plays = Da { $from } a { $to }
+video-set-start = Inizia qui
+video-set-start-hint = Il video inizia dal fotogramma mostrato ([)
+video-set-end = Finisci qui
+video-set-end-hint = Il video finisce al fotogramma mostrato (])
+video-whole = Riproduci tutto il video
+video-thumbnail = Miniatura
+video-use-frame = Usa questo fotogramma
+video-use-frame-hint = La libreria mostra il fotogramma mostrato per questo video
+video-default-frame = Fotogramma predefinito
+video-keys = Spazio riproduce e mette in pausa, [ e ] fissano l’inizio e la fine, virgola e punto avanzano di un fotogramma, M toglie e rimette l’audio.
+video-play = Riproduci (Spazio)
+video-pause = Pausa (Spazio)
+video-sound-on = Audio
+video-sound-off = Muto
+video-sound-hint = Togli o rimetti l’audio (M)
+video-unreadable = Questo video non può essere riprodotto.

@@ -10,6 +10,9 @@ pub fn load_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
     if key.starts_with(SAMPLE_PREFIX) {
         return sample_source(key, max_dim);
     }
+    if crate::video::is_video(key) {
+        return crate::video::poster(key, max_dim);
+    }
     if crate::raw::is_raw(key) {
         if max_dim > 0
             && let Some(img) = crate::raw::preview_scaled(key, max_dim)
@@ -46,6 +49,9 @@ pub fn oriented_dims(path: &str) -> Option<(u32, u32)> {
     use image::metadata::Orientation as O;
     if crate::raw::is_raw(path) {
         return crate::raw::preview_dims(path);
+    }
+    if crate::video::is_video(path) {
+        return crate::video::probe(path).map(|i| (i.width, i.height));
     }
     if let Some(head) = jpeg_head(path) {
         return Some(head.oriented_dims());
@@ -227,6 +233,7 @@ pub fn decode_jpeg_scaled(stream: impl std::io::Read, head: &JpegHead, max_dim: 
 pub fn load_thumbnail(key: &str, dim: u32) -> Option<RgbaImage> {
     if !key.starts_with(SAMPLE_PREFIX)
         && !crate::raw::is_raw(key)
+        && !crate::video::is_video(key)
         && let Some(t) = embedded_preview(key, dim)
     {
         return Some(t);

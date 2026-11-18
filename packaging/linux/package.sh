@@ -21,6 +21,11 @@
 # (unpacks Ubuntu 22.04's libxkbcommon-x11, which it carries) and patchelf (likewise downloaded
 # when missing). Optional:
 # desktop-file-validate and appstreamcli check the metadata, zsyncmake writes the .zsync.
+#
+# Videos: the FFmpeg libraries of packaging/ffmpeg/build.sh, built on a system with glibc
+# $GLIBC or older (Ubuntu 22.04: release.yml's ffmpeg-linux job), in .tools/ffmpeg/linux-<arch>
+# or the folder named by $ALBUMCRAFT_FFMPEG. They go where the program looks: beside it in the
+# .tar.gz, /usr/lib/albumcraft in the others, with their licence texts.
 set -euo pipefail
 # shellcheck source=../common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../common.sh"
@@ -45,21 +50,30 @@ GLIBC=2.35
 # Microsoft's ONNX Runtime release packaged with the program: the version the `ort` crate's own
 # prebuilt library has (ort-sys's dist.tsv), so every platform runs the same one.
 ONNXRUNTIME_VERSION=1.31.0
+# of the NuGet package Microsoft.ML.OnnxRuntime (every platform in one file)
+ONNXRUNTIME_SHA256=7e35fdb4f5adb62f01e60798e2e5ed05108f5fbbe1cca03fbcc37903cf7c5e3b
 case "$ARCH" in
   x86_64)
     DEB_ARCH=amd64
-    ONNXRUNTIME_ARCH=x64
-    ONNXRUNTIME_SHA256=cc5c72baf5ae5c8238a6841f0897227be2d02826b9cf98eaf02fdefaeeb03a57 ;;
+    ONNXRUNTIME_ARCH=x64 ;;
   aarch64 | arm64)
     ARCH=aarch64
     DEB_ARCH=arm64
-    ONNXRUNTIME_ARCH=aarch64
-    ONNXRUNTIME_SHA256=c5b8b3cca31f3d643a3b313b8f42e2d0f16a4fcefd02cda343d97bd5306afaab ;;
+    ONNXRUNTIME_ARCH=arm64 ;;
   *) echo "unsupported architecture $ARCH" >&2; exit 2 ;;
 esac
 TARGET="$ARCH-unknown-linux-gnu"
 BASENAME="albumcraft-$VERSION-linux-$ARCH"
 echo "==> AlbumCraft $VERSION for Linux $ARCH ($FORMATS)"
+
+FFMPEG="${ALBUMCRAFT_FFMPEG:-$ROOT/.tools/ffmpeg/linux-$ARCH}"
+[[ -f "$FFMPEG/lib/pkgconfig/libavcodec.pc" && -f "$FFMPEG/share/licenses/FFmpeg-COPYING.LGPLv2.1" ]] || {
+  echo "error: no FFmpeg build in $FFMPEG: run packaging/ffmpeg/build.sh (on glibc $GLIBC or older)" >&2; exit 1
+}
+FFMPEG="$(cd "$FFMPEG" && pwd)"
+# cargo finds them with pkg-config (and build.rs gives the program an rpath to them, besides the
+# package folders)
+export "PKG_CONFIG_PATH_$(echo "$TARGET" | tr '-' '_')=$FFMPEG/lib/pkgconfig"
 
 if [[ "$SKIP_BUILD" = 0 ]]; then
   command -v cargo-zigbuild >/dev/null || { echo "error: cargo-zigbuild not found (cargo install --locked cargo-zigbuild)" >&2; exit 1; }
@@ -88,25 +102,53 @@ check_glibc() {
 check_glibc "$BIN"
 
 # ---- ONNX Runtime: Microsoft's release, loaded by the program when an AI feature first runs ----
-ONNXRUNTIME="onnxruntime-linux-$ONNXRUNTIME_ARCH-$ONNXRUNTIME_VERSION"
-if [[ ! -f "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz" ]]; then
-  curl --proto '=https' -fsSL -o "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz.download" \
-    "https://github.com/microsoft/onnxruntime/releases/download/v$ONNXRUNTIME_VERSION/$ONNXRUNTIME.tgz"
-  verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz.download"
-  mv "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz.download" "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz"
+# From Microsoft's NuGet package, which carries the same libonnxruntime.so for each platform (the
+# GitHub repository with the release tarballs, microsoft/onnxruntime, is gone since November 2026).
+ONNXRUNTIME="microsoft.ml.onnxruntime.$ONNXRUNTIME_VERSION.nupkg"
+if [[ ! -f "$CARGO_TARGET_DIR/$ONNXRUNTIME" ]]; then
+  curl --proto '=https' -fsSL -o "$CARGO_TARGET_DIR/$ONNXRUNTIME.download" \
+    "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$ONNXRUNTIME_VERSION/$ONNXRUNTIME"
+  verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME.download"
+  mv "$CARGO_TARGET_DIR/$ONNXRUNTIME.download" "$CARGO_TARGET_DIR/$ONNXRUNTIME"
 fi
-verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz"
-mkdir -p "$WORK/onnxruntime"
-tar -C "$WORK/onnxruntime" -xzf "$CARGO_TARGET_DIR/$ONNXRUNTIME.tgz" \
-  "$ONNXRUNTIME/lib/libonnxruntime.so.$ONNXRUNTIME_VERSION" "$ONNXRUNTIME/LICENSE" "$ONNXRUNTIME/ThirdPartyNotices.txt"
-ONNXRUNTIME_DIR="$WORK/onnxruntime/$ONNXRUNTIME"
-check_glibc "$ONNXRUNTIME_DIR/lib/libonnxruntime.so.$ONNXRUNTIME_VERSION"
+verify_sha256 "$ONNXRUNTIME_SHA256" "$CARGO_TARGET_DIR/$ONNXRUNTIME"
+command -v unzip >/dev/null || { echo "error: unzip not found (it unpacks ONNX Runtime's NuGet package)" >&2; exit 1; }
+ONNXRUNTIME_DIR="$WORK/onnxruntime"
+mkdir -p "$ONNXRUNTIME_DIR"
+unzip -q -j "$CARGO_TARGET_DIR/$ONNXRUNTIME" "runtimes/linux-$ONNXRUNTIME_ARCH/native/libonnxruntime.so" \
+  LICENSE ThirdPartyNotices.txt -d "$ONNXRUNTIME_DIR"
+check_glibc "$ONNXRUNTIME_DIR/libonnxruntime.so"
 # The library and its licence texts, into a package directory.
 copy_onnxruntime() {
   local lib="$1" docs="$2"
-  install -Dm644 "$ONNXRUNTIME_DIR/lib/libonnxruntime.so.$ONNXRUNTIME_VERSION" "$lib/libonnxruntime.so"
+  install -Dm644 "$ONNXRUNTIME_DIR/libonnxruntime.so" "$lib/libonnxruntime.so"
   install -Dm644 "$ONNXRUNTIME_DIR/LICENSE" "$docs/LICENSE-ONNXRuntime"
   install -Dm644 "$ONNXRUNTIME_DIR/ThirdPartyNotices.txt" "$docs/ThirdPartyNotices-ONNXRuntime.txt"
+}
+
+# ---- FFmpeg: the libraries videos are played with ----------------------------------------------
+# Each under the name the program and the others ask for (its SONAME, libavcodec.so.62), not the
+# libavcodec.so symlinks; they find each other through their own $ORIGIN (build.sh checks).
+FFMPEG_LIBS=()
+for f in "$FFMPEG"/lib/*.so.*; do
+  [[ -L "$f" ]] && continue
+  soname="$(objdump -p "$f" | awk '$1 == "SONAME" {print $2}')"
+  [[ -n "$soname" ]] || { echo "error: $f has no SONAME" >&2; exit 1; }
+  check_glibc "$f"
+  FFMPEG_LIBS+=("$f:$soname")
+done
+[[ ${#FFMPEG_LIBS[@]} -ge 6 ]] || { echo "error: expected 6 FFmpeg and dav1d libraries in $FFMPEG/lib, found ${#FFMPEG_LIBS[@]}" >&2; exit 1; }
+# every FFmpeg library the program asks for is one of them
+for needed in $(objdump -p "$BIN" | awk '$1 == "NEEDED" {print $2}' | grep -E '^lib(av|sw)'); do
+  [[ " ${FFMPEG_LIBS[*]} " == *":$needed "* ]] || { echo "error: the program needs $needed, which $FFMPEG/lib doesn't have" >&2; exit 1; }
+done
+copy_ffmpeg() {
+  local lib="$1" docs="$2" entry
+  for entry in "${FFMPEG_LIBS[@]}"; do
+    install -Dm644 "${entry%%:*}" "$lib/${entry#*:}"
+  done
+  install -Dm644 "$FFMPEG/share/licenses/FFmpeg-COPYING.LGPLv2.1" "$docs/FFmpeg-COPYING.LGPLv2.1"
+  install -Dm644 "$FFMPEG/share/licenses/dav1d-COPYING" "$docs/dav1d-COPYING"
 }
 
 # ---- an FHS tree shared by the .deb, the AppImage and the Flatpak ------------------------------
@@ -114,6 +156,7 @@ install -Dm755 "$BIN" "$STAGE/usr/bin/albumcraft"
 strip "$STAGE/usr/bin/albumcraft" 2>/dev/null || true
 # where the program looks for it: ../lib/albumcraft from its own folder
 copy_onnxruntime "$STAGE/usr/lib/albumcraft" "$STAGE/usr/share/doc/albumcraft"
+copy_ffmpeg "$STAGE/usr/lib/albumcraft" "$STAGE/usr/share/doc/albumcraft"
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$BUILD_DATE/g" \
@@ -145,6 +188,7 @@ if has tar; then
   copy_docs "$dir"
   # beside the program, the other place it looks
   copy_onnxruntime "$dir" "$dir"
+  copy_ffmpeg "$dir" "$dir"
   tar -C "$WORK/tar" -czf "$DIST/$BASENAME.tar.gz" "$BASENAME"
   echo "wrote $DIST/$BASENAME.tar.gz"
 fi

@@ -8,16 +8,19 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["onnx"]
+default = ["onnx", "video"]
 # ONNX Runtime linked in (see crates/albumcraft-ai).
 onnx = ["albumcraft-ai/onnx"]
 # ONNX Runtime loaded from its library file instead (the Linux packages).
 onnx-dynamic = ["onnx", "albumcraft-ai/onnx-dynamic"]
+# Videos, read with the FFmpeg libraries (packaging/ffmpeg/build.sh).
+video = ["dep:ffmpeg-next"]
 
 [dependencies]
 albumcraft-ai.workspace = true
 albumcraft-edit.workspace = true
 ab_glyph.workspace = true
+ffmpeg-next = { workspace = true, optional = true }
 chrono.workspace = true
 dirs.workspace = true
 epaint_default_fonts.workspace = true

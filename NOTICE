@@ -33,11 +33,26 @@ AlbumCraft builds embed map data (assets/geo/, details in assets/geo/README.md):
 When the user turns online maps on, map pictures and place searches come from OpenStreetMap
 (© OpenStreetMap contributors, Open Database License); they are not distributed with AlbumCraft.
 
+AlbumCraft builds with videos use the FFmpeg libraries (ffmpeg.org; libavcodec, libavformat,
+libavutil, libswscale, libswresample), GNU Lesser General Public License 2.1 or later, and
+dav1d (VideoLAN, BSD 2-Clause License), as separate shared libraries built without FFmpeg's GPL
+and non-free parts (packaging/ffmpeg/build.sh, which names the exact source releases). The
+packages carry them beside the program with their licence texts (FFmpeg-COPYING.LGPLv2.1,
+dav1d-COPYING); they may be replaced with other builds of the same versions.
+
 AlbumCraft builds include ONNX Runtime (Copyright Microsoft Corporation, MIT License), linked in
 through the ort crate (pyke.io, MIT OR Apache-2.0), to run the networks of the optional AI
 features. The Linux packages carry it as Microsoft's own library file (libonnxruntime.so) with
 its licence and third-party notices (LICENSE-ONNXRuntime, ThirdPartyNotices-ONNXRuntime.txt). No network is distributed with AlbumCraft: each is downloaded when the user asks, and
 its licence is shown before.
+
+AlbumCraft builds with videos (Cargo feature `video`, on by default) use the FFmpeg libraries
+(ffmpeg.org; libavcodec, libavformat, libavutil, libswscale, libswresample), GNU Lesser General
+Public License 2.1 or later, and dav1d (VideoLAN, BSD 2-Clause License), loaded as shared
+libraries. They are built from their unchanged release sources by packaging/ffmpeg/build.sh,
+which says how (decoders and file readers only, no GPL or non-free parts); their licence texts
+go with the libraries (share/licenses/). The Rust bindings are the ffmpeg-next and
+ffmpeg-sys-next crates (WTFPL).
 
 All other dependencies are Rust crates under their own licenses (see Cargo.lock; most are MIT
 and/or Apache-2.0). Movie export runs the separately installed FFmpeg program, which is not

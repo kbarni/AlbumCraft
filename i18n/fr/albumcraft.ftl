@@ -799,11 +799,21 @@ edit-tab-effects = Effets
 edit-undo = Annuler
 edit-undo-hint = Annuler la dernière modification (Ctrl+Z)
 edit-redo = Rétablir
-edit-list = Retouches de cette photo :
-edit-list-none = (aucune — c'est l'original)
-edit-step-hint =
-    { $label }
-    Cliquez pour revenir à cette étape (les suivantes sont retirées ; Annuler les ramène)
+edit-history = Historique
+edit-history-original = Original
+edit-history-opened = À l'ouverture
+edit-history-opened-hint =
+    Les retouches de la photo à son ouverture :
+    { $steps }
+edit-history-hint = Cliquez pour revenir à ce point (les changements suivants restent ici, pour Rétablir)
+edit-history-resize = Faites glisser pour agrandir ou réduire l'historique
+edit-history-removed = Retiré : { $label }
+edit-history-back = Retour à l'étape { $n }
+edit-history-changed = Retouches modifiées
+edit-history-added = { $label } et { $n ->
+        [one] une autre
+       *[other] { $n } autres
+    }
 edit-copy-hint = Copier ces retouches pour les coller sur d'autres photos (Ctrl+Maj+C)
 edit-paste-n = Coller { $n }
 edit-paste-hint = Ajouter les retouches copiées à cette photo (Ctrl+Maj+V)
@@ -1810,3 +1820,27 @@ update-managed = { $app } { $version } suit la version choisie dans le lanceur e
 update-manual = Ce type d'installation ne peut pas se mettre à jour tout seul. Téléchargez la nouvelle version.
 update-start-failed = Impossible de lancer la mise à jour ({ $error })
 update-wait-for-work = Attendez la fin du travail en cours (export, import…) ; la mise à jour redémarre l'application.
+
+## Videos (video_view.rs)
+info-length = Durée
+video-panel = Vidéo
+video-details = { $width } × { $height } · { $fps } im/s · { $codec }
+video-no-sound = Sans son
+video-part = Partie lue
+video-plays = De { $from } à { $to }
+video-set-start = Début ici
+video-set-start-hint = La vidéo commence à l’image affichée ([)
+video-set-end = Fin ici
+video-set-end-hint = La vidéo s’arrête à l’image affichée (])
+video-whole = Lire toute la vidéo
+video-thumbnail = Vignette
+video-use-frame = Utiliser cette image
+video-use-frame-hint = La bibliothèque montre l’image affichée pour cette vidéo
+video-default-frame = Image par défaut
+video-keys = Espace lit et met en pause, [ et ] fixent le début et la fin, la virgule et le point avancent d’une image, M coupe et remet le son.
+video-play = Lire (Espace)
+video-pause = Pause (Espace)
+video-sound-on = Son
+video-sound-off = Muet
+video-sound-hint = Couper ou remettre le son (M)
+video-unreadable = Cette vidéo ne peut pas être lue.
