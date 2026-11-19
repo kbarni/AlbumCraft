@@ -30,7 +30,7 @@ finish-args:
   - --filesystem=/mnt
   # Online maps (only after the user agrees) and the localhost connection of `albumcraft --mcp`.
   - --share=network
-  # Printing through CUPS.
+  # Printing: IPP straight to the CUPS socket (src/print_cups.rs); no CUPS programs are needed.
   - --socket=cups
 modules:
   - name: albumcraft

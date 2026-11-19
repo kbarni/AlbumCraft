@@ -71,7 +71,13 @@ rust-embed = "8.14.0"
 fluent-bundle = "0.16.0"
 # the check for a newer release at start (and Help > Check for Updates), its prompt and the
 # self-update, shared with the other Craft apps (src/updates.rs)
-craft-update = { git = "https://github.com/storytold/craft-libs", rev = "bc3e521bd37e53f2b5b4c55278111b55fd9a40f9", features = ["egui"] }
+craft-update = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144", features = ["egui"] }
+# printing, shared with the other Craft apps (src/print.rs, src/print_cups.rs). Same craft-libs rev as
+# craft-update. Linux / macOS: IPP straight to the CUPS socket (craft-ipp), which also works in the
+# Flatpak, where the CUPS programs are missing; craft-print's `lp` path when no socket answers.
+# Windows: craft-print (the PDF drawn by Windows.Data.Pdf into the XPS print API, the driver's dialog).
+craft-ipp = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
+craft-print = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
 
 [dev-dependencies]
 ab_glyph.workspace = true
@@ -81,9 +87,6 @@ unicode-properties = { version = "0.1.5", default-features = false, features = [
 # embeds the app icon and version in albumcraft.exe (build.rs)
 [target.'cfg(windows)'.build-dependencies]
 winresource = { version = "0.1.34", default-features = false }
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Printing", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs", "Win32_System_Memory"] }
 
 # the X11 fallback when WAYLAND_DISPLAY is stale (src/display.rs); the same winit eframe uses
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]

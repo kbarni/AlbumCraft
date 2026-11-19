@@ -245,13 +245,13 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label(tr!("print-paper"));
                                 egui::ComboBox::from_id_salt("paper_pick")
-                                    .selected_text(choice.media.clone().unwrap_or_else(|| tr!("print-default")))
+                                    .selected_text(choice.media.as_deref().map(print::paper_label).unwrap_or_else(|| tr!("print-default")))
                                     .show_ui(ui, |ui| {
                                         if ui.selectable_label(choice.media.is_none(), tr!("print-default")).clicked() {
                                             picked = Some(None);
                                         }
                                         for s in &sizes {
-                                            if ui.selectable_label(choice.media.as_deref() == Some(s.as_str()), s).clicked() {
+                                            if ui.selectable_label(choice.media.as_deref() == Some(s.as_str()), print::paper_label(s)).clicked() {
                                                 picked = Some(Some(s.clone()));
                                             }
                                         }
