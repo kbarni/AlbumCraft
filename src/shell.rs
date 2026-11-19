@@ -8,7 +8,6 @@
 use crate::icons;
 use crate::app::*;
 use crate::i18n::tr;
-use crate::library::fmt_date;
 use crate::library::{Flag, MAX_RATING};
 use crate::library_view::{paint_flag, paint_rating, paint_reject, paint_star};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
@@ -892,6 +891,11 @@ impl App {
                     // reached with the keys: scrolled only as far as needed to be in view
                     let reveal = self.reveal.take();
                     let to_folder = self.scroll_to_folder.take();
+                    // the folders' order changed (dates taken arrived): the folder that was at
+                    // the top stays there
+                    let order_rev = self.folder_order_rev.get();
+                    let keep = self.grid_anchor.filter(|a| a.2 != order_rev && self.source == Source::Library);
+                    let mut anchor: Option<(usize, f32, u64)> = None;
                     for (gi, (folder, ids)) in groups.iter().enumerate() {
                         let Some(rows) = cache.layout.get(gi) else { break };
                         let (left, top) = (ui.cursor().left(), ui.cursor().top());
@@ -902,6 +906,21 @@ impl App {
                             Head::Plain => 0.0,
                         };
                         let total = head + rows.height + 14.0;
+                        if let Some(fi) = folder.folder() {
+                            if anchor.is_none() && top + total >= clip.top() {
+                                anchor = Some((fi, clip.top() - top, order_rev));
+                            }
+                            if let Some((kf, above, _)) = keep
+                                && kf == fi
+                                && to_folder.is_none()
+                            {
+                                let moved = top - (clip.top() - above);
+                                if moved.abs() > 0.5 {
+                                    ui.scroll_with_delta(egui::vec2(0.0, -moved));
+                                    ui.ctx().request_repaint();
+                                }
+                            }
+                        }
                         if folder.folder().is_some() && to_folder == folder.folder() {
                             ui.scroll_to_rect(Rect::from_min_size(Pos2::new(left, top), egui::vec2(width, head.max(1.0))), Some(egui::Align::TOP));
                         }
@@ -991,6 +1010,12 @@ impl App {
                         let drawn = if last < n { rows.tops[last] } else { rows.height };
                         ui.add_space(rows.height - drawn + 14.0);
                     }
+                    // when the grid was just moved to keep a folder in place, that folder is
+                    // the one at the top (the move shows at the next frame)
+                    self.grid_anchor = match keep {
+                        Some((fi, above, _)) if groups.iter().any(|(h, _)| h.folder() == Some(fi)) => Some((fi, above, order_rev)),
+                        _ => anchor,
+                    };
                     self.grid_cache = Some(cache);
                     if let (Some(b), Some(area)) = (self.box_select.as_ref(), boxed) {
                         self.selection = b.base.iter().chain(b.inside.iter()).copied().collect();
@@ -1115,7 +1140,7 @@ impl App {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&f.name).size(19.0).strong().color(t().text_strong));
-                ui.label(RichText::new(format!("{}  ·  {}", fmt_date(f.date), ids.len())).size(12.5).color(t().text_weak));
+                ui.label(RichText::new(format!("{}  ·  {}", self.folder_date_text(fi), ids.len())).size(12.5).color(t().text_weak));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if icon_btn(ui, icons::PLAY, &tr!("folder-play-hint")).clicked() {
                         self.start_slideshow(ids.to_vec(), ids[0]);

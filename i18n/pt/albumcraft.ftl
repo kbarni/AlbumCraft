@@ -1866,3 +1866,6 @@ settings-export-notes = Incluir as notas (XMP)
 settings-export-notes-hint = A classificação, a legenda, as etiquetas e as pessoas, no XMP da cópia, para outros programas de fotos e sites. O local segue a definição acima.
 export-notes = Notas (XMP)
 export-notes-hint = A classificação, a legenda, as etiquetas e as pessoas, no XMP da cópia.
+
+# folder_dates.rs: a folder's pictures were taken from one date to another
+folder-dates = { $first } – { $last }

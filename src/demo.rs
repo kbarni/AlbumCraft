@@ -353,6 +353,26 @@ impl App {
                 && groups.first().and_then(|(_, ids)| ids.first()).is_some_and(|&id| rating(self, id) == 5);
             eprintln!("sort check: {}", if ok { "ok" } else { "WRONG" });
         }
+        if shot_view == "folderdates" {
+            // Mountain walk's pictures taken over three days in 2010, one with a camera clock
+            // never set (1970): the folder shows the range, comes first and is listed in 2010
+            let mountain = self.folders.iter().position(|f| f.name == "Mountain walk");
+            if let Some(fi) = mountain {
+                let start = 1_281_600_000; // Aug 12, 2010
+                for (k, &id) in self.folders[fi].photos.clone().iter().enumerate() {
+                    let t = if k == 0 { 86_400 } else { start + (k as i64 % 3) * 86_400 };
+                    self.taken.insert(id, t);
+                    // known shape too, so the header reading doesn't bring the real dates back
+                    if let Some(dims) = self.photos.get(id).and_then(|p| self.lib.source_dims(&p.key)) {
+                        self.real_dims.insert(id, dims);
+                    }
+                }
+                self.taken_rev += 1;
+            }
+            let first = self.groups().first().and_then(|(h, _)| h.folder());
+            let ok = mountain.is_some() && first == mountain && mountain.is_some_and(|fi| self.folder_year(fi) == 2010);
+            eprintln!("folder dates check: {}", if ok { "ok" } else { "WRONG" });
+        }
         if shot_view == "cached" {
             // the catalogue cache is shown until the first scan's result, never after it
             let folders = library::sample_folders();

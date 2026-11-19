@@ -1866,3 +1866,6 @@ settings-export-notes = Includi le note (XMP)
 settings-export-notes-hint = Valutazione, didascalia, tag e persone, nell'XMP della copia, per altri programmi di foto e siti web. Il luogo segue l'impostazione sopra.
 export-notes = Note (XMP)
 export-notes-hint = Valutazione, didascalia, tag e persone, nell'XMP della copia.
+
+# folder_dates.rs: a folder's pictures were taken from one date to another
+folder-dates = { $first } – { $last }
