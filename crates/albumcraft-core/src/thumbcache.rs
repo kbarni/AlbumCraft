@@ -112,11 +112,7 @@ fn put_in(cache: &Path, key: &str, dim: u32, img: &RgbaImage) {
     };
     let Some(bytes) = saved else { return };
     // Write then rename so a crash or a parallel worker never leaves a half-written file.
-    let tmp = base.with_extension(format!("tmp{}", std::process::id()));
-    let target = base.with_extension(ext);
-    if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, &target).is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
+    let _ = craft_atomic::atomic_write(&base.with_extension(ext), &bytes);
 }
 
 fn prune_in(cache: &Path, max_bytes: u64) {

@@ -23,6 +23,7 @@ impl App {
         }
         let Some(mut dialog) = self.dialog.take() else { return };
         let mut close = false;
+        let mut pick_music = false;
         // Enter presses the main button of the dialogs that only ask for a name or an OK
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let title = match &dialog {
@@ -256,8 +257,8 @@ impl App {
                             let name = s.music.as_deref().and_then(|m| std::path::Path::new(m).file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                             ui.label(egui::RichText::new(name).weak());
                         }
-                        if ui.button(if s.music.is_some() { tr!("movie-other-music") } else { tr!("movie-add-music") }).clicked() && crate::slideshow_view::pick_music(s) {
-                            self.dirty = true;
+                        if ui.button(if s.music.is_some() { tr!("movie-other-music") } else { tr!("movie-add-music") }).clicked() {
+                            pick_music = true;
                         }
                     });
                     if !ffmpeg {
@@ -434,6 +435,9 @@ impl App {
             }
         });
         // Esc, or a click beside the dialog: the same as Cancel
+        if pick_music {
+            self.ask_file(crate::slideshow_view::music_dialog(), crate::file_dialogs::FileJob::Music(crate::file_dialogs::MusicFor::Saved));
+        }
         if !close && !modal.should_close() {
             self.dialog = Some(dialog);
         }

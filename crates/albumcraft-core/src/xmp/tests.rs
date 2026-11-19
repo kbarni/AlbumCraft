@@ -231,7 +231,7 @@ fn jpeg_packet_replaced_and_picture_data_kept() {
     assert_eq!(back.rating, Some(1));
     assert_eq!(back.caption.as_deref(), Some("The bridge & the river"));
     assert!(image::load_from_memory(&new).is_ok());
-    assert!(!dir.join(".a.jpg.albumcraft-tmp").exists());
+    assert!(std::fs::read_dir(&dir).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".craft_tmp")), "no temporary file left");
 }
 
 #[test]

@@ -295,6 +295,7 @@ impl App {
     fn settings_slideshow(&mut self, ui: &mut egui::Ui) {
         let s = &mut self.store.slideshow;
         let mut changed = false;
+        let mut pick_music = false;
         group(ui, &tr!("settings-timing"));
         ui.horizontal(|ui| {
             changed |= ui.checkbox(&mut s.auto_advance, tr!("settings-next-after")).changed();
@@ -329,7 +330,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(format!("{} {name}", icons::MUSIC)).on_hover_text(&path);
                     if ui.button(tr!("settings-music-another")).clicked() {
-                        changed |= crate::slideshow_view::pick_music(s);
+                        pick_music = true;
                     }
                     if ui.button(tr!("button-remove")).clicked() {
                         s.music = None;
@@ -340,7 +341,7 @@ impl App {
             }
             None => {
                 if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::MUSIC, tr!("settings-music-choose")), 13.5))).clicked() {
-                    changed |= crate::slideshow_view::pick_music(s);
+                    pick_music = true;
                 }
             }
         }
@@ -348,6 +349,9 @@ impl App {
         note(ui, &tr!("settings-movies-note"));
         if changed {
             self.dirty = true;
+        }
+        if pick_music {
+            self.ask_file(crate::slideshow_view::music_dialog(), crate::file_dialogs::FileJob::Music(crate::file_dialogs::MusicFor::Saved));
         }
     }
 
@@ -418,10 +422,8 @@ impl App {
         let custom = crate::library::library_folder().is_some();
         ui.horizontal(|ui| {
             // not while the library must not be saved (it could not be read, or a screenshot)
-            if ui.add_enabled(self.persist, egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::FOLDER, tr!("settings-library-change")), 13.5))).on_hover_text(tr!("settings-library-change-hint")).clicked()
-                && let Some(dir) = rfd::FileDialog::new().set_title(tr!("choose-folder-dialog")).pick_folder()
-            {
-                self.relocate_library(Some(dir));
+            if ui.add_enabled(self.persist, egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::FOLDER, tr!("settings-library-change")), 13.5))).on_hover_text(tr!("settings-library-change-hint")).clicked() {
+                self.ask_file(craft_dialogs::FileDialog::folder().title(tr!("choose-folder-dialog")), crate::file_dialogs::FileJob::LibraryLocation);
             }
             // also when the chosen folder can't be reached (then this library is not saved): the
             // way back to the library in the app's data folder
@@ -441,7 +443,7 @@ impl App {
 
     /// Save the library in `folder` from now on (None: the app's data folder). When a library is
     /// there already, ask whether to open it instead (`Dialog::LibraryThere`).
-    fn relocate_library(&mut self, folder: Option<std::path::PathBuf>) {
+    pub(crate) fn relocate_library(&mut self, folder: Option<std::path::PathBuf>) {
         match self.lib.relocate(&mut self.store, folder.clone()) {
             Ok(crate::library::Relocated::Moved(path)) => {
                 self.dirty = false;

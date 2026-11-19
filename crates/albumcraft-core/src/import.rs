@@ -284,26 +284,30 @@ fn copy_one(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String> {
         }
         target = dest.join(format!("{stem} ({n}){ext}"));
     }
-    let temp = dest.join(format!(".{name}.albumcraft-part"));
-    let result = (|| -> std::io::Result<()> {
-        std::fs::copy(src, &temp)?;
+    // copied under a temporary name, flushed to disk, then given the name only if it is still
+    // free (`craft-atomic`): a crash, a full card or a name taken meanwhile never leaves half a
+    // picture or replaces one
+    let modified = meta.modified().ok();
+    let result = craft_atomic::write_new_with(&target, |f| {
+        std::io::copy(&mut std::fs::File::open(src)?, f)?;
         // keep the original's date: the library sorts and groups by it
-        if let Ok(modified) = meta.modified() {
-            let f = std::fs::OpenOptions::new().write(true).open(&temp)?;
-            let _ = f.set_modified(modified);
+        if let Some(t) = modified {
+            let _ = f.set_modified(t);
         }
-        // the name was free a moment ago; nothing else writes into this new folder meanwhile
-        if target.exists() {
-            return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, crate::msg!("import-appeared", "a file with this name appeared during the copy").to_string()));
-        }
-        std::fs::rename(&temp, &target)
-    })();
+        Ok(())
+    });
     match result {
-        Ok(()) => Ok(Some(target)),
-        Err(e) => {
-            let _ = std::fs::remove_file(&temp);
-            Err(e.to_string())
+        Ok(()) => {
+            // on disks without hard links the file was copied once more, with today's date
+            if let Some(t) = modified
+                && let Ok(f) = std::fs::OpenOptions::new().write(true).open(&target)
+            {
+                let _ = f.set_modified(t);
+            }
+            Ok(Some(target))
         }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(crate::msg!("import-appeared", "a file with this name appeared during the copy").into()),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -378,7 +382,7 @@ mod tests {
         assert_eq!(copies, vec![b"first picture".to_vec(), b"second picture".to_vec()]);
         assert_eq!(std::fs::read(src.join("100CAM/IMG_1.JPG")).unwrap(), b"first picture");
         // no temporary files left
-        assert!(std::fs::read_dir(&dest).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with("albumcraft-part")));
+        assert!(std::fs::read_dir(&dest).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".craft_tmp")));
 
         // importing the same card again copies nothing
         let again = copy_into(&files, &dest, &|_, _| {}, &AtomicBool::new(false)).unwrap();

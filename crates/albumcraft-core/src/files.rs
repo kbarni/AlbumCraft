@@ -141,7 +141,7 @@ fn copy_across(src: &Path, dst: &Path, step: &dyn Fn(u64, u64) -> bool) -> Resul
         remove_any(&tmp);
         return Err(taken(dst));
     }
-    if let Err(e) = std::fs::rename(&tmp, dst) {
+    if let Err(e) = craft_atomic::retry_rename(craft_atomic::RenameRetry::platform(), || std::fs::rename(&tmp, dst)) {
         remove_any(&tmp);
         return Err(fail(e.to_string()));
     }

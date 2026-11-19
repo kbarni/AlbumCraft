@@ -1297,14 +1297,7 @@ pub fn render_job_page(job: &Job, page: usize, k: f32, read: Reader) -> Option<R
 pub fn save(job: &Job, path: &Path, px_long: u32, read: Reader) -> Result<Vec<std::path::PathBuf>, String> {
     let Some(first) = job.pages.first() else { return Err(crate::msg!("collage-nothing", "there is nothing to save").into()) };
     let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    let write = |target: &Path, bytes: &[u8]| -> Result<(), String> {
-        let tmp = target.with_extension(format!("{ext}.part"));
-        std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", target.display()))?;
-        std::fs::rename(&tmp, target).map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            format!("{}: {e}", target.display())
-        })
-    };
+    let write = |target: &Path, bytes: &[u8]| -> Result<(), String> { craft_atomic::atomic_write(target, bytes).map_err(|e| format!("{}: {e}", target.display())) };
     match ext.as_str() {
         "pdf" => {
             // 200 dots per inch

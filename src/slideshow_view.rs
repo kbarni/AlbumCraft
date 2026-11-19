@@ -14,21 +14,12 @@ enum SlideCmd {
     Stop,
 }
 
-/// Ask for a music file; true when one was chosen (music is then switched on).
 /// Largest side of the frames a slideshow plays.
 const SLIDE_MAX_DIM: u32 = 2560;
 
-pub(crate) fn pick_music(s: &mut crate::slides::SlideSettings) -> bool {
-    let Some(path) = rfd::FileDialog::new()
-        .set_title(tr!("music-dialog-title"))
-        .add_filter(tr!("filter-music"), &["mp3", "ogg", "oga", "flac", "wav", "m4a", "aac", "mp4"])
-        .pick_file()
-    else {
-        return false;
-    };
-    s.music = Some(path.to_string_lossy().to_string());
-    s.music_on = true;
-    true
+/// The picker for a music file; the music is switched on when one is chosen (`FileJob::Music`).
+pub(crate) fn music_dialog() -> craft_dialogs::FileDialog {
+    craft_dialogs::FileDialog::open().title(tr!("music-dialog-title")).filter(tr!("filter-music"), &["mp3", "ogg", "oga", "flac", "wav", "m4a", "aac", "mp4"])
 }
 
 impl App {
@@ -224,36 +215,47 @@ impl App {
         changed |= child.toggle_value(&mut st.motion, tr!("ss-motion")).on_hover_text(tr!("settings-motion")).changed();
         let music_label = if st.music.is_some() { format!("{} {}", icons::MUSIC, tr!("movie-music")) } else { format!("{} {}", icons::MUSIC, tr!("settings-music-choose")) };
         let mut music_changed = false;
+        let mut pick_music = false;
         if st.music.is_some() {
             music_changed |= child.toggle_value(&mut st.music_on, music_label).on_hover_text(st.music.clone().unwrap_or_default()).changed();
             if child.small_button("…").on_hover_text(tr!("ss-other-music-hint")).clicked() {
-                music_changed |= pick_music(st);
+                pick_music = true;
             }
         } else if child.button(music_label).clicked() {
-            music_changed |= pick_music(st);
+            pick_music = true;
         }
         let (exit_icon, exit_tip) = if viewer { (icons::FULLSCREEN_EXIT, tr!("ss-exit-full")) } else { (icons::CLOSE, tr!("ss-exit")) };
         if child.add(big(exit_icon)).on_hover_text(exit_tip).clicked() {
             cmd = Some(SlideCmd::Stop);
         }
-        if changed || music_changed {
-            // the viewer keeps its own fade, motion and music switches; the rest is remembered
-            let now = st.clone();
-            let saved = &mut self.store.slideshow;
-            if viewer {
-                saved.interval = now.interval;
-                if saved.music != now.music {
-                    saved.music = now.music.clone();
-                    saved.music_on = true;
-                }
-            } else {
-                *saved = now;
-            }
-            self.dirty = true;
+        if pick_music {
+            self.ask_file(music_dialog(), crate::file_dialogs::FileJob::Music(crate::file_dialogs::MusicFor::Playing { viewer }));
         }
-        if music_changed {
-            let settings = st.clone();
-            let music = self.start_music(&settings);
+        if changed || music_changed {
+            self.slide_settings_changed(viewer, music_changed);
+        }
+        cmd
+    }
+
+    /// The playing slideshow's settings were changed (`music`: its music too): remember them
+    /// and start the music again.
+    pub(crate) fn slide_settings_changed(&mut self, viewer: bool, music: bool) {
+        let Some(show) = self.slide.as_ref() else { return };
+        // the viewer keeps its own fade, motion and music switches; the rest is remembered
+        let now = show.settings.clone();
+        let saved = &mut self.store.slideshow;
+        if viewer {
+            saved.interval = now.interval;
+            if saved.music != now.music {
+                saved.music = now.music.clone();
+                saved.music_on = true;
+            }
+        } else {
+            *saved = now.clone();
+        }
+        self.dirty = true;
+        if music {
+            let music = self.start_music(&now);
             if let Some(s) = self.slide.as_mut() {
                 s.music = music;
                 if let Some(m) = &s.music {
@@ -261,6 +263,5 @@ impl App {
                 }
             }
         }
-        cmd
     }
 }
