@@ -1866,3 +1866,6 @@ settings-export-notes = Notizen einschließen (XMP)
 settings-export-notes-hint = Bewertung, Beschriftung, Tags und Personen im XMP der Kopie, für andere Fotoprogramme und Websites. Der Ort folgt der Einstellung oben.
 export-notes = Notizen (XMP)
 export-notes-hint = Bewertung, Beschriftung, Tags und Personen im XMP der Kopie.
+
+# folder_dates.rs: a folder's pictures were taken from one date to another
+folder-dates = { $first } – { $last }

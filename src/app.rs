@@ -451,7 +451,14 @@ pub struct App {
     /// `search_hay()` for (list_rev, place_rev).
     #[allow(clippy::type_complexity)]
     hay_cache: std::cell::RefCell<Option<((u64, u64), Rc<Vec<String>>)>>,
-    sidebar_cache: Option<(u64, Rc<SidebarCounts>)>,
+    sidebar_cache: Option<((u64, u64), Rc<SidebarCounts>)>,
+    /// `folder_dates()` for (list_rev, taken_rev).
+    pub(crate) folder_dates_cache: std::cell::RefCell<Option<((u64, u64), Rc<crate::folder_dates::FolderDates>)>>,
+    /// Changes each time the folders' order changes (dates taken arrived).
+    pub(crate) folder_order_rev: std::cell::Cell<u64>,
+    /// The folder at the top of the grid, how far its top is above the grid's top, and the
+    /// `folder_order_rev` it was seen at: kept in place when the order changes.
+    pub(crate) grid_anchor: Option<(usize, f32, u64)>,
     /// Bumped when a picture's shape (width / height) becomes known or changes: the grid's
     /// row layout is made again.
     pub shape_rev: u64,
@@ -678,6 +685,9 @@ impl App {
             list_cache: Default::default(),
             hay_cache: Default::default(),
             sidebar_cache: None,
+            folder_dates_cache: Default::default(),
+            folder_order_rev: Default::default(),
+            grid_anchor: None,
             shape_rev: 0,
             grid_cache: None,
             photos: vec![],
@@ -1206,7 +1216,8 @@ impl App {
     pub fn groups(&self) -> Rc<Vec<Group>> {
         let mut cache = self.list_cache.borrow_mut();
         let sort = self.store.sort;
-        let taken_rev = if sort == library::Sort::Taken { self.taken_rev } else { 0 };
+        // the folders' order follows the dates taken too
+        let taken_rev = if sort == library::Sort::Taken || self.source == Source::Library { self.taken_rev } else { 0 };
         let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev, (self.smart.rev, self.smart.shown));
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
@@ -1231,9 +1242,10 @@ impl App {
         }
         let mut groups: Vec<Group> = match &self.source {
             Source::Library => self
-                .folders
+                .folder_dates()
+                .order
                 .iter()
-                .enumerate()
+                .filter_map(|&fi| Some((fi, self.folders.get(fi)?)))
                 .map(|(fi, f)| (Head::Folder(fi), f.photos.iter().copied().filter(shown).collect::<Vec<_>>()))
                 .filter(|(_, v)| !v.is_empty())
                 .collect(),
@@ -1304,13 +1316,13 @@ impl App {
     /// per change of the library or its notes instead of on every frame.
     pub fn sidebar_counts(&mut self) -> Rc<SidebarCounts> {
         if let Some((rev, counts)) = &self.sidebar_cache
-            && *rev == self.list_rev
+            && *rev == (self.list_rev, self.taken_rev)
         {
             return counts.clone();
         }
         let mut by_year: Vec<(i32, Vec<usize>)> = vec![];
-        for (fi, f) in self.folders.iter().enumerate() {
-            let y = library::local_year(f.date);
+        for &fi in &self.folder_dates().order {
+            let y = self.folder_year(fi);
             match by_year.last_mut() {
                 Some((yy, v)) if *yy == y => v.push(fi),
                 _ => by_year.push((y, vec![fi])),
@@ -1323,7 +1335,7 @@ impl App {
             by_year,
             tree: crate::folder_tree::build(&self.store.roots, &self.folders.iter().map(|f| (f.path.as_str(), f.photos.len())).collect::<Vec<_>>()),
         });
-        self.sidebar_cache = Some((self.list_rev, counts.clone()));
+        self.sidebar_cache = Some(((self.list_rev, self.taken_rev), counts.clone()));
         counts
     }
 

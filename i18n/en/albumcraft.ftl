@@ -1872,3 +1872,6 @@ settings-export-notes = Include the notes (XMP)
 settings-export-notes-hint = The rating, caption, tags and people, in the copy's XMP, for other photo programs and websites. The location follows the setting above.
 export-notes = Notes (XMP)
 export-notes-hint = The rating, caption, tags and people, in the copy's XMP.
+
+# folder_dates.rs: a folder's pictures were taken from one date to another
+folder-dates = { $first } – { $last }
