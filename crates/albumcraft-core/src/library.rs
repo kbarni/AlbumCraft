@@ -47,7 +47,7 @@ impl Flag {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Meta {
     /// Earlier libraries' yes/no star, read once and turned into a pick (see `Store::sanitize`).
@@ -242,6 +242,9 @@ pub struct Store {
     /// Exported copies keep the original's camera information (EXIF: camera, lens, exposure,
     /// date taken), without its GPS position, which follows `export_location`.
     pub export_exif: bool,
+    /// Exported and emailed copies carry the picture's notes (rating, caption, tags, people)
+    /// in their XMP.
+    pub export_notes: bool,
     /// Written into exported and emailed copies (EXIF Artist and Copyright) when not empty.
     pub export_creator: String,
     pub export_copyright: String,
@@ -296,6 +299,13 @@ pub struct Store {
     pub gallery: crate::gallery::GallerySettings,
     /// Look for a newer release of AlbumCraft when it starts (Settings > Interface).
     pub check_updates: bool,
+    /// "Write notes to XMP" may change the XMP block already inside a picture file (JPEG,
+    /// PNG); off: such pictures get a sidecar file instead (Settings › Folders).
+    pub xmp_embedded: bool,
+    /// What each picture's XMP said when last read or written, by picture (`xmp_sync`), to tell
+    /// what another program changed.
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub xmp_seen: HashMap<String, crate::xmp_sync::Seen>,
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -313,6 +323,7 @@ impl Store {
             creator: self.export_creator.trim().to_string(),
             copyright: self.export_copyright.trim().to_string(),
             signature: self.export_signature.shows().then(|| self.export_signature.clone()),
+            notes: self.export_notes,
         }
     }
 }
@@ -340,6 +351,7 @@ impl Default for Store {
             online_maps: None,
             export_location: true,
             export_exif: true,
+            export_notes: true,
             export_creator: String::new(),
             export_copyright: String::new(),
             export_signature: Default::default(),
@@ -364,6 +376,8 @@ impl Default for Store {
             search_pack: String::new(),
             gallery: Default::default(),
             check_updates: true,
+            xmp_embedded: true,
+            xmp_seen: HashMap::new(),
         }
     }
 }
@@ -865,6 +879,7 @@ impl Store {
         rekey(&mut self.meta, &new_path);
         rekey(&mut self.folder_notes, &new_path);
         rekey(&mut self.folder_captions, &new_path);
+        rekey(&mut self.xmp_seen, &new_path);
         for a in &mut self.albums {
             relist(&mut a.keys, &new_path);
         }
@@ -1675,6 +1690,10 @@ pub enum Done {
     Cached(Vec<ScannedFolder>, crate::catalogue::KnownDetails),
     /// How a piece of background work ended, to tell the user.
     Report(Report),
+    /// Pictures' XMP read by the background index (`xmp_sync::index`).
+    Xmp(Vec<crate::xmp_sync::Read>),
+    /// A picture's notes were written into its XMP (`Library::write_xmp`): what is there now.
+    XmpWritten(String, crate::xmp_sync::Seen),
     /// How far a task (see `Report::task`) is: `done` of `total` steps.
     Progress { task: u64, done: usize, total: usize },
     /// Thumbnail jobs forgotten because too many were waiting (by key): not made, not failed.

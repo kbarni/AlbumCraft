@@ -435,6 +435,8 @@ pub struct App {
     pub save_error: Option<String>,
     /// Places: GPS index, map view and "Set location" state (map_view.rs).
     pub geo: crate::map_view::GeoState,
+    /// Stops the background reading of the pictures' XMP (xmp_view.rs).
+    pub xmp_index: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// The control connection for the MCP server (see control.rs) and its queue of commands.
     control: Option<(crate::control::Server, Receiver<crate::control::Request>)>,
     icon_tex: Option<TextureHandle>,
@@ -667,6 +669,7 @@ impl App {
             persist,
             save_error: None,
             geo: Default::default(),
+            xmp_index: None,
             list_rev: 0,
             copied_edits: None,
             ffmpeg: None,
@@ -901,6 +904,9 @@ impl App {
                 self.source = Source::Library;
             }
         self.geo.start_index(&self.photos, &*self.lib);
+        if !samples {
+            self.start_xmp_index();
+        }
         if !samples {
             self.lib.analyse(self.photos.iter().map(|p| (p.key.clone(), p.modified, p.bytes)).collect());
         }
@@ -2330,6 +2336,11 @@ impl App {
                 }
                 Done::ImportDone { dest, summary, copied, problems } => self.on_import_done(dest, summary, copied, problems),
                 Done::CacheSizes { thumbs, tiles } => self.cache_sizes = Some((thumbs, tiles)),
+                Done::Xmp(batch) => self.on_xmp(batch),
+                Done::XmpWritten(key, seen) => {
+                    self.store.xmp_seen.insert(key, seen);
+                    self.dirty = true;
+                }
                 Done::Analysis(progress) => self.analysis = progress,
                 Done::LooksLike(query, found) => self.on_looks_like(query, found),
                 Done::TagProposals(n, found) => self.on_tag_proposals(n, found),

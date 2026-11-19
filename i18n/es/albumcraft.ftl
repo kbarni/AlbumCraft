@@ -1838,3 +1838,31 @@ video-sound-on = Sonido
 video-sound-off = Silencio
 video-sound-hint = Quitar o poner el sonido (M)
 video-unreadable = Este vídeo no se puede reproducir.
+
+# XMP (xmp_view.rs, backend.rs, settings_view.rs)
+ctx-write-xmp = Escribir las notas en XMP
+ctx-write-xmp-hint = Poner la valoración, el pie, las etiquetas, las personas y los retoques en el XMP de las fotos, para otros programas de fotos
+settings-xmp-title = XMP
+settings-xmp-intro = En cada exploración, AlbumCraft lee las notas que otros programas de fotos guardan en XMP, dentro de la foto o en un archivo complementario al lado. Escribir las notas en XMP, en el menú de una foto, pone allí las notas de AlbumCraft.
+settings-xmp-embedded = Cambiar el XMP dentro de los archivos de foto
+settings-xmp-embedded-hint = Cuando una foto ya contiene XMP (JPEG, PNG), escribir allí las notas. Desactivado: van a un archivo complementario (foto.jpg.xmp) y el archivo de la foto no cambia.
+xmp-read = { $n ->
+        [one] Notas de una foto tomadas de su XMP
+       *[other] Notas de { $n } fotos tomadas de su XMP
+    }
+xmp-task = { $n ->
+        [one] Escribiendo el XMP de una foto
+       *[other] Escribiendo el XMP de { $n } fotos
+    }
+xmp-result =
+    Notas escritas en el XMP de { $ok } de { $total ->
+        [one] { $total } foto
+       *[other] { $total } fotos
+    } ({ $sidecars } en archivos complementarios, { $inside } dentro de las fotos)
+xmp-stopped = La escritura se detuvo antes del final.
+xmp-failed-list = No escritas:
+fail-xmp = No se pudo escribir el XMP: error inesperado.
+settings-export-notes = Incluir las notas (XMP)
+settings-export-notes-hint = La valoración, el pie, las etiquetas y las personas, en el XMP de la copia, para otros programas de fotos y sitios web. El lugar sigue el ajuste de arriba.
+export-notes = Notas (XMP)
+export-notes-hint = La valoración, el pie, las etiquetas y las personas, en el XMP de la copia.

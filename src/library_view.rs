@@ -785,6 +785,10 @@ impl App {
                 self.open_export(tray.clone());
                 ui.close();
             }
+            if !self.photos[id].is_sample() && ui.button(tr!("ctx-write-xmp")).on_hover_text(tr!("ctx-write-xmp-hint")).clicked() {
+                self.write_xmp(&tray);
+                ui.close();
+            }
             self.picture_file_menu(ui, id, &tray);
         });
     }

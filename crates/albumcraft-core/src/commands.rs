@@ -401,6 +401,7 @@ Call `rescan` afterwards to see the new pictures in the library.",
                     "max_size": { "type": "integer", "minimum": 0, "description": "Longest side; 0 = full size", "default": 0, "required": false },
                     "quality": { "type": "integer", "minimum": 50, "maximum": 100, "default": 90, "required": false },
                     "include_location": { "type": "boolean", "description": "Write the picture's location (GPS) into the copy; default: the setting of the Export window", "required": false },
+                    "include_notes": { "type": "boolean", "description": "Put the picture's rating, caption, tags and people in the copy's XMP; default: the setting of the Export window", "required": false },
                     "include_camera_info": { "type": "boolean", "description": "Copy the original's camera information (EXIF: camera, lens, exposure, date taken; not the location) into the copy; default: the setting of the Export window", "required": false },
                     "creator": { "type": "string", "description": "The creator's name written into the copy (EXIF Artist); default: the one set in Settings", "required": false },
                     "copyright": { "type": "string", "description": "The copyright notice written into the copy (EXIF Copyright); default: the one set in Settings", "required": false }
@@ -443,6 +444,11 @@ Call `rescan` afterwards to see the new pictures in the library.",
                 "key": { "type": "string", "description": "The picture (its file path)" },
                 "name": { "type": "string", "description": "The new file name, e.g. \"Beach at dawn\" or \"beach.jpg\"" }
             }, "required": ["key", "name"] }),
+        },
+        Spec {
+            name: "write_xmp",
+            description: "Write the pictures' notes (rating, pick / reject, caption, tags with their hierarchy, people, a location the user set, edits) into their XMP, for other photo programs. Goes into the picture's sidecar file when it has one; else into the XMP block already inside the file (JPEG, PNG) unless the user turned that off; else into a new sidecar (photo.jpg.xmp). Everything else in the XMP is kept. Only when the user asked for it.",
+            schema: || keys_schema(json!({})),
         },
         Spec {
             name: "move_pictures",
@@ -769,13 +775,44 @@ fn iso(ts: i64) -> String {
     chrono::Local.timestamp_opt(ts, 0).single().map(|d| d.format("%Y-%m-%dT%H:%M:%S%:z").to_string()).unwrap_or_default()
 }
 
-/// What exporting one picture needs: key, file name, edits, place.
-pub type ExportJob = (String, String, Vec<EditOp>, Option<Place>);
+/// What exporting one picture needs.
+#[derive(Clone, Debug, Default)]
+pub struct ExportJob {
+    pub key: String,
+    /// The file name.
+    pub name: String,
+    pub edits: Vec<EditOp>,
+    pub place: Option<Place>,
+    /// The notes for the copy's XMP (`xmp_sync::for_copy`).
+    pub notes: crate::xmp::XmpNotes,
+}
+
+impl ExportJob {
+    /// The file name without its extension.
+    pub fn stem(&self) -> &str {
+        self.name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&self.name)
+    }
+
+    /// What the copy carries: the notes, and the position when `with_location` (the user's
+    /// place, else the file's GPS; reads the file).
+    pub fn carried(&self, with_location: bool) -> crate::export::Carried {
+        let gps = if with_location { geo::effective(self.place.as_ref(), geo::file_gps(&self.key)) } else { None };
+        crate::export::Carried { gps, notes: self.notes.clone() }
+    }
+}
 
 pub fn export_job(host: &dyn Host, id: usize) -> ExportJob {
     let Some(p) = host.photos().get(id) else { return Default::default() };
-    let place = host.store().meta.get(&p.key).and_then(|m| m.place.clone());
-    (p.key.clone(), p.name.clone(), edits_of(host, id), place)
+    let store = host.store();
+    let meta = store.meta.get(&p.key);
+    let notes = meta.map(|m| crate::xmp_sync::for_copy(m, &store.tag_parents)).unwrap_or_default();
+    ExportJob { key: p.key.clone(), name: p.name.clone(), edits: edits_of(host, id), place: meta.and_then(|m| m.place.clone()), notes }
+}
+
+/// The notes to write into a picture's XMP (`xmp_sync::to_write`).
+pub fn xmp_notes_of(store: &Store, key: &str) -> crate::xmp::XmpNotes {
+    let meta = store.meta.get(key).cloned().unwrap_or_default();
+    crate::xmp_sync::to_write(&meta, &store.tag_parents)
 }
 
 fn edits_of(host: &dyn Host, id: usize) -> Vec<EditOp> {
@@ -1436,17 +1473,16 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 creator: opt_str(args, "creator").unwrap_or(&store.export_creator).to_string(),
                 copyright: opt_str(args, "copyright").unwrap_or(&store.export_copyright).to_string(),
                 signature: None,
+                notes: opt_bool(args, "include_notes")?.unwrap_or(store.export_notes),
             };
             let jobs: Vec<ExportJob> = ids.iter().map(|&id| export_job(host, id)).collect();
             Ok(Outcome::Later(Box::new(move || {
                 let mut done = vec![];
                 let mut failed = vec![];
-                for (key, name, edits, place) in &jobs {
-                    let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-                    let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
-                    match crate::export::export_one(key, edits, &dir, stem, &opts, gps, None) {
+                for job in &jobs {
+                    match crate::export::export_one(&job.key, &job.edits, &dir, job.stem(), &opts, &job.carried(with_location), None) {
                         Ok(p) => done.push(p.to_string_lossy().to_string()),
-                        Err(e) => failed.push(json!({ "key": key, "error": e })),
+                        Err(e) => failed.push(json!({ "key": job.key, "error": e })),
                     }
                 }
                 Ok(Reply::json(json!({ "written": done, "failed": failed })))
@@ -1517,6 +1553,31 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let r = library::delete_permanently(&paths, &|_, _| true);
             host.rescan();
             if r.ok { now(json!({ "message": r.text })) } else { Err(r.text) }
+        }
+        "write_xmp" => {
+            let ids = ids(host, args)?;
+            if ids.len() > 2000 {
+                return Err("at most 2000 pictures in one call".into());
+            }
+            let embedded_ok = host.store().xmp_embedded;
+            let mut written = vec![];
+            let mut failed = vec![];
+            for id in ids {
+                let Some(key) = host.photos().get(id).map(|p| p.key.clone()) else { continue };
+                let notes = xmp_notes_of(host.store(), &key);
+                match crate::xmp_sync::write(&key, &notes, embedded_ok) {
+                    Ok((w, seen)) => {
+                        host.store_mut().xmp_seen.insert(key.clone(), seen);
+                        let into = match w {
+                            crate::xmp::Written::Embedded => "inside the file".to_string(),
+                            crate::xmp::Written::Sidecar(p) => p.to_string_lossy().into_owned(),
+                        };
+                        written.push(json!({ "key": key, "written_to": into }));
+                    }
+                    Err(e) => failed.push(json!({ "key": key, "error": e })),
+                }
+            }
+            Ok(Outcome::Now(Reply::json(json!({ "written": written, "failed": failed }))))
         }
         "rename_picture" => {
             let id = one(host, str_arg(args, "key")?)?;
@@ -1906,6 +1967,24 @@ mod tests {
         let mut h = Headless::open(dir.join("library.json")).unwrap();
         h.gps_cache = Some(dir.join("gps.json"));
         (dir, h, keys)
+    }
+
+    #[test]
+    fn notes_written_to_xmp_sidecars() {
+        let (dir, mut h, keys) = fixture("xmp");
+        run(&mut h, "set_rating", &json!({ "keys": [keys[0]], "rating": 4 })).and_then(|o| o.finish()).unwrap();
+        run(&mut h, "set_caption", &json!({ "keys": [keys[0]], "caption": "Low tide" })).and_then(|o| o.finish()).unwrap();
+        let before = std::fs::read(&keys[0]).unwrap();
+        let reply = run(&mut h, "write_xmp", &json!({ "keys": [keys[0]] })).and_then(|o| o.finish()).unwrap();
+        assert_eq!(reply.value["failed"].as_array().map(Vec::len), Some(0), "{:?}", reply.value);
+        // the JPEG had no XMP inside: a sidecar, and the picture unchanged
+        let side = format!("{}.xmp", keys[0]);
+        let notes = crate::xmp::parse(&std::fs::read_to_string(&side).unwrap()).unwrap();
+        assert_eq!((notes.rating, notes.caption.as_deref()), (Some(4), Some("Low tide")));
+        assert_eq!(std::fs::read(&keys[0]).unwrap(), before);
+        assert!(h.store().xmp_seen.contains_key(&keys[0]));
+        assert!(run(&mut h, "write_xmp", &json!({ "keys": [] })).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

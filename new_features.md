@@ -85,7 +85,7 @@ Guiding rule: keep the app simple to use and fast. Heavy work stays in the backg
 3. Histogram in the Advanced panel, with clipping warning.
 4. Folder watching (new/removed files picked up automatically).
 5. Duplicate finder (perceptual hash from the cached thumbnails).
-6. Optional XMP sidecars for ratings/keywords/edits (interop with Lightroom/darktable; originals stay untouched).
+6. XMP, embedded and in sidecars, for ratings / keywords / people / places / edits. Status: reading (kept in sync at each scan) and Write notes to XMP done 2026-11-19 on `feature/xmp`, and exported / emailed copies carry rating, caption, tags, people (and the location when included) in XMP (Settings › Export › Notes).
 7. Housekeeping: prune the thumbnail cache; keep metadata when files are moved/renamed (match on size + capture date instead of path only).
 
 ## Phases

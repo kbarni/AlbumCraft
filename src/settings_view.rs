@@ -271,6 +271,13 @@ impl App {
         if ui.add_enabled(!self.store.roots.is_empty(), egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::ADD, tr!("settings-excluded-add")), 13.5))).clicked() {
             self.add_excluded_folder();
         }
+        ui.add_space(14.0);
+        group(ui, &tr!("settings-xmp-title"));
+        note(ui, &tr!("settings-xmp-intro"));
+        ui.add_space(4.0);
+        if ui.checkbox(&mut self.store.xmp_embedded, tr!("settings-xmp-embedded")).on_hover_text(tr!("settings-xmp-embedded-hint")).changed() {
+            self.dirty = true;
+        }
     }
 
     fn settings_editing(&mut self, ui: &mut egui::Ui) {
@@ -361,6 +368,10 @@ impl App {
         changed |= ui
             .checkbox(&mut self.store.export_exif, tr!("settings-export-exif"))
             .on_hover_text(tr!("settings-export-exif-hint"))
+            .changed();
+        changed |= ui
+            .checkbox(&mut self.store.export_notes, tr!("settings-export-notes"))
+            .on_hover_text(tr!("settings-export-notes-hint"))
             .changed();
         ui.add_space(6.0);
         egui::Grid::new("settings_credit").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {

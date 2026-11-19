@@ -1838,3 +1838,31 @@ video-sound-on = Ton
 video-sound-off = Stumm
 video-sound-hint = Ton aus- oder einschalten (M)
 video-unreadable = Dieses Video kann nicht abgespielt werden.
+
+# XMP (xmp_view.rs, backend.rs, settings_view.rs)
+ctx-write-xmp = Notizen in XMP schreiben
+ctx-write-xmp-hint = Bewertung, Beschriftung, Tags, Personen und Bearbeitungen in das XMP der Bilder schreiben, für andere Fotoprogramme
+settings-xmp-title = XMP
+settings-xmp-intro = Bei jedem Durchsuchen liest AlbumCraft die Notizen, die andere Fotoprogramme in XMP speichern, im Bild oder in einer Begleitdatei daneben. Notizen in XMP schreiben, im Menü eines Bildes, legt die Notizen von AlbumCraft dort ab.
+settings-xmp-embedded = XMP in den Bilddateien ändern
+settings-xmp-embedded-hint = Wenn ein Bild bereits XMP enthält (JPEG, PNG), die Notizen dort schreiben. Aus: Sie kommen in eine Begleitdatei (foto.jpg.xmp) und die Bilddatei bleibt unverändert.
+xmp-read = { $n ->
+        [one] Notizen eines Bildes aus seinem XMP übernommen
+       *[other] Notizen von { $n } Bildern aus ihrem XMP übernommen
+    }
+xmp-task = { $n ->
+        [one] XMP eines Bildes wird geschrieben
+       *[other] XMP von { $n } Bildern wird geschrieben
+    }
+xmp-result =
+    Notizen in das XMP von { $ok } von { $total ->
+        [one] { $total } Bild
+       *[other] { $total } Bildern
+    } ({ $sidecars } in Begleitdateien, { $inside } in den Bildern) geschrieben
+xmp-stopped = Das Schreiben wurde vor dem Ende angehalten.
+xmp-failed-list = Nicht geschrieben:
+fail-xmp = Das XMP konnte nicht geschrieben werden: unerwarteter Fehler.
+settings-export-notes = Notizen einschließen (XMP)
+settings-export-notes-hint = Bewertung, Beschriftung, Tags und Personen im XMP der Kopie, für andere Fotoprogramme und Websites. Der Ort folgt der Einstellung oben.
+export-notes = Notizen (XMP)
+export-notes-hint = Bewertung, Beschriftung, Tags und Personen im XMP der Kopie.
