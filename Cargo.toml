@@ -20,6 +20,10 @@ ab_glyph = "0.2"
 # Windows while an antivirus holds the file), shared with the other Craft apps. Every craft-libs
 # crate is pinned to the same rev (craft-update below).
 craft-atomic = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
+# picture metadata (EXIF, IPTC, XMP) and the TIFF structure EXIF is stored in, shared with the
+# other Craft apps (crates/albumcraft-core: filemeta, exifinfo, xmp, geo, export). Same rev.
+craft-metadata = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
+craft-tiff = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "7.0.0"
 epaint_default_fonts = "0.37.0"

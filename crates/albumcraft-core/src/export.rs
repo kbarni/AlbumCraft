@@ -45,7 +45,7 @@ pub struct Options {
     /// Longest side in pixels; 0 = the picture's own size.
     pub max_dim: u32,
     pub quality: u8,
-    /// Keep the original's camera information (`exifinfo::fields_to_keep`).
+    /// Keep the original's camera information (`exifinfo::exif_to_keep`).
     pub camera_info: bool,
     /// Written into the copy's EXIF (Artist, Copyright) when not empty, replacing the original's.
     pub creator: String,
@@ -117,22 +117,23 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Op
     // encoded before the file is made, so that a failure leaves nothing behind
     let mut jpeg = vec![];
     rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, opts.quality.clamp(1, 100))).map_err(|e| e.to_string())?;
-    let gps_fields = gps.map(crate::geo::exif_gps_fields).unwrap_or_default();
-    let mut fields = if opts.camera_info { crate::exifinfo::fields_to_keep(key) } else { vec![] };
-    for (tag, text) in [(exif::Tag::Artist, &opts.creator), (exif::Tag::Copyright, &opts.copyright)] {
+    let mut ifd0 = if opts.camera_info { crate::exifinfo::exif_to_keep(key) } else { craft_tiff::IfdBuilder::new() };
+    for (tag, text) in [(craft_tiff::tags::ARTIST, &opts.creator), (craft_tiff::tags::COPYRIGHT, &opts.copyright)] {
         let text = text.trim();
         if !text.is_empty() {
-            fields.retain(|f| f.tag != tag);
-            fields.push(exif::Field { tag, ifd_num: exif::In::PRIMARY, value: exif::Value::Ascii(vec![text.as_bytes().to_vec()]) });
+            ifd0.set(tag, craft_tiff::Value::Ascii(text.to_string()));
         }
     }
-    fields.extend(gps_fields.iter().cloned());
-    if !fields.is_empty() {
+    if let Some(at) = gps {
+        ifd0.set_child(craft_tiff::tags::GPS_IFD, crate::geo::exif_gps_ifd(at));
+    }
+    if !ifd0.entries.is_empty() || !ifd0.children.is_empty() {
         // an original field the writer refuses must not cost the location
-        jpeg = match crate::exifinfo::jpeg_with_exif(&jpeg, &fields, None) {
-            Ok(j) => j,
-            Err(_) if gps_fields.is_empty() => jpeg,
-            Err(_) => crate::exifinfo::jpeg_with_exif(&jpeg, &gps_fields, None).map_err(|e| e.to_string())?,
+        let with = crate::filemeta::write_exif_block(&ifd0, None).and_then(|b| crate::filemeta::jpeg_with_exif(&jpeg, &b));
+        jpeg = match (with, gps) {
+            (Ok(j), _) => j,
+            (Err(_), None) => jpeg,
+            (Err(_), Some(at)) => crate::filemeta::jpeg_with_exif(&jpeg, &crate::geo::exif_with_gps(at))?,
         };
     }
     if let Some(packet) = carried.packet(opts) {
@@ -171,10 +172,8 @@ mod tests {
         let key = original.to_string_lossy().to_string();
         let opts = Options { max_dim: 200, quality: 80, camera_info: true, creator: "Ana Pérez".into(), copyright: "© 2026 Ana Pérez".into(), signature: None, notes: false };
         let out = export_one(&key, &[], &dir, "credited", &opts, &Carried::default(), None).unwrap();
-        let file = std::fs::File::open(&out).unwrap();
-        let exif = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)).unwrap();
-        let text = |t| exif.get_field(t, exif::In::PRIMARY).map(|f| f.display_value().to_string());
-        let (artist, copyright, model) = (text(exif::Tag::Artist), text(exif::Tag::Copyright), text(exif::Tag::Model));
+        let m = crate::filemeta::exif(&out).unwrap();
+        let (artist, copyright, model) = (m.artist, m.copyright, m.model);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(artist.is_some_and(|a| a.contains("Ana P")), "artist");
         assert!(copyright.is_some_and(|c| c.contains("2026")), "copyright");

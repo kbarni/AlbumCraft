@@ -67,9 +67,8 @@ fn read_file(path: &str) -> Option<Vec<u8>> {
 
 /// The raw file's own "this way up", if it records one (from the file already read).
 fn raw_orientation(data: &[u8]) -> Option<Orientation> {
-    let exif = exif::Reader::new().read_from_container(&mut Cursor::new(data)).ok()?;
-    let v = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?.value.get_uint(0)?;
-    Orientation::from_exif(u8::try_from(v).ok()?)
+    let o = craft_metadata::try_read_exif(data).ok()?.orientation?;
+    Orientation::from_exif(u8::try_from(o.to_exif()).ok()?)
 }
 
 /// The largest embedded preview, at most `max_dim` pixels, decoded at a reduced scale when it is

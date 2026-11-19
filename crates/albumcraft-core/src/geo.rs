@@ -4,7 +4,7 @@
 //!
 //! The picture's own file is never changed: a place set by the user lives in `Meta.place` and
 //! overrides the file's GPS; `Place::Removed` hides the file's GPS too. Exports write the
-//! resulting position into the copy's EXIF (`exif_gps_fields`).
+//! resulting position into the copy's EXIF (`exif_gps_ifd`).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -240,39 +240,17 @@ pub fn describe(place: Option<&Place>, at: LatLon) -> String {
 // ---------------------------------------------------------------------------------------------
 // GPS stored in picture files
 
-fn rational_dms(v: &exif::Value) -> Option<f64> {
-    let exif::Value::Rational(r) = v else { return None };
-    let part = |i: usize| r.get(i).filter(|x| x.denom != 0).map(|x| x.to_f64());
-    let d = part(0)?;
-    Some(d + part(1).unwrap_or(0.0) / 60.0 + part(2).unwrap_or(0.0) / 3600.0)
-}
-
-fn ref_char(v: &exif::Value) -> Option<u8> {
-    match v {
-        exif::Value::Ascii(parts) => parts.first().and_then(|p| p.first()).map(|c| c.to_ascii_uppercase()),
-        _ => None,
-    }
-}
-
-/// The GPS position in an EXIF block, if any. (0, 0) counts as none: cameras without a fix write it.
-pub fn gps_of(exif: &exif::Exif) -> Option<LatLon> {
-    use exif::{In, Tag};
-    let get = |t: Tag| exif.get_field(t, In::PRIMARY).map(|f| &f.value);
-    let mut lat = get(Tag::GPSLatitude).and_then(rational_dms)?;
-    let mut lon = get(Tag::GPSLongitude).and_then(rational_dms)?;
-    if get(Tag::GPSLatitudeRef).and_then(ref_char) == Some(b'S') {
-        lat = -lat;
-    }
-    if get(Tag::GPSLongitudeRef).and_then(ref_char) == Some(b'W') {
-        lon = -lon;
-    }
-    if lat == 0.0 && lon == 0.0 {
+/// The GPS position of read metadata, if any. (0, 0) counts as none: cameras without a fix write it.
+pub fn gps_of(m: &craft_metadata::Metadata) -> Option<LatLon> {
+    let g = m.gps?;
+    if g.latitude == 0.0 && g.longitude == 0.0 {
         return None;
     }
-    LatLon::new(lat, lon)
+    LatLon::new(g.latitude, g.longitude)
 }
 
-/// The GPS position stored in a picture file (JPEG, TIFF-based raw files, HEIF, PNG, WebP).
+/// The GPS position stored in a picture file's EXIF (JPEG, TIFF-based raw files, PNG, WebP,
+/// CR3, RAF…; `filemeta`). An XMP position comes through the XMP sync as a place.
 pub fn file_gps(path: &str) -> Option<LatLon> {
     if path.starts_with(crate::imaging::SAMPLE_PREFIX) {
         return None;
@@ -280,35 +258,35 @@ pub fn file_gps(path: &str) -> Option<LatLon> {
     if crate::video::is_video(path) {
         return crate::video::probe(path)?.gps;
     }
-    let file = std::fs::File::open(path).ok()?;
-    let mut reader = std::io::BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    gps_of(&exif)
+    gps_of(&crate::filemeta::exif(std::path::Path::new(path))?)
 }
 
-/// EXIF fields that store `at` (GPS version 2.3, degrees/minutes/seconds), for exported copies.
-pub fn exif_gps_fields(at: LatLon) -> Vec<exif::Field> {
-    use exif::{Field, In, Rational, Tag, Value};
+/// The EXIF GPS directory that stores `at` (GPS version 2.3, degrees/minutes/seconds), for
+/// exported copies (`IfdBuilder::set_child(tags::GPS_IFD, …)`).
+pub fn exif_gps_ifd(at: LatLon) -> craft_tiff::IfdBuilder {
+    use craft_tiff::{IfdBuilder, Value, tags};
     let dms = |v: f64| {
         let v = v.abs();
         let d = v.floor();
         let m = ((v - d) * 60.0).floor();
         // seconds to 1/10000 s of arc (a few millimetres)
         let s = (((v - d) * 60.0 - m) * 60.0 * 10_000.0).round();
-        Value::Rational(vec![
-            Rational { num: d as u32, denom: 1 },
-            Rational { num: m as u32, denom: 1 },
-            Rational { num: s as u32, denom: 10_000 },
-        ])
+        Value::Rational(vec![(d as u32, 1), (m as u32, 1), (s as u32, 10_000)])
     };
-    let field = |tag, value| Field { tag, ifd_num: In::PRIMARY, value };
-    vec![
-        field(Tag::GPSVersionID, Value::Byte(vec![2, 3, 0, 0])),
-        field(Tag::GPSLatitudeRef, Value::Ascii(vec![if at.lat < 0.0 { b"S".to_vec() } else { b"N".to_vec() }])),
-        field(Tag::GPSLatitude, dms(at.lat)),
-        field(Tag::GPSLongitudeRef, Value::Ascii(vec![if at.lon < 0.0 { b"W".to_vec() } else { b"E".to_vec() }])),
-        field(Tag::GPSLongitude, dms(at.lon)),
-    ]
+    let mut gps = IfdBuilder::new();
+    gps.set(tags::GPS_VERSION_ID, Value::Byte(vec![2, 3, 0, 0]))
+        .set(tags::GPS_LATITUDE_REF, Value::Ascii(if at.lat < 0.0 { "S" } else { "N" }.into()))
+        .set(tags::GPS_LATITUDE, dms(at.lat))
+        .set(tags::GPS_LONGITUDE_REF, Value::Ascii(if at.lon < 0.0 { "W" } else { "E" }.into()))
+        .set(tags::GPS_LONGITUDE, dms(at.lon));
+    gps
+}
+
+/// An EXIF block (TIFF data) holding only the position `at`.
+pub fn exif_with_gps(at: LatLon) -> Vec<u8> {
+    let mut ifd0 = craft_tiff::IfdBuilder::new();
+    ifd0.set_child(craft_tiff::tags::GPS_IFD, exif_gps_ifd(at));
+    crate::filemeta::write_exif_block(&ifd0, None).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -752,36 +730,35 @@ mod tests {
         assert!(!Place::Set { lat: 0.0, lon: 200.0, name: String::new() }.is_valid());
     }
 
+    fn small_jpeg() -> Vec<u8> {
+        let mut jpeg = vec![];
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 8, image::Rgb([90, 120, 200])))
+            .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+            .unwrap();
+        jpeg
+    }
+
     #[test]
     fn gps_written_to_exif_reads_back() {
         let at = LatLon { lat: -33.856_784, lon: 151.215_297 };
-        let img = image::RgbImage::from_pixel(8, 8, image::Rgb([90, 120, 200]));
-        let mut jpeg = vec![];
-        image::DynamicImage::ImageRgb8(img).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
-        let file = crate::exifinfo::jpeg_with_exif(&jpeg, &exif_gps_fields(at), None).unwrap();
-        let exif = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(&file)).unwrap();
-        let back = gps_of(&exif).unwrap();
+        let file = crate::filemeta::jpeg_with_exif(&small_jpeg(), &exif_with_gps(at)).unwrap();
+        let m = craft_metadata::extract(&file);
+        let back = gps_of(&m).unwrap();
         assert!(back.km_to(at) < 0.001, "{back:?}");
         assert!(image::load_from_memory(&file).is_ok());
     }
 
     #[test]
     fn hostile_gps_is_ignored() {
-        use exif::{Field, In, Rational, Tag, Value};
-        let field = |tag, value| Field { tag, ifd_num: In::PRIMARY, value };
-        let img = image::RgbImage::new(4, 4);
-        let mut jpeg = vec![];
-        image::DynamicImage::ImageRgb8(img).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
-        for lat in [
-            Value::Rational(vec![Rational { num: 1, denom: 0 }]),
-            Value::Rational(vec![]),
-            Value::Rational(vec![Rational { num: 95, denom: 1 }]),
-            Value::Ascii(vec![b"12".to_vec()]),
-        ] {
-            let fields = [field(Tag::GPSLatitude, lat), field(Tag::GPSLongitude, Value::Rational(vec![Rational { num: 3, denom: 1 }]))];
-            let file = crate::exifinfo::jpeg_with_exif(&jpeg, &fields, None).unwrap();
-            let exif = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(&file)).unwrap();
-            assert_eq!(gps_of(&exif), None);
+        use craft_tiff::{IfdBuilder, Value, tags};
+        for lat in [Value::Rational(vec![(1, 0)]), Value::Rational(vec![]), Value::Rational(vec![(95, 1)]), Value::Ascii("12".into())] {
+            let mut gps = IfdBuilder::new();
+            gps.set(tags::GPS_LATITUDE, lat).set(tags::GPS_LONGITUDE, Value::Rational(vec![(3, 1)]));
+            let mut ifd0 = IfdBuilder::new();
+            ifd0.set_child(tags::GPS_IFD, gps);
+            let Ok(block) = crate::filemeta::write_exif_block(&ifd0, None) else { continue };
+            let file = crate::filemeta::jpeg_with_exif(&small_jpeg(), &block).unwrap();
+            assert_eq!(gps_of(&craft_metadata::extract(&file)), None);
         }
     }
 

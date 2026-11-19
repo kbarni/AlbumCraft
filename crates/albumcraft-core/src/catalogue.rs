@@ -82,7 +82,7 @@ pub fn read_details(key: &str) -> Details {
     if !crate::raw::is_raw(key)
         && let Some(head) = imaging::jpeg_head(key)
     {
-        let taken = head.exif().and_then(|e| crate::import::exif_date_of(&e));
+        let taken = head.metadata().and_then(|m| crate::import::taken_of(&m));
         return Details { dims: Some(head.oriented_dims()), taken, secs: None };
     }
     Details { dims: library::source_dims(key), taken: crate::import::date_taken(key), secs: None }

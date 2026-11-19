@@ -211,16 +211,16 @@ dependencies = [
  "albumcraft-edit",
  "chrono",
  "craft-atomic",
+ "craft-metadata",
+ "craft-tiff",
  "dirs",
  "epaint_default_fonts",
  "ffmpeg-next",
  "getrandom 0.4.3",
  "image",
  "jpeg-decoder",
- "kamadak-exif",
  "miniz_oxide 0.9.1",
  "rayon",
- "roxmltree 0.21.2",
  "serde",
  "serde_json",
  "trash",
@@ -256,6 +256,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc890384c8602f339876ded803c97ad529f3842aba97f6392b3dba0dd171769b"
 dependencies = [
  "equator",
+]
+
+[[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib",
 ]
 
 [[package]]
@@ -813,6 +828,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "brotli-decompressor"
+version = "6.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc031cd87c6529082b0b65c604e86af0ed7744841b17ccfe60b1e31fa606179e"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+]
+
+[[package]]
 name = "built"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1261,6 +1286,18 @@ version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
 
 [[package]]
+name = "craft-metadata"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
+dependencies = [
+ "brotli-decompressor",
+ "chrono",
+ "craft-tiff",
+ "quick-xml 0.41.0",
+ "serde",
+]
+
+[[package]]
 name = "craft-print"
 version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
@@ -1283,6 +1320,15 @@ dependencies = [
  "egui",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
+]
+
+[[package]]
+name = "craft-tiff"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3122,15 +3168,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kamadak-exif"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1130d80c7374efad55a117d715a3af9368f0fa7a2c54573afc15a188cd984837"
-dependencies = [
- "mutate_once",
-]
-
-[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3458,12 +3495,6 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
-
-[[package]]
-name = "mutate_once"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13d2233c9842d08cfe13f9eac96e207ca6a2ea10b80259ebe8ad0268be27d2af"
 
 [[package]]
 name = "naga"

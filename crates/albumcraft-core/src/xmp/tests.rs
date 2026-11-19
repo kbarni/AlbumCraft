@@ -55,7 +55,9 @@ const REGIONS: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
        <mwg-rs:Area stArea:x="0.5" stArea:y="0.5" stArea:w="0.1" stArea:h="0.1"/>
       </rdf:li>
       <rdf:li>
-       <rdf:Description mwg-rs:Name="Bob" mwg-rs:Type="Face"/>
+       <rdf:Description mwg-rs:Name="Bob" mwg-rs:Type="Face">
+        <mwg-rs:Area stArea:x="0.2" stArea:y="0.3" stArea:w="0.1" stArea:h="0.1"/>
+       </rdf:Description>
       </rdf:li>
       <rdf:li>
        <rdf:Description mwg-rs:Name="Eiffel Tower" mwg-rs:Type="Focus"/>
@@ -144,18 +146,6 @@ fn rejected_and_odd_ratings() {
 }
 
 #[test]
-fn gps_forms() {
-    assert_eq!(gps_coord("48,30,0N"), Some(48.5));
-    assert_eq!(gps_coord("2,15.0W"), Some(-2.25));
-    assert_eq!(gps_coord("-33.5"), Some(-33.5));
-    assert_eq!(gps_coord(""), None);
-    assert_eq!(gps_coord("N"), None);
-    assert_eq!(gps_coord("1,2,3,4N"), None);
-    let back = gps_coord(&gps_text(-12.345678, true)).unwrap();
-    assert!((back + 12.345678).abs() < 1e-6);
-}
-
-#[test]
 fn merge_keeps_what_it_does_not_know() {
     let notes = XmpNotes {
         rating: Some(2),
@@ -211,7 +201,8 @@ fn edits_round_trip() {
     assert!(out.starts_with("<?xpacket begin"));
     assert_eq!(parse(&out).unwrap().edits, Some(ops));
     // a later format is not read
-    let later = out.replace("&quot;format&quot;:1", "&quot;format&quot;:9");
+    let later = out.replace("\"format\":1", "\"format\":9");
+    assert_ne!(later, out);
     assert_eq!(parse(&later).unwrap().edits, None);
 }
 
@@ -230,7 +221,6 @@ fn hostile_packets_dont_panic() {
         let _ = merge(Some(bad), &XmpNotes { rating: Some(1), ..Default::default() }, true);
     }
     assert!(merge(Some("<broken"), &XmpNotes::default(), true).is_err());
-    let _ = gps_coord("1é");
 }
 
 /// A small real JPEG with an EXIF segment and an XMP segment.
@@ -346,8 +336,7 @@ fn damaged_jpeg_is_refused() {
     let file = jpeg_with_packet(ATTRS);
     for cut in [3, 10, 40, file.len() / 2] {
         let _ = replace_embedded(&file[..cut], "<x/>");
-        let mut c = std::io::Cursor::new(&file[..cut]);
-        let _ = jpeg_read(&mut c);
+        let _ = embedded_of(&craft_metadata::embedded(&file[..cut]));
     }
     assert!(replace_embedded(b"GIF89a", "<x/>").is_err());
     let big = "x".repeat(70_000);
@@ -360,3 +349,4 @@ fn tempdir(name: &str) -> PathBuf {
     std::fs::create_dir_all(&d).unwrap();
     d
 }
+

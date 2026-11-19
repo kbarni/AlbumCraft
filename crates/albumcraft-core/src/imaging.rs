@@ -82,8 +82,9 @@ impl JpegHead {
         if (5..=8).contains(&self.orientation) { (self.height, self.width) } else { (self.width, self.height) }
     }
 
-    pub fn exif(&self) -> Option<exif::Exif> {
-        exif::Reader::new().read_raw(self.exif.clone()?).ok()
+    /// What the EXIF block says (`craft-metadata`).
+    pub fn metadata(&self) -> Option<craft_metadata::Metadata> {
+        craft_metadata::try_read_exif(self.exif.as_deref()?).ok()
     }
 }
 
@@ -137,13 +138,7 @@ pub fn jpeg_head_of(mut r: impl std::io::Read) -> Option<JpegHead> {
                 return None;
             }
             let exif = exif_block.and_then(|b| b.get(6..).map(|t| t.to_vec()));
-            let orientation = exif
-                .as_ref()
-                .and_then(|t| exif::Reader::new().read_raw(t.clone()).ok())
-                .and_then(|e| e.get_field(exif::Tag::Orientation, exif::In::PRIMARY).and_then(|f| f.value.get_uint(0)))
-                .and_then(|o| u8::try_from(o).ok())
-                .filter(|o| (1..=8).contains(o))
-                .unwrap_or(1);
+            let orientation = exif.as_deref().map_or(1, |t| craft_metadata::edit::exif_orientation(t) as u8);
             return Some(JpegHead { width, height, orientation, exif });
         }
         let mut body = vec![0u8; body_len];
@@ -160,11 +155,7 @@ pub fn jpeg_head_of(mut r: impl std::io::Read) -> Option<JpegHead> {
 /// letterboxed or out-of-date one). Much cheaper than decoding the picture.
 pub fn embedded_preview(path: &str, min_side: u32) -> Option<RgbaImage> {
     let head = jpeg_head(path)?;
-    let exif = head.exif()?;
-    use exif::{In, Tag};
-    let off = exif.get_field(Tag::JPEGInterchangeFormat, In::THUMBNAIL)?.value.get_uint(0)? as usize;
-    let len = exif.get_field(Tag::JPEGInterchangeFormatLength, In::THUMBNAIL)?.value.get_uint(0)? as usize;
-    let bytes = exif.buf().get(off..off.checked_add(len)?)?;
+    let bytes = crate::filemeta::exif_thumbnail(head.exif.as_deref()?)?;
     let thumb = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?;
     if thumb.width().max(thumb.height()) < min_side {
         return None;
@@ -253,8 +244,8 @@ mod orientation_tests {
         let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
         let mut jpeg = Vec::new();
         rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95)).unwrap();
-        let field = exif::Field { tag: exif::Tag::Orientation, ifd_num: exif::In::PRIMARY, value: exif::Value::Short(vec![6]) };
-        let file = crate::exifinfo::jpeg_with_exif(&jpeg, &[field], None).unwrap();
+        let ifd0 = craft_tiff::IfdBuilder::new().with(craft_tiff::tags::ORIENTATION, craft_tiff::Value::Short(vec![6]));
+        let file = crate::filemeta::jpeg_with_exif(&jpeg, &crate::filemeta::write_exif_block(&ifd0, None).unwrap()).unwrap();
         let path = std::env::temp_dir().join(format!("albumcraft-orient-{}.jpg", std::process::id()));
         std::fs::write(&path, file).unwrap();
         let key = path.to_string_lossy().to_string();
