@@ -1844,3 +1844,27 @@ video-sound-on = Sound
 video-sound-off = Muted
 video-sound-hint = Turn the sound off or on (M)
 video-unreadable = This video can't be played.
+
+# XMP (xmp_view.rs, backend.rs, settings_view.rs)
+ctx-write-xmp = Write notes to XMP
+ctx-write-xmp-hint = Put the rating, caption, tags, people and edits in the pictures' XMP, for other photo programs
+settings-xmp-title = XMP
+settings-xmp-intro = At each scan, AlbumCraft reads the notes other photo programs keep in XMP, inside the picture or in a sidecar file next to it. Write notes to XMP, in a picture's menu, puts AlbumCraft's notes there.
+settings-xmp-embedded = Change the XMP inside picture files
+settings-xmp-embedded-hint = When a picture already has XMP inside (JPEG, PNG), write the notes there. Off: they go into a sidecar file (photo.jpg.xmp) and the picture file is not changed.
+xmp-read = { $n ->
+        [one] Notes of one picture brought in from its XMP
+       *[other] Notes of { $n } pictures brought in from their XMP
+    }
+xmp-task = { $n ->
+        [one] Writing the XMP of one picture
+       *[other] Writing the XMP of { $n } pictures
+    }
+xmp-result =
+    Notes written to the XMP of { $ok } of { $total ->
+        [one] { $total } picture
+       *[other] { $total } pictures
+    } ({ $sidecars } in sidecar files, { $inside } inside the pictures)
+xmp-stopped = The writing was stopped before the end.
+xmp-failed-list = Not written:
+fail-xmp = Could not write the XMP: unexpected error.

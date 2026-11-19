@@ -1838,3 +1838,27 @@ video-sound-on = Son
 video-sound-off = Muet
 video-sound-hint = Couper ou remettre le son (M)
 video-unreadable = Cette vidéo ne peut pas être lue.
+
+# XMP (xmp_view.rs, backend.rs, settings_view.rs)
+ctx-write-xmp = Écrire les notes en XMP
+ctx-write-xmp-hint = Mettre la note, la légende, les tags, les personnes et les retouches dans le XMP des photos, pour les autres logiciels photo
+settings-xmp-title = XMP
+settings-xmp-intro = À chaque analyse des dossiers, AlbumCraft lit les notes que d'autres logiciels photo gardent en XMP, dans la photo ou dans un fichier annexe à côté. Écrire les notes en XMP, dans le menu d'une photo, y met les notes d'AlbumCraft.
+settings-xmp-embedded = Modifier le XMP à l'intérieur des fichiers photo
+settings-xmp-embedded-hint = Quand une photo contient déjà du XMP (JPEG, PNG), y écrire les notes. Désactivé : elles vont dans un fichier annexe (photo.jpg.xmp) et le fichier photo n'est pas modifié.
+xmp-read = { $n ->
+        [one] Notes d'une photo reprises de son XMP
+       *[other] Notes de { $n } photos reprises de leur XMP
+    }
+xmp-task = { $n ->
+        [one] Écriture du XMP d'une photo
+       *[other] Écriture du XMP de { $n } photos
+    }
+xmp-result =
+    Notes écrites dans le XMP de { $ok } sur { $total ->
+        [one] { $total } photo
+       *[other] { $total } photos
+    } ({ $sidecars } dans des fichiers annexes, { $inside } dans les photos)
+xmp-stopped = L'écriture a été arrêtée avant la fin.
+xmp-failed-list = Non écrites :
+fail-xmp = Impossible d'écrire le XMP : erreur inattendue.

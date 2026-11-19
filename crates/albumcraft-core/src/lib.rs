@@ -41,3 +41,4 @@ pub mod thumbcache;
 pub mod video;
 pub mod vocabulary;
 pub mod xmp;
+pub mod xmp_sync;

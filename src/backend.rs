@@ -14,6 +14,8 @@ use crate::geo::{self, FileStamp, LatLon};
 use crate::imaging::{self, EditOp};
 use crate::library::{self, Done, IniFolder, Job, Loaded, Pool, Report, Store, Wake};
 use crate::slides::SlideSettings;
+use crate::xmp_sync;
+use std::collections::HashMap;
 use image::RgbaImage;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -77,6 +79,12 @@ pub trait Library {
     fn file_gps(&self, key: &str) -> Option<LatLon>;
     /// Start reading the GPS positions of these pictures in the background, until `stop`.
     fn index_gps(&self, files: Vec<FileStamp>, stop: Arc<AtomicBool>) -> GpsBatches;
+    /// Read the XMP of these pictures where it may have changed since `seen` (stamps by key),
+    /// in the background until `stop`; batches arrive as `Done::Xmp`.
+    fn index_xmp(&self, files: Vec<FileStamp>, seen: HashMap<String, (xmp_sync::Stamp, Option<xmp_sync::Stamp>)>, stop: Arc<AtomicBool>);
+    /// Write these notes into the pictures' XMP (`xmp_sync::write`), as a task; each picture
+    /// written arrives as `Done::XmpWritten`, the end as `Done::Report`.
+    fn write_xmp(&self, task: Task, jobs: Vec<(String, crate::xmp::XmpNotes)>, embedded_ok: bool);
     /// Reads pictures for output made by the window (print pages, collages).
     fn pictures(&self) -> Pictures;
 
@@ -352,6 +360,60 @@ impl Library for LocalLibrary {
         let cache = geo::gps_cache_path();
         std::thread::spawn(move || geo::index_files(files, cache, tx, stop));
         rx
+    }
+
+    fn index_xmp(&self, files: Vec<FileStamp>, seen: HashMap<String, (xmp_sync::Stamp, Option<xmp_sync::Stamp>)>, stop: Arc<AtomicBool>) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            xmp_sync::index(files, seen, xmp_sync::none_cache_path(), &|batch| {
+                send(Done::Xmp(batch));
+                true
+            }, stop);
+        });
+    }
+
+    fn write_xmp(&self, task: Task, jobs: Vec<(String, crate::xmp::XmpNotes)>, embedded_ok: bool) {
+        let send = self.sender();
+        self.run_task(task, tr!("fail-xmp"), move |step| {
+            let (mut sidecars, mut inside) = (0, 0);
+            let mut failed: Vec<String> = vec![];
+            let mut stopped = false;
+            for (i, (key, notes)) in jobs.iter().enumerate() {
+                if !step(i, jobs.len()) {
+                    stopped = true;
+                    break;
+                }
+                let name = key.rsplit(['/', '\\']).next().unwrap_or(key);
+                match std::panic::catch_unwind(|| xmp_sync::write(key, notes, embedded_ok)).unwrap_or_else(|_| Err("unexpected error".into())) {
+                    Ok((written, seen)) => {
+                        if written == crate::xmp::Written::Embedded {
+                            inside += 1;
+                        } else {
+                            sidecars += 1;
+                        }
+                        send(Done::XmpWritten(key.clone(), seen));
+                    }
+                    Err(e) => failed.push(format!("{name}: {e}")),
+                }
+            }
+            let ok = sidecars + inside;
+            let mut msg = tr!("xmp-result", ok = ok, total = jobs.len(), sidecars = sidecars, inside = inside);
+            if stopped {
+                msg.push_str(&format!("\n{}", tr!("xmp-stopped")));
+            }
+            if !failed.is_empty() {
+                msg.push_str(&format!("\n\n{}", tr!("xmp-failed-list")));
+                for f in failed.iter().take(10) {
+                    msg.push_str("\n• ");
+                    msg.push_str(f);
+                }
+                if failed.len() > 10 {
+                    let more = failed.len() - 10;
+                    msg.push_str(&format!("\n{}", tr!("export-more", n = more)));
+                }
+            }
+            if failed.is_empty() { Report::done(msg) } else { Report::failed(msg) }
+        });
     }
 
     fn pictures(&self) -> Pictures {

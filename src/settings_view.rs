@@ -271,6 +271,13 @@ impl App {
         if ui.add_enabled(!self.store.roots.is_empty(), egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::ADD, tr!("settings-excluded-add")), 13.5))).clicked() {
             self.add_excluded_folder();
         }
+        ui.add_space(14.0);
+        group(ui, &tr!("settings-xmp-title"));
+        note(ui, &tr!("settings-xmp-intro"));
+        ui.add_space(4.0);
+        if ui.checkbox(&mut self.store.xmp_embedded, tr!("settings-xmp-embedded")).on_hover_text(tr!("settings-xmp-embedded-hint")).changed() {
+            self.dirty = true;
+        }
     }
 
     fn settings_editing(&mut self, ui: &mut egui::Ui) {

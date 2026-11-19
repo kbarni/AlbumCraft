@@ -37,6 +37,8 @@ crates/albumcraft-core/src/   everything without a window (native: desktop app, 
   commands.rs      the command layer (Host, Headless); mcp.rs and control.rs: the MCP server and the window's control connection
   export.rs        export_one (edited JPEG copies, never overwriting); import.rs: copying from cards / folders
   exifinfo.rs raw.rs geo.rs thumbcache.rs gallery.rs movie.rs
+  xmp.rs           XMP packets: parse, merge (keeping what it doesn't know), inside JPEG / PNG / raws, sidecars
+  xmp_sync.rs      notes <-> XMP: the background read after a scan, applying changes field by field, writing
   video.rs         videos through the FFmpeg libraries (feature `video`): size, length, date, GPS, frames, the Playback thread
   mail.rs          Email: small copies attached to a new message in the mail program (Windows: Simple MAPI, `unsafe`)
   online.rs        online map services (tiles on disk, place search), only when allowed
@@ -50,6 +52,7 @@ src/                          the egui app (binary `albumcraft`)
   shell.rs         library UI (top bar, sidebar, justified grid, selection bar, status bar)
   library_view.rs  shared library helpers, menus, context menu, keys
   edit_view.rs     editor UI, compare modes; slideshow_view.rs: the full-screen slideshow
+  xmp_view.rs      XMP in the window: applying what the index read, Write notes to XMP
   video_view.rs    the editor for a video (player, filmstrip, in / out points, thumbnail frame); player.rs: textures, clock, sound
   map_view.rs      Places map and "Set location" mode; basemap.rs: built-in world map
   search_box.rs    the library's search box and its suggestions
@@ -81,6 +84,7 @@ People trust AlbumCraft with years of stars, captions, tags and edits. A malform
 ### Product rules
 
 1. **Original files change only when the user asks.** AlbumCraft never rewrites a picture's content, and never moves, renames or deletes a file on its own. When the user explicitly asks (a menu action, or a command the user agreed to), it may move, rename or delete files and folders, with these safeguards: removing files asks first and goes to the system's trash; nothing is overwritten; the notes follow the new path (`Store::moved`); Undo where the change can be taken back; a clear message when it can't be done. Edits, stars, captions, tags, people, albums and locations live in `library.json` (`Store`/`Meta`), keyed by file path. Export writes new files and never overwrites an existing one.
+1a. **XMP is the one exception, and only on the user's request** (Write notes to XMP, command `write_xmp`; `xmp.rs`, `xmp_sync.rs`): the notes go into the picture's sidecar file when it has one; else into the XMP block already inside the file (JPEG, PNG) unless `Store.xmp_embedded` is off, replacing only that block (the picture data is copied byte for byte, checked, temporary file + rename); else into a new sidecar (`photo.jpg.xmp`). Everything in the XMP that AlbumCraft doesn't manage is kept, and an XMP that can't be read is never replaced. Reading XMP (each scan, `Store.xmp_seen`) never writes anything.
 1b. **No network unless the user allowed it.** Only `online.rs` connects, and only when `Store.online_maps == Some(true)`; everything must keep working offline (built-in map and city list). The one other connection is `ai::download`: a pack of networks, when the user asks for it, from the project's own releases only (a pack names a release and file names, never an address), checked against the size and SHA-256 built into the program. And the check for a newer release (`updates.rs`, the shared `craft-update` crate): one request to the GitHub releases of `kbarni/AlbumCraft` at start while `Store.check_updates` (Settings › Interface, on by default) and when the user asks; a download only after the user chose to update.
 1c. **AI features compute on this computer.** No picture, face or search text leaves it. Networks are optional downloads with a permissive licence, shown before downloading; never put network files in the repository or the installers. What the networks find is derived data (`<data dir>/AlbumCraft/analysis/`, can be made again); what the user decides (names, corrections, accepted tags) goes in `library.json`. Analysis runs only on the `Pool`'s background queue and reads the unedited picture.
 2. **`.picasa.ini` files are read once per folder and never written** (`Store.imported_ini`).
