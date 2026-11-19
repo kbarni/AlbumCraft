@@ -152,6 +152,7 @@ pub fn parse(text: &str) -> Option<XmpNotes> {
         if paths.is_empty() {
             paths = digikam;
         }
+        drop_ancestors(&mut paths);
         // a plain keyword that is one of the hierarchy's levels is that level, not a tag of its own
         let known: std::collections::HashSet<&str> = paths.iter().flatten().map(String::as_str).collect();
         let mut extra: Vec<Vec<String>> = flat.iter().filter(|k| !known.contains(k.as_str())).map(|k| vec![k.clone()]).collect();
@@ -253,6 +254,28 @@ fn list(desc: roxmltree::Node, ns: &str, name: &str) -> Option<Vec<String>> {
         Prop::Attr(v) => Some([v.trim()].into_iter().filter(|s| !s.is_empty()).map(str::to_string).collect()),
         Prop::Elem(e) => Some(items(e).unwrap_or_else(|| [text_of(e)].into_iter().filter(|s| !s.is_empty()).collect())),
     }
+}
+
+/// Remove the paths that are only the levels above another one: Lightroom lists `Sport` and
+/// `Sport|Plongee` for a picture tagged Plongee (under Sport). Letter case is ignored, as in
+/// the tags.
+pub fn drop_ancestors(paths: &mut Vec<Vec<String>>) {
+    let keyed: Vec<Vec<String>> = paths.iter().map(|p| p.iter().map(|t| crate::tags::key(t)).collect()).collect();
+    let mut i = 0;
+    paths.retain(|_| {
+        let p = &keyed[i];
+        i += 1;
+        !keyed.iter().any(|q| q.len() > p.len() && q.starts_with(p))
+    });
+}
+
+/// The tags to list in `dc:subject`: each tag and, as Lightroom does, the tags above it, so a
+/// program that knows only plain keywords finds the picture under Sport as well.
+fn keywords(paths: &[Vec<String>]) -> Vec<String> {
+    let mut out: Vec<String> = paths.iter().flatten().cloned().collect();
+    out.sort_by_key(|t| crate::tags::key(t));
+    out.dedup_by(|a, b| crate::tags::key(a) == crate::tags::key(b));
+    out
 }
 
 fn split_path(s: &str, sep: char) -> Vec<String> {
@@ -481,11 +504,8 @@ fn ours(notes: &XmpNotes, digikam: bool) -> String {
         body.push_str(&format!("   <dc:description>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">{}</rdf:li>\n    </rdf:Alt>\n   </dc:description>\n", escape(c)));
     }
     if let Some(tags) = notes.tags.as_ref().filter(|t| !t.is_empty()) {
-        let mut leaves: Vec<String> = tags.iter().filter_map(|p| p.last().cloned()).collect();
-        leaves.sort();
-        leaves.dedup();
         use_ns("dc", NS_DC, &mut ns);
-        body.push_str(&bag("dc:subject", &leaves));
+        body.push_str(&bag("dc:subject", &keywords(tags)));
         let hier: Vec<String> = tags.iter().filter(|p| !p.is_empty()).map(|p| p.join("|")).collect();
         use_ns("lr", NS_LR, &mut ns);
         body.push_str(&bag("lr:hierarchicalSubject", &hier));
