@@ -191,8 +191,18 @@ fn changes(meta: &mut Meta, new: &XmpNotes, old: &XmpNotes) {
     if new.caption != old.caption {
         meta.caption = new.caption.clone().unwrap_or_default();
     }
-    if new.tags != old.tags {
+    let old_tags = old.tags.clone().map(|mut t| {
+        xmp::drop_ancestors(&mut t);
+        t
+    });
+    if new.tags != old_tags {
         meta.tags = new.tags.as_ref().map(|t| leaves(t)).unwrap_or_default();
+    } else if new.tags != old.tags {
+        // read before the levels above a tag were told apart from the tags: they were added
+        // as tags of their own (Sport beside Plongee); only those go
+        let now: HashSet<String> = new.tags.as_deref().map(leaves).unwrap_or_default().iter().map(|t| key(t)).collect();
+        let gone: HashSet<String> = old.tags.as_deref().map(leaves).unwrap_or_default().iter().map(|t| key(t)).filter(|t| !now.contains(t)).collect();
+        meta.tags.retain(|t| !gone.contains(&key(t)));
     }
     if new.people != old.people {
         meta.people = new.people.clone().unwrap_or_default();
@@ -210,6 +220,16 @@ fn changes(meta: &mut Meta, new: &XmpNotes, old: &XmpNotes) {
         // an edit list removed elsewhere is kept: AlbumCraft's own edits are only undone here
         meta.edits = e.clone();
     }
+}
+
+/// Whether these notes were read when the levels above a tag were taken as tags of their own
+/// (`xmp::drop_ancestors`): the picture is read again to undo it.
+pub fn has_ancestors(notes: &XmpNotes) -> bool {
+    notes.tags.as_ref().is_some_and(|t| {
+        let mut d = t.clone();
+        xmp::drop_ancestors(&mut d);
+        d.len() != t.len()
+    })
 }
 
 /// The tags themselves (the last level of each path), each once.
@@ -383,6 +403,18 @@ mod tests {
         let gone = XmpNotes { caption: None, ..back.clone() };
         apply(&mut m, &gone, Some(&back));
         assert_eq!(m.caption, "");
+    }
+
+    #[test]
+    fn levels_once_taken_as_tags_are_removed() {
+        // read before: Sport (only the level above Plongee) became a tag; sea was added here
+        let old = XmpNotes { tags: Some(vec![s(&["Sport"]), s(&["Sport", "Plongee"])]), rating: Some(2), ..Default::default() };
+        assert!(has_ancestors(&old));
+        let mut m = Meta { tags: s(&["Sport", "Plongee", "sea"]), rating: 4, ..Default::default() };
+        let new = XmpNotes { tags: Some(vec![s(&["Sport", "Plongee"])]), rating: Some(2), ..Default::default() };
+        assert!(!has_ancestors(&new));
+        assert!(apply(&mut m, &new, Some(&old)));
+        assert_eq!((m.tags, m.rating), (s(&["Plongee", "sea"]), 4));
     }
 
     #[test]

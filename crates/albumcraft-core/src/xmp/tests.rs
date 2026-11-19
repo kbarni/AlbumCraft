@@ -92,6 +92,39 @@ fn reads_attributes_alternatives_and_hierarchy() {
     assert_eq!(n.people, None);
 }
 
+/// Lightroom: every level above a tag listed too, in both lists.
+const LIGHTROOM: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 6.0.0">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/">
+   <dc:subject><rdf:Bag>
+    <rdf:li>France</rdf:li><rdf:li>Grand Est</rdf:li><rdf:li>Aube</rdf:li><rdf:li>Bateau</rdf:li>
+    <rdf:li>Femme</rdf:li><rdf:li>Marie</rdf:li><rdf:li>Sport</rdf:li><rdf:li>Plongee</rdf:li>
+   </rdf:Bag></dc:subject>
+   <lr:hierarchicalSubject><rdf:Bag>
+    <rdf:li>France</rdf:li><rdf:li>France|Grand Est</rdf:li><rdf:li>France|Grand Est|Aube</rdf:li>
+    <rdf:li>Bateau</rdf:li><rdf:li>Femme</rdf:li><rdf:li>Femme|Marie</rdf:li>
+    <rdf:li>sport</rdf:li><rdf:li>Sport|Plongee</rdf:li>
+   </rdf:Bag></lr:hierarchicalSubject>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>"#;
+
+#[test]
+fn levels_listed_above_a_tag_are_not_tags() {
+    let n = parse(LIGHTROOM).unwrap();
+    assert_eq!(n.tags, Some(vec![s(&["Bateau"]), s(&["Femme", "Marie"]), s(&["France", "Grand Est", "Aube"]), s(&["Sport", "Plongee"])]));
+}
+
+#[test]
+fn written_keywords_include_the_levels_above() {
+    let notes = XmpNotes { tags: Some(vec![s(&["Sport", "Plongee"]), s(&["Bateau"])]), ..Default::default() };
+    let packet = merge(None, &notes, false).unwrap();
+    for k in ["<rdf:li>Sport</rdf:li>", "<rdf:li>Plongee</rdf:li>", "<rdf:li>Sport|Plongee</rdf:li>"] {
+        assert!(packet.contains(k), "{k} missing in {packet}");
+    }
+    assert_eq!(parse(&packet).unwrap(), notes.normalized());
+}
+
 #[test]
 fn reads_face_regions_and_slash_tags() {
     let n = parse(REGIONS).unwrap();

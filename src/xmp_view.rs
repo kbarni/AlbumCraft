@@ -19,7 +19,8 @@ impl App {
         if files.is_empty() {
             return;
         }
-        let seen: HashMap<_, _> = self.store.xmp_seen.iter().map(|(k, s)| (k.clone(), (s.file, s.sidecar))).collect();
+        // read again: what was seen with the levels above its tags taken as tags
+        let seen: HashMap<_, _> = self.store.xmp_seen.iter().filter(|(_, s)| !xmp_sync::has_ancestors(&s.notes)).map(|(k, s)| (k.clone(), (s.file, s.sidecar))).collect();
         let stop = Arc::new(AtomicBool::new(false));
         self.lib.index_xmp(files, seen, stop.clone());
         self.xmp_index = Some(stop);
