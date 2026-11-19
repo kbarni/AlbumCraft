@@ -1,14 +1,15 @@
 //! Printing on Linux and macOS through CUPS, the pages sent as a PDF of the chosen paper size.
 //!
 //! Two ways to reach it, chosen once (`spooler`):
-//! - **IPP** straight to the scheduler's socket (or `CUPS_SERVER`), in this process: what a
-//!   Flatpak can do, since it has the socket (`--socket=cups`) but not the CUPS programs.
+//! - **CUPS's programs** when they are installed: `craft-print` lists the printers (`lpstat`,
+//!   with the driverless network printers CUPS has no queue for, which only its programs can
+//!   print to) and sends the job (`lp`, the PDF on its standard input); the paper sizes and
+//!   resolution come from `lpoptions` (`tools`).
+//! - Else **IPP** straight to the scheduler's socket (or `CUPS_SERVER`), in this process: what a
+//!   Flatpak does, since it has the socket (`--socket=cups`) but not the CUPS programs.
 //!   `craft-ipp` finds the server, lists the printers and the default one, and encodes and reads
 //!   the messages; this file adds what it doesn't do yet: Get-Printer-Attributes (the paper sizes,
 //!   the default paper and resolution) and a Print-Job that names the paper (`ipp`).
-//! - Else **CUPS's programs**: `craft-print` lists the printers (`lpstat`, driverless ones too)
-//!   and sends the job (`lp`, the PDF on its standard input); the paper sizes and resolution come
-//!   from `lpoptions` (`tools`).
 
 use super::{Paper, PrinterChoice};
 use std::sync::OnceLock;
@@ -22,12 +23,10 @@ fn spooler() -> Option<&'static Spooler> {
     static SPOOLER: OnceLock<Option<Spooler>> = OnceLock::new();
     SPOOLER
         .get_or_init(|| {
-            if let Some(endpoint) = craft_ipp::Endpoint::detect() {
-                Some(Spooler::Ipp(endpoint))
-            } else if tools::running() {
+            if tools::running() {
                 Some(Spooler::Tools)
             } else {
-                None
+                craft_ipp::Endpoint::detect().map(Spooler::Ipp)
             }
         })
         .as_ref()
