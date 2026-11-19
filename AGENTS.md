@@ -61,7 +61,7 @@ src/                          the egui app (binary `albumcraft`)
   info_panel.rs    editor's info panel (properties, EXIF, location map, tags)
   import_view.rs   Import view (copy from a card, camera or folder into a new library folder)
   online.rs        map tiles as textures (adds to core's online.rs)
-  print.rs         printers: Win32 GDI (`unsafe`, Windows only) and CUPS (adds to core's print.rs)
+  print.rs         printers through the suite's craft-print (Windows) and CUPS (print_cups.rs: IPP with craft-ipp, else lp); adds to core's print.rs
   print_view.rs    print UI
   collage_view.rs  collage and contact sheet screen
   slides.rs        slideshow music (adds to core's slides.rs)
@@ -95,7 +95,7 @@ People trust AlbumCraft with years of stars, captions, tags and edits. A malform
 6b. **Icons come from `src/icons.rs`** (Material Symbols, one font for every platform), never emoji or Unicode symbols. Need a new one? Add it there and rebuild the font subset (`assets/fonts/README.md`).
 7. **Verify UI changes visually.** `cargo run -- --screenshot out.png` renders one frame offscreen and exits; `ALBUMCRAFT_SHOT_VIEW=edit|presets|effects|slideshow|movie|print|compare|props|zoom|tray` and `ALBUMCRAFT_THEME=light|dark` pick what is shown. Look at the PNG.
 8. **Everything is a command.** New user-visible actions get a command in `src/commands.rs` (name, description, JSON schema, `run` arm working on `Host`, test), so agents can use them through the MCP server (`albumcraft --mcp`). Commands take pictures by key, validate every parameter and return `Err` for bad input; slow work goes in `Outcome::Later`. Prefer having the UI call the same code. (Many older UI actions still change state directly; move them over when touching them.)
-9. **Platform code is isolated.** `unsafe` exists only in `print.rs` (printing) and core's `mail.rs` (Simple MAPI for Email), both under `#[cfg(windows)]`; every block keeps its invariants obvious and gets a `SAFETY:` comment when touched. Don't add `unsafe` elsewhere. Platform-specific behaviour (file manager, printing) needs a working or clearly reported fallback on Linux and macOS.
+9. **Platform code is isolated.** `unsafe` exists only in core's `mail.rs` (Simple MAPI for Email), under `#[cfg(windows)]` (printing goes through the suite's `craft-print` and `craft-ipp`, which have none in AlbumCraft); every block keeps its invariants obvious and gets a `SAFETY:` comment when touched. Don't add `unsafe` elsewhere. Platform-specific behaviour (file manager, printing) needs a working or clearly reported fallback on Linux and macOS.
 10. **The window reads pictures and notes only through its `Library`** (`src/backend.rs`): scans, thumbnails and previews, picture sizes, EXIF, GPS, `.picasa.ini`, saving the notes, export / gallery / movie / collage. Don't call `load_source`, `std::fs` or `Store::load` from `App` or the views; add a method to `Library` (implemented in `LocalLibrary`) instead, so a library on a server can stand in later. Code that must also run in a browser (the edit pipeline) goes in `albumcraft-edit`, which must keep building with `cargo build -p albumcraft-edit --target wasm32-unknown-unknown`.
 
 ## 4. Picking work
