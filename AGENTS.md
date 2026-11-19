@@ -27,7 +27,9 @@ crates/albumcraft-ai/src/     what the AI features share; depends on no other cr
   models.rs        the packs of networks (built-in models.json); download.rs: fetching one, checked
   store.rs         what was found in each picture: files of fixed-size records, only added to
   search.rs        the search networks: picture and text to vectors, int8 vectors, ranking
+crates/albumcraft-immich/src/ the HTTP client for an Immich server: address check, sign-in, sync stream (Mirror), pictures
 crates/albumcraft-core/src/   everything without a window (native: desktop app, later the server)
+  immich.rs        an Immich server as the library: the engine (sync, notes as changes, caches); remote.rs: server keys read by the picture readers
   analysis.rs      the background analysis of the library (Analysis, on the Pool's background queue); the packs
   smart_search.rs  smart search: the pack in use, ranking by text or by a picture
   tag_proposals.rs tags proposed from the search vectors; vocabulary.rs: the built-in words
@@ -46,7 +48,8 @@ src/                          the egui app (binary `albumcraft`)
   main.rs          entry point, --screenshot, --mcp; uses the core modules under their old names (crate::library, …)
   app.rs           App state + eframe update loop, screenshot capture
   dialogs.rs       the dialogs and the toast; demo.rs: the demo state behind --screenshot
-  backend.rs       the Library interface: how App reads pictures and saves notes (LocalLibrary today)
+  backend.rs       the Library interface: how App reads pictures and saves notes (LocalLibrary)
+  immich_library.rs the window's library: this computer's folders, or an Immich server's pictures (ImmichLibrary); immich_view.rs: sign-in dialog, switch, status
   shell.rs         library UI (top bar, sidebar, justified grid, selection bar, status bar)
   library_view.rs  shared library helpers, menus, context menu, keys
   edit_view.rs     editor UI, compare modes; slideshow_view.rs: the full-screen slideshow
@@ -81,7 +84,7 @@ People trust AlbumCraft with years of stars, captions, tags and edits. A malform
 ### Product rules
 
 1. **Original files change only when the user asks.** AlbumCraft never rewrites a picture's content, and never moves, renames or deletes a file on its own. When the user explicitly asks (a menu action, or a command the user agreed to), it may move, rename or delete files and folders, with these safeguards: removing files asks first and goes to the system's trash; nothing is overwritten; the notes follow the new path (`Store::moved`); Undo where the change can be taken back; a clear message when it can't be done. Edits, stars, captions, tags, people, albums and locations live in `library.json` (`Store`/`Meta`), keyed by file path. Export writes new files and never overwrites an existing one.
-1b. **No network unless the user allowed it.** Only `online.rs` connects, and only when `Store.online_maps == Some(true)`; everything must keep working offline (built-in map and city list). The one other connection is `ai::download`: a pack of networks, when the user asks for it, from the project's own releases only (a pack names a release and file names, never an address), checked against the size and SHA-256 built into the program. And the check for a newer release (`updates.rs`, the shared `craft-update` crate): one request to the GitHub releases of `kbarni/AlbumCraft` at start while `Store.check_updates` (Settings › Interface, on by default) and when the user asks; a download only after the user chose to update.
+1b. **No network unless the user allowed it.** Only `online.rs` connects, and only when `Store.online_maps == Some(true)`; everything must keep working offline (built-in map and city list). The one other connection is `ai::download`: a pack of networks, when the user asks for it, from the project's own releases only (a pack names a release and file names, never an address), checked against the size and SHA-256 built into the program. And the check for a newer release (`updates.rs`, the shared `craft-update` crate): one request to the GitHub releases of `kbarni/AlbumCraft` at start while `Store.check_updates` (Settings › Interface, on by default) and when the user asks; a download only after the user chose to update. And the Immich server the user signed in to (`immich.rs`, `crates/albumcraft-immich`): nothing connects before the user signs in; for the server's pictures AlbumCraft uses Immich's own faces and smart search, which run on that server where the pictures already are.
 1c. **AI features compute on this computer.** No picture, face or search text leaves it. Networks are optional downloads with a permissive licence, shown before downloading; never put network files in the repository or the installers. What the networks find is derived data (`<data dir>/AlbumCraft/analysis/`, can be made again); what the user decides (names, corrections, accepted tags) goes in `library.json`. Analysis runs only on the `Pool`'s background queue and reads the unedited picture.
 2. **`.picasa.ini` files are read once per folder and never written** (`Store.imported_ini`).
 3. **Clean-room.** Other programs may be studied for behaviour and look only; never copy their code, assets or texts, and don't name them in the docs or user-facing text. Supported foreign file formats (such as `.picasa.ini`) are described as file formats. Third-party assets must be permissively licensed, with their license next to them; demo images are generated (`imaging::sample_image`) or public domain, never personal photos.
