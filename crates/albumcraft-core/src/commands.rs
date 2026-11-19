@@ -401,6 +401,7 @@ Call `rescan` afterwards to see the new pictures in the library.",
                     "max_size": { "type": "integer", "minimum": 0, "description": "Longest side; 0 = full size", "default": 0, "required": false },
                     "quality": { "type": "integer", "minimum": 50, "maximum": 100, "default": 90, "required": false },
                     "include_location": { "type": "boolean", "description": "Write the picture's location (GPS) into the copy; default: the setting of the Export window", "required": false },
+                    "include_notes": { "type": "boolean", "description": "Put the picture's rating, caption, tags and people in the copy's XMP; default: the setting of the Export window", "required": false },
                     "include_camera_info": { "type": "boolean", "description": "Copy the original's camera information (EXIF: camera, lens, exposure, date taken; not the location) into the copy; default: the setting of the Export window", "required": false },
                     "creator": { "type": "string", "description": "The creator's name written into the copy (EXIF Artist); default: the one set in Settings", "required": false },
                     "copyright": { "type": "string", "description": "The copyright notice written into the copy (EXIF Copyright); default: the one set in Settings", "required": false }
@@ -774,13 +775,38 @@ fn iso(ts: i64) -> String {
     chrono::Local.timestamp_opt(ts, 0).single().map(|d| d.format("%Y-%m-%dT%H:%M:%S%:z").to_string()).unwrap_or_default()
 }
 
-/// What exporting one picture needs: key, file name, edits, place.
-pub type ExportJob = (String, String, Vec<EditOp>, Option<Place>);
+/// What exporting one picture needs.
+#[derive(Clone, Debug, Default)]
+pub struct ExportJob {
+    pub key: String,
+    /// The file name.
+    pub name: String,
+    pub edits: Vec<EditOp>,
+    pub place: Option<Place>,
+    /// The notes for the copy's XMP (`xmp_sync::for_copy`).
+    pub notes: crate::xmp::XmpNotes,
+}
+
+impl ExportJob {
+    /// The file name without its extension.
+    pub fn stem(&self) -> &str {
+        self.name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&self.name)
+    }
+
+    /// What the copy carries: the notes, and the position when `with_location` (the user's
+    /// place, else the file's GPS; reads the file).
+    pub fn carried(&self, with_location: bool) -> crate::export::Carried {
+        let gps = if with_location { geo::effective(self.place.as_ref(), geo::file_gps(&self.key)) } else { None };
+        crate::export::Carried { gps, notes: self.notes.clone() }
+    }
+}
 
 pub fn export_job(host: &dyn Host, id: usize) -> ExportJob {
     let Some(p) = host.photos().get(id) else { return Default::default() };
-    let place = host.store().meta.get(&p.key).and_then(|m| m.place.clone());
-    (p.key.clone(), p.name.clone(), edits_of(host, id), place)
+    let store = host.store();
+    let meta = store.meta.get(&p.key);
+    let notes = meta.map(|m| crate::xmp_sync::for_copy(m, &store.tag_parents)).unwrap_or_default();
+    ExportJob { key: p.key.clone(), name: p.name.clone(), edits: edits_of(host, id), place: meta.and_then(|m| m.place.clone()), notes }
 }
 
 /// The notes to write into a picture's XMP (`xmp_sync::to_write`).
@@ -1447,17 +1473,16 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 creator: opt_str(args, "creator").unwrap_or(&store.export_creator).to_string(),
                 copyright: opt_str(args, "copyright").unwrap_or(&store.export_copyright).to_string(),
                 signature: None,
+                notes: opt_bool(args, "include_notes")?.unwrap_or(store.export_notes),
             };
             let jobs: Vec<ExportJob> = ids.iter().map(|&id| export_job(host, id)).collect();
             Ok(Outcome::Later(Box::new(move || {
                 let mut done = vec![];
                 let mut failed = vec![];
-                for (key, name, edits, place) in &jobs {
-                    let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-                    let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
-                    match crate::export::export_one(key, edits, &dir, stem, &opts, gps, None) {
+                for job in &jobs {
+                    match crate::export::export_one(&job.key, &job.edits, &dir, job.stem(), &opts, &job.carried(with_location), None) {
                         Ok(p) => done.push(p.to_string_lossy().to_string()),
-                        Err(e) => failed.push(json!({ "key": key, "error": e })),
+                        Err(e) => failed.push(json!({ "key": job.key, "error": e })),
                     }
                 }
                 Ok(Reply::json(json!({ "written": done, "failed": failed })))

@@ -433,20 +433,18 @@ impl Library for LocalLibrary {
             let mut ok = 0;
             let mut failed: Vec<String> = vec![];
             let mut stopped = false;
-            for (i, (key, name, edits, place)) in jobs.iter().enumerate() {
+            for (i, job) in jobs.iter().enumerate() {
                 if !step(i, jobs.len()) {
                     stopped = true;
                     break;
                 }
-                let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let gps = if with_location { geo::effective(place.as_ref(), geo::file_gps(key)) } else { None };
-                    crate::export::export_one(key, edits, &dir, stem, &opts, gps, logo.as_ref())
+                    crate::export::export_one(&job.key, &job.edits, &dir, job.stem(), &opts, &job.carried(with_location), logo.as_ref())
                 }))
                 .unwrap_or_else(|_| Err("unexpected error".into()));
                 match result {
                     Ok(_) => ok += 1,
-                    Err(e) => failed.push(format!("{name}: {e}")),
+                    Err(e) => failed.push(format!("{}: {e}", job.name)),
                 }
             }
             let mut msg = tr!("export-result", ok = ok, total = jobs.len(), path = dir.display().to_string());

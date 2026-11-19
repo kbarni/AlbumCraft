@@ -312,6 +312,20 @@ pub fn to_write(meta: &Meta, tag_parents: &BTreeMap<String, String>) -> XmpNotes
     }
 }
 
+/// The notes an exported copy carries in its XMP: rating, caption, tags (with their
+/// hierarchy) and people. Not the pick / reject flag (a choice about the original) nor the
+/// edits (already applied); the position follows the export's location setting.
+pub fn for_copy(meta: &Meta, tag_parents: &BTreeMap<String, String>) -> XmpNotes {
+    let some = |v: Vec<String>| (!v.is_empty()).then_some(v);
+    XmpNotes {
+        rating: (meta.rating > 0).then(|| meta.rating.min(MAX_RATING) as i8),
+        caption: Some(meta.caption.trim().to_string()).filter(|c| !c.is_empty()),
+        tags: some(meta.tags.clone()).map(|t| t.iter().map(|t| path_of(t, tag_parents)).collect()),
+        people: some(meta.people.clone()),
+        ..Default::default()
+    }
+}
+
 /// Write the notes into a picture's XMP (`xmp::write_for`) and say what is there now, to be
 /// kept as `Store.xmp_seen` so that the next scan doesn't take AlbumCraft's own writing for a
 /// change made elsewhere.

@@ -242,6 +242,9 @@ pub struct Store {
     /// Exported copies keep the original's camera information (EXIF: camera, lens, exposure,
     /// date taken), without its GPS position, which follows `export_location`.
     pub export_exif: bool,
+    /// Exported and emailed copies carry the picture's notes (rating, caption, tags, people)
+    /// in their XMP.
+    pub export_notes: bool,
     /// Written into exported and emailed copies (EXIF Artist and Copyright) when not empty.
     pub export_creator: String,
     pub export_copyright: String,
@@ -320,6 +323,7 @@ impl Store {
             creator: self.export_creator.trim().to_string(),
             copyright: self.export_copyright.trim().to_string(),
             signature: self.export_signature.shows().then(|| self.export_signature.clone()),
+            notes: self.export_notes,
         }
     }
 }
@@ -347,6 +351,7 @@ impl Default for Store {
             online_maps: None,
             export_location: true,
             export_exif: true,
+            export_notes: true,
             export_creator: String::new(),
             export_copyright: String::new(),
             export_signature: Default::default(),

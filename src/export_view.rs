@@ -305,6 +305,7 @@ impl App {
             .on_hover_text(tr!("export-gps-hint"))
             .changed();
         changed |= ui.checkbox(&mut self.store.export_exif, tr!("export-exif")).on_hover_text(tr!("export-exif-hint")).changed();
+        changed |= ui.checkbox(&mut self.store.export_notes, tr!("export-notes")).on_hover_text(tr!("export-notes-hint")).changed();
         ui.add_space(4.0);
         egui::Grid::new("credit_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
             ui.label(tr!("export-creator"));

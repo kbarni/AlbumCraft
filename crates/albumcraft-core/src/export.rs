@@ -51,6 +51,31 @@ pub struct Options {
     pub creator: String,
     pub copyright: String,
     pub signature: Option<Signature>,
+    /// Put the picture's notes (rating, caption, tags, people) in the copy's XMP.
+    pub notes: bool,
+}
+
+/// What a copy carries besides the picture: the position for its EXIF and XMP, and the notes
+/// for its XMP (written when `Options.notes`).
+#[derive(Clone, Debug, Default)]
+pub struct Carried {
+    pub gps: Option<crate::geo::LatLon>,
+    pub notes: crate::xmp::XmpNotes,
+}
+
+impl Carried {
+    /// The XMP packet for the copy, None when it would hold nothing.
+    fn packet(&self, opts: &Options) -> Option<String> {
+        if !opts.notes {
+            return None;
+        }
+        let mut n = self.notes.clone();
+        n.gps = self.gps.map(|g| [g.lat, g.lon]);
+        if n.is_empty() {
+            return None;
+        }
+        crate::xmp::merge(None, &n, false).ok()
+    }
 }
 
 /// Read a logo file for `sign` (any picture format; its transparency is kept).
@@ -81,7 +106,8 @@ pub fn sign(img: RgbaImage, sig: &Signature, logo: Option<&RgbaImage>) -> RgbaIm
 /// Export one picture with its edits as `<stem>.jpg` in `dir` (or `<stem>-1.jpg`, … when taken),
 /// made as `opts` says, with `gps` in its EXIF and `logo` for a logo signature (`load_logo`).
 /// Never overwrites a file, and removes its own half-written file when something fails.
-pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Options, gps: Option<crate::geo::LatLon>, logo: Option<&RgbaImage>) -> Result<PathBuf, String> {
+pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Options, carried: &Carried, logo: Option<&RgbaImage>) -> Result<PathBuf, String> {
+    let gps = carried.gps;
     let src = imaging::load_source(key, opts.max_dim).ok_or_else(|| crate::msg!("export-unreadable", "the picture could not be read"))?;
     let mut img = imaging::apply_all(&src, edits);
     if let Some(sig) = &opts.signature {
@@ -108,6 +134,12 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Op
             Err(_) if gps_fields.is_empty() => jpeg,
             Err(_) => crate::exifinfo::jpeg_with_exif(&jpeg, &gps_fields, None).map_err(|e| e.to_string())?,
         };
+    }
+    if let Some(packet) = carried.packet(opts) {
+        // a packet too large to go in (thousands of tags) leaves the copy without it
+        if let Ok(j) = crate::xmp::jpeg_with_xmp(&jpeg, &packet) {
+            jpeg = j;
+        }
     }
     let mut n = 0;
     let (file, out) = loop {
@@ -149,8 +181,8 @@ mod tests {
         let original = dir.join("original.jpg");
         crate::exifinfo::write_demo_jpeg(&original).unwrap();
         let key = original.to_string_lossy().to_string();
-        let opts = Options { max_dim: 200, quality: 80, camera_info: true, creator: "Ana Pérez".into(), copyright: "© 2026 Ana Pérez".into(), signature: None };
-        let out = export_one(&key, &[], &dir, "credited", &opts, None, None).unwrap();
+        let opts = Options { max_dim: 200, quality: 80, camera_info: true, creator: "Ana Pérez".into(), copyright: "© 2026 Ana Pérez".into(), signature: None, notes: false };
+        let out = export_one(&key, &[], &dir, "credited", &opts, &Carried::default(), None).unwrap();
         let file = std::fs::File::open(&out).unwrap();
         let exif = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)).unwrap();
         let text = |t| exif.get_field(t, exif::In::PRIMARY).map(|f| f.display_value().to_string());
@@ -181,9 +213,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.jpg"), b"keep me").unwrap();
         let key = format!("{}1", imaging::SAMPLE_PREFIX);
-        export_one(&key, &[], &dir, "a", &small(), None, None).unwrap();
-        export_one(&key, &[], &dir, "a", &small(), None, None).unwrap();
-        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", &small(), None, None);
+        export_one(&key, &[], &dir, "a", &small(), &Carried::default(), None).unwrap();
+        export_one(&key, &[], &dir, "a", &small(), &Carried::default(), None).unwrap();
+        let unreadable = export_one("/no/such/picture.jpg", &[], &dir, "b", &small(), &Carried::default(), None);
         let kept = std::fs::read(dir.join("a.jpg")).unwrap();
         let made = [dir.join("a-1.jpg"), dir.join("a-2.jpg")].map(|p| image::image_dimensions(p).ok());
         let b_exists = dir.join("b.jpg").exists();
@@ -202,8 +234,8 @@ mod tests {
         crate::exifinfo::write_demo_jpeg(&original).unwrap();
         let key = original.to_string_lossy().to_string();
         let at = crate::geo::LatLon { lat: 44.84, lon: -0.58 };
-        let with = export_one(&key, &[], &dir, "with", &Options { max_dim: 200, quality: 80, camera_info: true, ..Default::default() }, Some(at), None).unwrap();
-        let without = export_one(&key, &[], &dir, "without", &Options { max_dim: 200, quality: 80, ..Default::default() }, Some(at), None).unwrap();
+        let with = export_one(&key, &[], &dir, "with", &Options { max_dim: 200, quality: 80, camera_info: true, ..Default::default() }, &Carried { gps: Some(at), ..Default::default() }, None).unwrap();
+        let without = export_one(&key, &[], &dir, "without", &Options { max_dim: 200, quality: 80, ..Default::default() }, &Carried { gps: Some(at), ..Default::default() }, None).unwrap();
         let read = |p: &Path| crate::exifinfo::read(&p.to_string_lossy());
         let (with_info, without_info) = (read(&with), read(&without));
         let gps = (crate::geo::file_gps(&with.to_string_lossy()), crate::geo::file_gps(&without.to_string_lossy()));
@@ -216,5 +248,41 @@ mod tests {
         assert!(without_info.is_none_or(|i| i.camera().is_none()));
         // the location follows its own setting
         assert!(gps.0.is_some() && gps.1.is_some());
+    }
+
+    #[test]
+    fn notes_go_into_the_copys_xmp_only_when_asked() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-export-xmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("original.jpg");
+        crate::exifinfo::write_demo_jpeg(&original).unwrap();
+        let key = original.to_string_lossy().to_string();
+        let notes = crate::xmp::XmpNotes {
+            rating: Some(4),
+            caption: Some("Low tide".into()),
+            tags: Some(vec![vec!["Places".into(), "Brittany".into()]]),
+            people: Some(vec!["Ann".into()]),
+            ..Default::default()
+        };
+        let at = crate::geo::LatLon { lat: 47.5, lon: -3.1 };
+        let carried = Carried { gps: Some(at), notes };
+        let opts = |notes| Options { max_dim: 100, quality: 80, camera_info: true, notes, ..Default::default() };
+        let with = export_one(&key, &[], &dir, "with", &opts(true), &carried, None).unwrap();
+        let without = export_one(&key, &[], &dir, "without", &opts(false), &carried, None).unwrap();
+        let read = |p: &Path| crate::xmp::read_embedded(p).packet.and_then(|t| crate::xmp::parse(&t));
+        let (got, none) = (read(&with), read(&without));
+        let still_jpeg = image::open(&with).is_ok();
+        let exif = crate::exifinfo::read(&with.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&dir);
+        let got = got.expect("XMP in the copy");
+        assert_eq!((got.rating, got.caption.as_deref()), (Some(4), Some("Low tide")));
+        assert_eq!(got.tags, Some(vec![vec!["Places".to_string(), "Brittany".to_string()]]));
+        assert_eq!(got.people, Some(vec!["Ann".to_string()]));
+        assert!(got.gps.is_some_and(|[la, lo]| (la - 47.5).abs() < 1e-6 && (lo + 3.1).abs() < 1e-6));
+        assert!(none.is_none());
+        assert!(still_jpeg);
+        // the EXIF segment is still read
+        assert!(exif.is_some_and(|i| i.camera().is_some()));
     }
 }

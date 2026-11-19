@@ -369,6 +369,10 @@ impl App {
             .checkbox(&mut self.store.export_exif, tr!("settings-export-exif"))
             .on_hover_text(tr!("settings-export-exif-hint"))
             .changed();
+        changed |= ui
+            .checkbox(&mut self.store.export_notes, tr!("settings-export-notes"))
+            .on_hover_text(tr!("settings-export-notes-hint"))
+            .changed();
         ui.add_space(6.0);
         egui::Grid::new("settings_credit").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
             ui.label(tr!("settings-creator"));

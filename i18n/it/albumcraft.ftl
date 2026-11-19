@@ -1862,3 +1862,7 @@ xmp-result =
 xmp-stopped = La scrittura è stata interrotta prima della fine.
 xmp-failed-list = Non scritte:
 fail-xmp = Impossibile scrivere l'XMP: errore imprevisto.
+settings-export-notes = Includi le note (XMP)
+settings-export-notes-hint = Valutazione, didascalia, tag e persone, nell'XMP della copia, per altri programmi di foto e siti web. Il luogo segue l'impostazione sopra.
+export-notes = Note (XMP)
+export-notes-hint = Valutazione, didascalia, tag e persone, nell'XMP della copia.

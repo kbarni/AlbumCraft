@@ -125,13 +125,12 @@ fn copies(jobs: &[crate::commands::ExportJob], dir: &Path, with_location: bool, 
     let opts = crate::export::Options { max_dim: MAX_DIM, quality: QUALITY, signature: None, ..opts.clone() };
     let mut files = vec![];
     let mut failed = 0;
-    for (i, (key, name, edits, place)) in jobs.iter().enumerate() {
+    for (i, job) in jobs.iter().enumerate() {
         if !step(i, jobs.len()) {
             return None;
         }
-        let stem = &attachment_stem(name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name));
-        let gps = if with_location { crate::geo::effective(place.as_ref(), crate::geo::file_gps(key)) } else { None };
-        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::export::export_one(key, edits, dir, stem, &opts, gps, None)));
+        let stem = &attachment_stem(job.stem());
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::export::export_one(&job.key, &job.edits, dir, stem, &opts, &job.carried(with_location), None)));
         match made {
             Ok(Ok(p)) => files.push(p),
             _ => failed += 1,
@@ -273,8 +272,8 @@ mod tests {
         let out = dir.join("out");
         std::fs::create_dir_all(&out).unwrap();
         let jobs: Vec<crate::commands::ExportJob> = vec![
-            (big.to_string_lossy().to_string(), "big.jpg".into(), vec![crate::imaging::EditOp::Rotate(1)], None),
-            ("/no/such/picture.jpg".into(), "picture.jpg".into(), vec![], None),
+            crate::commands::ExportJob { key: big.to_string_lossy().to_string(), name: "big.jpg".into(), edits: vec![crate::imaging::EditOp::Rotate(1)], ..Default::default() },
+            crate::commands::ExportJob { key: "/no/such/picture.jpg".into(), name: "picture.jpg".into(), ..Default::default() },
         ];
         let (files, failed) = copies(&jobs, &out, false, &Default::default(), &|_, _| true).unwrap();
         assert_eq!((files.len(), failed), (1, 1));
