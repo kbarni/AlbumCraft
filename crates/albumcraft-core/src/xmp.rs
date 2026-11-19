@@ -4,9 +4,10 @@
 //! - `XmpNotes`: the fields AlbumCraft reads and writes (rating, pick / reject, caption, tags
 //!   with their hierarchy, people, GPS position, the edit list).
 //! - `parse`: a packet's text to `XmpNotes`; `merge`: `XmpNotes` written into a packet, keeping
-//!   every property AlbumCraft doesn't manage as it was.
-//! - `read_embedded` / `replace_embedded`: the packet inside a file (JPEG, PNG; reading also
-//!   WebP, TIFF-based raws and a packet scan for the rest).
+//!   every property AlbumCraft doesn't manage as it was. Both through `craft-metadata`
+//!   (`parse_xmp_with`, `write_xmp_with`, `merge_xmp`).
+//! - `read_embedded` / `replace_embedded`: the packet inside a file (read by `filemeta`: JPEG,
+//!   PNG, WebP, TIFF-based raws, CR3, RAF, JPEG XL; replaced in JPEG and PNG).
 //! - `sidecar_of`, `read_for`, `write_for`: where a picture's XMP is, and writing it there.
 //!
 //! Every input is hostile: sizes are capped, nothing panics, a packet that can't be read is
@@ -15,7 +16,6 @@
 use crate::library::Flag;
 use albumcraft_edit::imaging::EditOp;
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub const NS_X: &str = "adobe:ns:meta/";
@@ -33,8 +33,6 @@ pub const NS_ALBUMCRAFT: &str = "https://github.com/kbarni/AlbumCraft/ns/xmp/1.0
 
 /// Largest packet read or written (real ones are a few KB; raw developers' can reach 1 MB).
 pub const MAX_PACKET: usize = 4 << 20;
-/// How far into a file the packet scan looks.
-const SCAN_BYTES: u64 = 4 << 20;
 /// The edit list's format in `albumcraft:Edits`.
 const EDITS_FORMAT: u32 = 1;
 
@@ -90,170 +88,76 @@ impl XmpNotes {
 // ---------------------------------------------------------------------------------------------
 // reading a packet
 
-/// The notes in a packet, or None when its text isn't XML or has no RDF in it.
+/// The namespaces beyond the standard ones that AlbumCraft reads and writes, for
+/// `craft-metadata`: its own, and digiKam's slash-separated tag list.
+const NAMESPACES: &[craft_metadata::XmpNamespace<'static>] =
+    &[craft_metadata::XmpNamespace { prefix: "albumcraft", uri: NS_ALBUMCRAFT }, craft_metadata::XmpNamespace { prefix: "digiKam", uri: NS_DIGIKAM }];
+
+/// The notes in a packet, or None when its text isn't an XMP packet `craft-metadata` can read.
 pub fn parse(text: &str) -> Option<XmpNotes> {
     if text.len() > MAX_PACKET {
         return None;
     }
-    let doc = roxmltree::Document::parse_with_options(clean(text), parse_options()).ok()?;
-    let rdf = doc.descendants().find(|n| n.has_tag_name((NS_RDF, "RDF")))?;
-    let mut out = XmpNotes::default();
-    let mut paths: Vec<Vec<String>> = vec![];
-    let mut flat: Vec<String> = vec![];
-    let mut digikam: Vec<Vec<String>> = vec![];
-    let mut people: Vec<String> = vec![];
-    let mut any_tags = false;
-    let mut any_people = false;
-    let (mut lat, mut lon) = (None, None);
-    for desc in rdf.children().filter(|n| n.has_tag_name((NS_RDF, "Description"))) {
-        if let Some(v) = simple(desc, NS_XMP, "Rating") {
-            out.rating = v.trim().parse::<f64>().ok().filter(|r| r.is_finite()).map(|r| r.round().clamp(-1.0, 5.0) as i8);
-        }
-        if let Some(v) = simple(desc, NS_ALBUMCRAFT, "Flag") {
-            out.flag = match v.trim() {
-                "pick" => Some(Flag::Pick),
-                "reject" => Some(Flag::Reject),
-                _ => Some(Flag::None),
-            };
-        }
-        if let Some(v) = alt_text(desc, NS_DC, "description") {
-            out.caption = Some(v);
-        }
-        if let Some(list) = list(desc, NS_DC, "subject") {
-            any_tags = true;
-            flat.extend(list);
-        }
-        if let Some(list) = list(desc, NS_LR, "hierarchicalSubject") {
-            any_tags = true;
-            paths.extend(list.iter().map(|s| split_path(s, '|')).filter(|p| !p.is_empty()));
-        }
-        if let Some(list) = list(desc, NS_DIGIKAM, "TagsList") {
-            any_tags = true;
-            digikam.extend(list.iter().map(|s| split_path(s, '/')).filter(|p| !p.is_empty()));
-        }
-        if let Some(list) = list(desc, NS_IPTC_EXT, "PersonInImage") {
-            any_people = true;
-            people.extend(list);
-        }
-        let faces = face_names(desc);
-        any_people |= !faces.is_empty();
-        people.extend(faces);
-        if let Some(v) = simple(desc, NS_EXIF, "GPSLatitude") {
-            lat = gps_coord(&v);
-        }
-        if let Some(v) = simple(desc, NS_EXIF, "GPSLongitude") {
-            lon = gps_coord(&v);
-        }
-        if let Some(v) = simple(desc, NS_ALBUMCRAFT, "Edits") {
-            out.edits = edits_from(&v);
-        }
-    }
-    if any_tags {
+    let data = craft_metadata::parse_xmp_with(text, NAMESPACES).ok()?;
+    Some(notes_of(&data))
+}
+
+/// The notes of a parsed packet.
+fn notes_of(data: &craft_metadata::XmpData) -> XmpNotes {
+    let props = &data.properties;
+    let first = |k: &str| props.get(k).and_then(|v| v.first()).map(|v| v.trim().to_string());
+    let mut out = XmpNotes {
+        // read here rather than from the model: a rating out of range is brought into it
+        rating: first("xmp:Rating").and_then(|v| v.parse::<f64>().ok()).filter(|r| r.is_finite()).map(|r| r.round().clamp(-1.0, 5.0) as i8),
+        flag: first("albumcraft:Flag").map(|v| match v.as_str() {
+            "pick" => Flag::Pick,
+            "reject" => Flag::Reject,
+            _ => Flag::None,
+        }),
+        caption: data.metadata.caption.as_deref().map(|c| limit(c.trim())),
+        edits: first("albumcraft:Edits").and_then(|v| edits_from(&v)),
+        ..Default::default()
+    };
+    let has = |k: &str| props.contains_key(k);
+    if has("dc:subject") || has("lr:hierarchicalSubject") || has("digiKam:TagsList") {
+        let mut paths: Vec<Vec<String>> = data.metadata.hierarchical_keywords.iter().map(|s| split_path(s, '|')).filter(|p| !p.is_empty()).collect();
         if paths.is_empty() {
-            paths = digikam;
+            paths = props.get("digiKam:TagsList").into_iter().flatten().map(|s| split_path(s, '/')).filter(|p| !p.is_empty()).collect();
         }
         drop_ancestors(&mut paths);
         // a plain keyword that is one of the hierarchy's levels is that level, not a tag of its own
-        let known: std::collections::HashSet<&str> = paths.iter().flatten().map(String::as_str).collect();
-        let mut extra: Vec<Vec<String>> = flat.iter().filter(|k| !known.contains(k.as_str())).map(|k| vec![k.clone()]).collect();
-        paths.append(&mut extra);
+        let known: std::collections::HashSet<String> = paths.iter().flatten().map(|t| crate::tags::key(t)).collect();
+        let extra: Vec<Vec<String>> =
+            data.metadata.keywords.iter().map(|k| limit(k.trim())).filter(|k| !k.is_empty() && !known.contains(&crate::tags::key(k))).map(|k| vec![k]).collect();
+        paths.extend(extra);
+        paths.truncate(10_000);
         out.tags = Some(paths);
     }
-    if any_people {
+    let faces: Vec<String> = data
+        .metadata
+        .regions
+        .iter()
+        .filter(|r| matches!(&r.kind, craft_metadata::RegionKind::Face) || matches!(&r.kind, craft_metadata::RegionKind::Other(t) if t.trim().is_empty()))
+        .filter_map(|r| r.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(limit))
+        .collect();
+    if has("Iptc4xmpExt:PersonInImage") || !faces.is_empty() {
+        let mut people: Vec<String> = props.get("Iptc4xmpExt:PersonInImage").into_iter().flatten().map(|p| limit(p.trim())).filter(|p| !p.is_empty()).collect();
+        people.extend(faces);
+        people.truncate(10_000);
         out.people = Some(people);
     }
-    if let (Some(lat), Some(lon)) = (lat, lon)
-        && crate::geo::LatLon::new(lat, lon).is_some()
-    {
-        out.gps = Some([lat, lon]);
-    }
-    Some(out.normalized())
+    out.gps = data.metadata.gps.filter(|g| crate::geo::LatLon::new(g.latitude, g.longitude).is_some()).map(|g| [g.latitude, g.longitude]);
+    out.normalized()
 }
 
-fn parse_options<'a>() -> roxmltree::ParsingOptions<'a> {
-    // no DTD: no entity expansion; a cap on the nodes for a hostile packet
-    roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: 1 << 20, ..Default::default() }
-}
-
-/// The text without what comes before the XML (a byte order mark, padding) and with the
-/// `<?xpacket?>` instructions, which XML allows, left in.
-fn clean(text: &str) -> &str {
-    let t = text.trim_start_matches('\u{feff}');
-    match t.find('<') {
-        Some(i) => t.get(i..).unwrap_or(t).trim_end_matches(['\0', ' ', '\n', '\r', '\t']),
-        None => t,
-    }
-}
-
-/// A property of an rdf:Description: written as an attribute or as an element.
-enum Prop<'a, 'i> {
-    Attr(&'a str),
-    Elem(roxmltree::Node<'a, 'i>),
-}
-
-fn prop<'a, 'i>(desc: roxmltree::Node<'a, 'i>, ns: &str, name: &str) -> Option<Prop<'a, 'i>> {
-    if let Some(a) = desc.attributes().find(|a| a.namespace() == Some(ns) && a.name() == name) {
-        return Some(Prop::Attr(a.value()));
-    }
-    desc.children().find(|n| n.has_tag_name((ns, name))).map(Prop::Elem)
-}
-
-fn text_of(n: roxmltree::Node) -> String {
-    n.children().filter(|c| c.is_text()).filter_map(|c| c.text()).collect::<String>().trim().to_string()
-}
-
-fn limit(mut s: String) -> String {
+/// A text cut to 64 KB at most (on a character boundary).
+fn limit(s: &str) -> String {
     const MAX: usize = 64 * 1024;
-    if s.len() > MAX {
-        let mut end = MAX;
-        while !s.is_char_boundary(end) {
-            end -= 1;
-        }
-        s.truncate(end);
+    let mut end = s.len().min(MAX);
+    while !s.is_char_boundary(end) {
+        end -= 1;
     }
-    s
-}
-
-/// A simple value; for an element holding a container, its first item.
-fn simple(desc: roxmltree::Node, ns: &str, name: &str) -> Option<String> {
-    match prop(desc, ns, name)? {
-        Prop::Attr(v) => Some(limit(v.to_string())),
-        Prop::Elem(e) => match items(e) {
-            Some(mut v) if !v.is_empty() => Some(v.swap_remove(0)),
-            Some(_) => None,
-            None => Some(limit(text_of(e))),
-        },
-    }
-}
-
-/// The `rdf:li` items of the container (Bag, Seq, Alt) inside `e`, or None when it has none.
-fn items(e: roxmltree::Node) -> Option<Vec<String>> {
-    let c = e.children().find(|c| c.is_element() && [(NS_RDF, "Bag"), (NS_RDF, "Seq"), (NS_RDF, "Alt")].iter().any(|t| c.has_tag_name(*t)))?;
-    Some(c.children().filter(|li| li.has_tag_name((NS_RDF, "li"))).map(|li| limit(text_of(li))).filter(|s| !s.is_empty()).take(10_000).collect())
-}
-
-/// A language alternative's default text (`x-default`, else the first one).
-fn alt_text(desc: roxmltree::Node, ns: &str, name: &str) -> Option<String> {
-    match prop(desc, ns, name)? {
-        Prop::Attr(v) => Some(limit(v.trim().to_string())),
-        Prop::Elem(e) => {
-            let Some(alt) = e.children().find(|c| c.has_tag_name((NS_RDF, "Alt"))) else { return Some(limit(text_of(e))) };
-            let lis: Vec<roxmltree::Node> = alt.children().filter(|li| li.has_tag_name((NS_RDF, "li"))).collect();
-            let pick = lis
-                .iter()
-                .find(|li| li.attribute(("http://www.w3.org/XML/1998/namespace", "lang")) == Some("x-default"))
-                .or(lis.first())?;
-            Some(limit(text_of(*pick)))
-        }
-    }
-}
-
-/// The items of a list; a plain value counts as a list of one.
-fn list(desc: roxmltree::Node, ns: &str, name: &str) -> Option<Vec<String>> {
-    match prop(desc, ns, name)? {
-        Prop::Attr(v) => Some([v.trim()].into_iter().filter(|s| !s.is_empty()).map(str::to_string).collect()),
-        Prop::Elem(e) => Some(items(e).unwrap_or_else(|| [text_of(e)].into_iter().filter(|s| !s.is_empty()).collect())),
-    }
+    s[..end].to_string()
 }
 
 /// Remove the paths that are only the levels above another one: Lightroom lists `Sport` and
@@ -282,58 +186,6 @@ fn split_path(s: &str, sep: char) -> Vec<String> {
     s.split(sep).map(str::trim).filter(|p| !p.is_empty()).take(32).map(str::to_string).collect()
 }
 
-/// The names of the face regions (`mwg-rs:Regions`), whatever form their items are written in.
-fn face_names(desc: roxmltree::Node) -> Vec<String> {
-    let Some(Prop::Elem(regions)) = prop(desc, NS_MWG_RS, "Regions") else { return vec![] };
-    let mut out = vec![];
-    for li in regions.descendants().filter(|n| n.has_tag_name((NS_RDF, "li"))).take(1000) {
-        // a region's fields are on the li itself (parseType="Resource" or attributes) or on an
-        // rdf:Description inside it
-        let field = |name: &str| -> Option<String> {
-            simple(li, NS_MWG_RS, name).or_else(|| li.children().find(|c| c.has_tag_name((NS_RDF, "Description"))).and_then(|d| simple(d, NS_MWG_RS, name)))
-        };
-        let Some(name) = field("Name").map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) else { continue };
-        if field("Type").is_none_or(|t| t.trim() == "Face") {
-            out.push(name);
-        }
-    }
-    out
-}
-
-/// An XMP GPS coordinate: `"DDD,MM,SSk"`, `"DDD,MM.mmk"` (k = N, S, E or W), or a decimal number.
-pub fn gps_coord(v: &str) -> Option<f64> {
-    let v = v.trim();
-    let last = v.chars().last()?;
-    let (body, sign) = match last.to_ascii_uppercase() {
-        'N' | 'E' => (&v[..v.len() - 1], 1.0),
-        'S' | 'W' => (&v[..v.len() - 1], -1.0),
-        _ => (v, 1.0),
-    };
-    let parts: Vec<f64> = body.split(',').map(|p| p.trim().parse::<f64>()).collect::<Result<_, _>>().ok()?;
-    let value = match parts.as_slice() {
-        [d] => *d,
-        [d, m] => d + m / 60.0,
-        [d, m, s] => d + m / 60.0 + s / 3600.0,
-        _ => return None,
-    };
-    let value = sign * value;
-    value.is_finite().then_some(value)
-}
-
-/// `"DDD,MM.mmmmmmk"`, as XMP writes GPS coordinates.
-pub fn gps_text(value: f64, lat: bool) -> String {
-    let hemi = match (lat, value < 0.0) {
-        (true, false) => 'N',
-        (true, true) => 'S',
-        (false, false) => 'E',
-        (false, true) => 'W',
-    };
-    let a = value.abs();
-    let deg = a.floor();
-    let min = (a - deg) * 60.0;
-    format!("{},{:.6}{hemi}", deg as u32, min)
-}
-
 #[derive(Serialize, Deserialize)]
 struct EditsJson {
     format: u32,
@@ -350,19 +202,23 @@ fn edits_from(v: &str) -> Option<Vec<EditOp>> {
 // ---------------------------------------------------------------------------------------------
 // writing a packet
 
-/// Properties AlbumCraft writes: they are removed from the old packet when the new notes set
-/// them (`None` fields leave theirs).
-fn managed(notes: &XmpNotes, ns: Option<&str>, name: &str) -> bool {
-    match (ns, name) {
-        (Some(NS_XMP), "Rating") => notes.rating.is_some(),
-        (Some(NS_ALBUMCRAFT), "Flag") => notes.flag.is_some(),
-        (Some(NS_ALBUMCRAFT), "Edits") => notes.edits.is_some(),
-        (Some(NS_DC), "description") => notes.caption.is_some(),
-        (Some(NS_DC), "subject") | (Some(NS_LR), "hierarchicalSubject") | (Some(NS_DIGIKAM), "TagsList") => notes.tags.is_some(),
-        (Some(NS_IPTC_EXT), "PersonInImage") => notes.people.is_some(),
-        (Some(NS_EXIF), "GPSLatitude" | "GPSLongitude") => notes.gps.is_some() || notes.gps_removed,
-        _ => false,
-    }
+/// The properties AlbumCraft writes for these notes: replaced in the old packet (removed when
+/// the notes' value is empty); `None` fields leave theirs as they are.
+fn owned(notes: &XmpNotes) -> Vec<&'static str> {
+    let mut out = vec![];
+    let mut add = |on: bool, names: &[&'static str]| {
+        if on {
+            out.extend_from_slice(names);
+        }
+    };
+    add(notes.rating.is_some(), &["xmp:Rating"]);
+    add(notes.flag.is_some(), &["albumcraft:Flag"]);
+    add(notes.edits.is_some(), &["albumcraft:Edits"]);
+    add(notes.caption.is_some(), &["dc:description"]);
+    add(notes.tags.is_some(), &["dc:subject", "lr:hierarchicalSubject", "digiKam:TagsList"]);
+    add(notes.people.is_some(), &["Iptc4xmpExt:PersonInImage"]);
+    add(notes.gps.is_some() || notes.gps_removed, &["exif:GPSLatitude", "exif:GPSLongitude"]);
+    out
 }
 
 pub fn escape(s: &str) -> String {
@@ -383,104 +239,57 @@ pub fn escape(s: &str) -> String {
 }
 
 /// A packet with `notes` written into `old` (None or empty: a new packet). Every property of
-/// `old` that `notes` doesn't set is kept as it was, with its namespaces. `sidecar`: a sidecar
-/// file (an XML declaration) rather than an embedded packet (`<?xpacket?>` around it).
+/// `old` that `notes` doesn't set is kept byte for byte (`craft_metadata::merge_xmp`).
+/// `sidecar`: a new packet is written for a sidecar file (without the `<?xpacket?>` around it).
 /// Err when `old` can't be read: it is not replaced then.
 pub fn merge(old: Option<&str>, notes: &XmpNotes, sidecar: bool) -> Result<String, String> {
-    let mut kept = String::new();
-    let mut has_tags_list = false;
-    if let Some(old) = old.filter(|o| !o.trim().trim_matches('\0').is_empty()) {
-        if old.len() > MAX_PACKET {
-            return Err("the XMP is too large".into());
-        }
-        let src = clean(old);
-        let doc = roxmltree::Document::parse_with_options(src, parse_options())
-            .map_err(|e| format!("the XMP can't be read ({e})"))?;
-        let rdf = doc.descendants().find(|n| n.has_tag_name((NS_RDF, "RDF"))).ok_or("the XMP has no RDF")?;
-        for desc in rdf.children().filter(|n| n.is_element()) {
-            if !desc.has_tag_name((NS_RDF, "Description")) {
-                // another kind of RDF node: kept whole
-                kept.push_str("  ");
-                kept.push_str(src.get(desc.range()).unwrap_or_default());
-                kept.push('\n');
-                continue;
-            }
-            has_tags_list |= desc.attributes().any(|a| a.namespace() == Some(NS_DIGIKAM) && a.name() == "TagsList")
-                || desc.children().any(|c| c.has_tag_name((NS_DIGIKAM, "TagsList")));
-            let mut attrs = String::new();
-            for a in desc.attributes() {
-                if a.namespace() == Some(NS_RDF) || managed(notes, a.namespace(), a.name()) {
-                    continue;
-                }
-                let Some(prefix) = a.namespace().and_then(|uri| prefix_of(desc, uri)) else { continue };
-                attrs.push_str(&format!("\n    {prefix}:{}=\"{}\"", a.name(), escape(a.value())));
-            }
-            let mut children = String::new();
-            for c in desc.children().filter(|c| c.is_element()) {
-                if managed(notes, c.tag_name().namespace(), c.tag_name().name()) {
-                    continue;
-                }
-                children.push_str("   ");
-                children.push_str(src.get(c.range()).unwrap_or_default());
-                children.push('\n');
-            }
-            if attrs.is_empty() && children.is_empty() {
-                continue;
-            }
-            let about = desc.attribute((NS_RDF, "about")).unwrap_or_default();
-            kept.push_str(&format!("  <rdf:Description rdf:about=\"{}\"", escape(about)));
-            for ns in desc.namespaces() {
-                if ns.uri() == "http://www.w3.org/XML/1998/namespace" {
-                    continue;
-                }
-                match ns.name() {
-                    Some("rdf") => {}
-                    Some(p) => kept.push_str(&format!("\n    xmlns:{p}=\"{}\"", escape(ns.uri()))),
-                    None => kept.push_str(&format!("\n    xmlns=\"{}\"", escape(ns.uri()))),
-                }
-            }
-            kept.push_str(&attrs);
-            if children.is_empty() {
-                kept.push_str("/>\n");
-            } else {
-                kept.push_str(">\n");
-                kept.push_str(&children);
-                kept.push_str("  </rdf:Description>\n");
-            }
-        }
-    }
-    let ours = ours(notes, has_tags_list);
-    let mut out = String::new();
-    if sidecar {
-        out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    } else {
-        out.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
-    }
-    out.push_str(&format!("<x:xmpmeta xmlns:x=\"{NS_X}\" x:xmptk=\"AlbumCraft {}\">\n", env!("CARGO_PKG_VERSION")));
-    out.push_str(&format!(" <rdf:RDF xmlns:rdf=\"{NS_RDF}\">\n"));
-    out.push_str(&kept);
-    out.push_str(&ours);
-    out.push_str(" </rdf:RDF>\n</x:xmpmeta>\n");
-    if !sidecar {
-        out.push_str("<?xpacket end=\"w\"?>");
-    }
-    Ok(out)
-}
-
-/// A prefix the description can use for `uri`.
-fn prefix_of<'a>(desc: roxmltree::Node<'a, '_>, uri: &str) -> Option<&'a str> {
-    desc.namespaces().find(|n| n.uri() == uri).and_then(|n| n.name())
-}
-
-/// The rdf:Description holding what `notes` sets (empty when it sets nothing to write).
-fn ours(notes: &XmpNotes, digikam: bool) -> String {
-    let mut body = String::new();
-    let mut ns: Vec<(&str, &str)> = vec![];
-    let use_ns = |p: &'static str, u: &'static str, ns: &mut Vec<(&str, &str)>| {
-        if !ns.iter().any(|(q, _)| *q == p) {
-            ns.push((p, u));
-        }
+    let old = old.filter(|o| !o.trim().trim_matches('\0').is_empty());
+    let Some(old) = old else {
+        let fresh = fresh_packet(notes, false);
+        return Ok(if sidecar { without_wrapper(&fresh) } else { fresh });
     };
+    if old.len() > MAX_PACKET {
+        return Err("the XMP is too large".into());
+    }
+    let parsed = craft_metadata::parse_xmp_with(old.trim_end_matches(['\0', ' ', '\n', '\r', '\t']), NAMESPACES).map_err(|e| format!("the XMP can't be read ({e})"))?;
+    // digiKam's own list is kept up to date when the packet has one
+    let fresh = fresh_packet(notes, parsed.properties.contains_key("digiKam:TagsList"));
+    let owned = owned(notes);
+    let rules = craft_metadata::MergeRules { owned: &owned, owned_if_present: &[], namespaces: NAMESPACES };
+    craft_metadata::merge_xmp(old, &fresh, rules).map_err(|e| format!("the XMP can't be read ({e})"))
+}
+
+/// A whole packet with what `notes` sets (`craft_metadata::write_xmp_with`, plus the lists it
+/// doesn't write: people, and digiKam's tag list when `digikam`).
+fn fresh_packet(notes: &XmpNotes, digikam: bool) -> String {
+    let mut m = craft_metadata::Metadata { rating: notes.rating.map(|r| r.clamp(-1, 5)), ..Default::default() };
+    m.caption = notes.caption.as_deref().map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+    if let Some(tags) = &notes.tags {
+        m.keywords = keywords(tags);
+        m.hierarchical_keywords = tags.iter().filter(|p| !p.is_empty()).map(|p| p.join("|")).collect();
+    }
+    if let Some([lat, lon]) = notes.gps
+        && !notes.gps_removed
+        && crate::geo::LatLon::new(lat, lon).is_some()
+    {
+        m.gps = Some(craft_metadata::Gps { latitude: lat, longitude: lon, altitude: None });
+    }
+    let flag = match notes.flag {
+        Some(Flag::Pick) => Some("pick"),
+        Some(Flag::Reject) => Some("reject"),
+        _ => None,
+    };
+    let edits = notes.edits.as_ref().filter(|e| !e.is_empty()).and_then(|ops| serde_json::to_string(&EditsJson { format: EDITS_FORMAT, ops: ops.clone() }).ok());
+    let mut props: Vec<(&str, &str)> = vec![];
+    if let Some(f) = flag {
+        props.push(("Flag", f));
+    }
+    if let Some(e) = &edits {
+        props.push(("Edits", e));
+    }
+    let toolkit = format!("AlbumCraft {}", env!("CARGO_PKG_VERSION"));
+    let with = craft_metadata::XmpWrite { toolkit: &toolkit, namespace: NAMESPACES.first().copied(), properties: &props };
+    let mut packet = craft_metadata::write_xmp_with(&m, &with);
     let bag = |name: &str, items: &[String]| -> String {
         let mut s = format!("   <{name}>\n    <rdf:Bag>\n");
         for i in items {
@@ -489,61 +298,33 @@ fn ours(notes: &XmpNotes, digikam: bool) -> String {
         s.push_str(&format!("    </rdf:Bag>\n   </{name}>\n"));
         s
     };
-    if let Some(r) = notes.rating {
-        use_ns("xmp", NS_XMP, &mut ns);
-        body.push_str(&format!("   <xmp:Rating>{}</xmp:Rating>\n", r.clamp(-1, 5)));
-    }
-    if let Some(f) = notes.flag
-        && f != Flag::None
-    {
-        use_ns("albumcraft", NS_ALBUMCRAFT, &mut ns);
-        body.push_str(&format!("   <albumcraft:Flag>{}</albumcraft:Flag>\n", if f == Flag::Pick { "pick" } else { "reject" }));
-    }
-    if let Some(c) = notes.caption.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-        use_ns("dc", NS_DC, &mut ns);
-        body.push_str(&format!("   <dc:description>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">{}</rdf:li>\n    </rdf:Alt>\n   </dc:description>\n", escape(c)));
-    }
-    if let Some(tags) = notes.tags.as_ref().filter(|t| !t.is_empty()) {
-        use_ns("dc", NS_DC, &mut ns);
-        body.push_str(&bag("dc:subject", &keywords(tags)));
-        let hier: Vec<String> = tags.iter().filter(|p| !p.is_empty()).map(|p| p.join("|")).collect();
-        use_ns("lr", NS_LR, &mut ns);
-        body.push_str(&bag("lr:hierarchicalSubject", &hier));
-        if digikam {
-            let dk: Vec<String> = tags.iter().filter(|p| !p.is_empty()).map(|p| p.join("/")).collect();
-            use_ns("digiKam", NS_DIGIKAM, &mut ns);
-            body.push_str(&bag("digiKam:TagsList", &dk));
-        }
-    }
+    let mut extra = String::new();
     if let Some(people) = notes.people.as_ref().filter(|p| !p.is_empty()) {
-        use_ns("Iptc4xmpExt", NS_IPTC_EXT, &mut ns);
-        body.push_str(&bag("Iptc4xmpExt:PersonInImage", people));
+        extra.push_str(&bag("Iptc4xmpExt:PersonInImage", people));
     }
-    if let Some([lat, lon]) = notes.gps
-        && !notes.gps_removed
-        && crate::geo::LatLon::new(lat, lon).is_some()
-    {
-        use_ns("exif", NS_EXIF, &mut ns);
-        body.push_str(&format!("   <exif:GPSLatitude>{}</exif:GPSLatitude>\n", gps_text(lat, true)));
-        body.push_str(&format!("   <exif:GPSLongitude>{}</exif:GPSLongitude>\n", gps_text(lon, false)));
+    if digikam && let Some(tags) = notes.tags.as_ref().filter(|t| !t.is_empty()) {
+        let dk: Vec<String> = tags.iter().filter(|p| !p.is_empty()).map(|p| p.join("/")).collect();
+        extra.push_str(&bag("digiKam:TagsList", &dk));
+        packet = packet.replacen("<rdf:Description rdf:about=\"\"", &format!("<rdf:Description rdf:about=\"\"\n    xmlns:digiKam=\"{NS_DIGIKAM}\""), 1);
     }
-    if let Some(ops) = notes.edits.as_ref().filter(|e| !e.is_empty())
-        && let Ok(json) = serde_json::to_string(&EditsJson { format: EDITS_FORMAT, ops: ops.clone() })
-    {
-        use_ns("albumcraft", NS_ALBUMCRAFT, &mut ns);
-        body.push_str(&format!("   <albumcraft:Edits>{}</albumcraft:Edits>\n", escape(&json)));
+    if let Some(at) = packet.rfind("  </rdf:Description>") {
+        packet.insert_str(at, &extra);
     }
-    if body.is_empty() {
-        return String::new();
-    }
-    let mut s = String::from("  <rdf:Description rdf:about=\"\"");
-    for (p, u) in ns {
-        s.push_str(&format!("\n    xmlns:{p}=\"{u}\""));
-    }
-    s.push_str(">\n");
-    s.push_str(&body);
-    s.push_str("  </rdf:Description>\n");
-    s
+    packet
+}
+
+/// A packet without the `<?xpacket?>` instructions around it, as sidecar files are written.
+fn without_wrapper(packet: &str) -> String {
+    let body = packet.trim();
+    let body = match (body.find("?>"), body.starts_with("<?xpacket")) {
+        (Some(i), true) => body[i + 2..].trim_start(),
+        _ => body,
+    };
+    let body = match body.rfind("<?xpacket") {
+        Some(i) => body[..i].trim_end(),
+        None => body,
+    };
+    format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{body}\n")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -563,193 +344,17 @@ pub struct Embedded {
     pub extended: bool,
 }
 
-fn packet_text(bytes: &[u8]) -> Option<String> {
-    if bytes.len() > MAX_PACKET {
-        return None;
-    }
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let s = std::str::from_utf8(bytes).ok()?;
-    let s = s.trim_end_matches(['\0', ' ', '\n', '\r', '\t']);
-    (!s.is_empty()).then(|| s.to_string())
-}
-
-/// The XMP inside a picture file. Reading problems give an empty answer, never an error.
+/// The XMP inside a picture file (`filemeta::blocks`). Reading problems give an empty answer,
+/// never an error.
 pub fn read_embedded(path: &Path) -> Embedded {
-    let Ok(mut f) = std::fs::File::open(path) else { return Embedded::default() };
-    let mut head = [0u8; 16];
-    let n = read_up_to(&mut f, &mut head);
-    let head = &head[..n];
-    let found = if head.starts_with(&[0xff, 0xd8]) {
-        jpeg_read(&mut f)
-    } else if head.starts_with(PNG_SIG) {
-        png_read(&mut f).map(|p| Embedded { packet: Some(p), extended: false })
-    } else if head.len() >= 12 && &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP" {
-        webp_read(&mut f).map(|p| Embedded { packet: Some(p), extended: false })
-    } else if head.starts_with(b"II") || head.starts_with(b"MM") {
-        tiff_read(&mut f).map(|p| Embedded { packet: Some(p), extended: false })
-    } else {
-        None
-    };
-    found.or_else(|| scan_read(&mut f).map(|p| Embedded { packet: Some(p), extended: false })).unwrap_or_default()
+    embedded_of(&crate::filemeta::blocks(path))
 }
 
-fn read_up_to(f: &mut impl Read, buf: &mut [u8]) -> usize {
-    let mut n = 0;
-    while n < buf.len() {
-        match f.read(&mut buf[n..]) {
-            Ok(0) | Err(_) => break,
-            Ok(k) => n += k,
-        }
+fn embedded_of(b: &craft_metadata::Embedded) -> Embedded {
+    Embedded {
+        packet: b.xmp.as_deref().map(|p| p.trim_end_matches(['\0', ' ', '\n', '\r', '\t'])).filter(|p| !p.is_empty() && p.len() <= MAX_PACKET).map(str::to_string),
+        extended: b.xmp_extended.is_some() || b.xmp_extended_error.is_some(),
     }
-    n
-}
-
-fn read_exact_vec(f: &mut impl Read, len: usize) -> Option<Vec<u8>> {
-    if len > MAX_PACKET + 1024 {
-        return None;
-    }
-    let mut v = vec![0u8; len];
-    f.read_exact(&mut v).ok()?;
-    Some(v)
-}
-
-fn jpeg_read<F: Read + Seek>(f: &mut F) -> Option<Embedded> {
-    f.seek(SeekFrom::Start(2)).ok()?;
-    let mut out = Embedded::default();
-    for _ in 0..1000 {
-        let mut m = [0u8; 2];
-        f.read_exact(&mut m).ok()?;
-        if m[0] != 0xff {
-            break;
-        }
-        let marker = m[1];
-        if marker == 0xff {
-            // fill byte
-            f.seek(SeekFrom::Current(-1)).ok()?;
-            continue;
-        }
-        if marker == 0xda || marker == 0xd9 {
-            break;
-        }
-        if (0xd0..=0xd7).contains(&marker) || marker == 0x01 {
-            continue;
-        }
-        let mut l = [0u8; 2];
-        f.read_exact(&mut l).ok()?;
-        let len = (u16::from_be_bytes(l) as usize).checked_sub(2)?;
-        if marker == 0xe1 && len >= JPEG_XMP_EXT.len() {
-            let data = read_exact_vec(f, len)?;
-            if out.packet.is_none()
-                && let Some(p) = data.strip_prefix(JPEG_XMP)
-            {
-                out.packet = packet_text(p);
-            } else if data.starts_with(JPEG_XMP_EXT) {
-                out.extended = true;
-            }
-        } else {
-            f.seek(SeekFrom::Current(len as i64)).ok()?;
-        }
-    }
-    Some(out)
-}
-
-fn png_read<F: Read + Seek>(f: &mut F) -> Option<String> {
-    f.seek(SeekFrom::Start(8)).ok()?;
-    for _ in 0..100_000 {
-        let mut h = [0u8; 8];
-        f.read_exact(&mut h).ok()?;
-        let len = u32::from_be_bytes([h[0], h[1], h[2], h[3]]) as u64;
-        let kind = [h[4], h[5], h[6], h[7]];
-        if &kind == b"IEND" {
-            return None;
-        }
-        if &kind == b"iTXt" && (len as usize) < MAX_PACKET {
-            let data = read_exact_vec(f, len as usize)?;
-            f.seek(SeekFrom::Current(4)).ok()?;
-            if let Some(p) = png_itxt_xmp(&data) {
-                return Some(p);
-            }
-        } else {
-            f.seek(SeekFrom::Current(len as i64 + 4)).ok()?;
-        }
-    }
-    None
-}
-
-/// The packet of an iTXt chunk's data when it is the XMP one.
-fn png_itxt_xmp(data: &[u8]) -> Option<String> {
-    let rest = data.strip_prefix(PNG_KEYWORD)?.strip_prefix(b"\0")?;
-    let (&compressed, rest) = rest.split_first()?;
-    let (_, rest) = rest.split_first()?; // method
-    // language and translated keyword, each ended by a zero
-    let z = rest.iter().position(|&b| b == 0)?;
-    let rest = rest.get(z + 1..)?;
-    let z = rest.iter().position(|&b| b == 0)?;
-    let text = rest.get(z + 1..)?;
-    if compressed == 1 {
-        let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(text, MAX_PACKET).ok()?;
-        packet_text(&raw)
-    } else {
-        packet_text(text)
-    }
-}
-
-fn webp_read<F: Read + Seek>(f: &mut F) -> Option<String> {
-    f.seek(SeekFrom::Start(12)).ok()?;
-    for _ in 0..10_000 {
-        let mut h = [0u8; 8];
-        f.read_exact(&mut h).ok()?;
-        let len = u32::from_le_bytes([h[4], h[5], h[6], h[7]]) as u64;
-        if &h[0..4] == b"XMP " {
-            return packet_text(&read_exact_vec(f, len as usize)?);
-        }
-        f.seek(SeekFrom::Current((len + (len & 1)) as i64)).ok()?;
-    }
-    None
-}
-
-/// TIFF and the raw formats built on it: tag 700 of the first directory.
-fn tiff_read<F: Read + Seek>(f: &mut F) -> Option<String> {
-    f.seek(SeekFrom::Start(0)).ok()?;
-    let mut h = [0u8; 8];
-    f.read_exact(&mut h).ok()?;
-    let le = &h[0..2] == b"II";
-    let u16_of = |b: [u8; 2]| if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) };
-    let u32_of = |b: [u8; 4]| if le { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) };
-    let ifd = u32_of([h[4], h[5], h[6], h[7]]);
-    f.seek(SeekFrom::Start(ifd as u64)).ok()?;
-    let mut c = [0u8; 2];
-    f.read_exact(&mut c).ok()?;
-    let count = u16_of(c).min(1000);
-    for _ in 0..count {
-        let mut e = [0u8; 12];
-        f.read_exact(&mut e).ok()?;
-        if u16_of([e[0], e[1]]) == 700 {
-            let n = u32_of([e[4], e[5], e[6], e[7]]) as usize;
-            let at = u32_of([e[8], e[9], e[10], e[11]]) as u64;
-            if n <= 4 {
-                return None;
-            }
-            f.seek(SeekFrom::Start(at)).ok()?;
-            return packet_text(&read_exact_vec(f, n)?);
-        }
-    }
-    None
-}
-
-/// A packet found by looking for its markers in the first bytes of the file.
-fn scan_read<F: Read + Seek>(f: &mut F) -> Option<String> {
-    f.seek(SeekFrom::Start(0)).ok()?;
-    let mut buf = vec![];
-    f.take(SCAN_BYTES).read_to_end(&mut buf).ok()?;
-    let start = find(&buf, b"<x:xmpmeta").or_else(|| find(&buf, b"<x:xapmeta"))?;
-    let rest = buf.get(start..)?;
-    let end = find(rest, b"</x:xmpmeta>").map(|e| e + 12).or_else(|| find(rest, b"</x:xapmeta>").map(|e| e + 12))?;
-    packet_text(rest.get(..end)?)
-}
-
-fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).position(|w| w == needle)
 }
 
 /// The file's bytes with its embedded packet replaced by `packet` (JPEG and PNG that already
@@ -857,7 +462,7 @@ fn png_replace(file: &[u8], packet: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn crc32(data: &[u8]) -> u32 {
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     let mut crc = 0xffff_ffffu32;
     for &b in data {
         crc ^= b as u32;
@@ -936,7 +541,8 @@ pub struct Found {
 }
 
 /// Read a picture's XMP: the sidecar when there is one (it holds the newer notes in the
-/// programs that write sidecars), else the packet inside the file.
+/// programs that write sidecars), else the packet inside the file, with what the file's IPTC
+/// says (caption, keywords) where the packet says nothing.
 pub fn read_for(picture: &Path, sidecar: Option<&Path>) -> Found {
     let sidecar = sidecar.map(Path::to_path_buf);
     let side_notes = sidecar.as_deref().and_then(|s| {
@@ -945,14 +551,29 @@ pub fn read_for(picture: &Path, sidecar: Option<&Path>) -> Found {
             return None;
         }
         let bytes = std::fs::read(s).ok()?;
-        parse(&packet_text(&bytes)?)
+        let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+        parse(std::str::from_utf8(bytes).ok()?.trim_end_matches(['\0', ' ', '\n', '\r', '\t']))
     });
     if side_notes.is_some() {
         return Found { sidecar, notes: side_notes, embedded: false };
     }
-    let emb = read_embedded(picture);
+    let blocks = crate::filemeta::blocks(picture);
+    let emb = embedded_of(&blocks);
     let embedded = emb.packet.is_some();
-    Found { sidecar, notes: emb.packet.as_deref().and_then(parse), embedded }
+    let mut notes = emb.packet.as_deref().and_then(parse);
+    if let Some(iptc) = blocks.iptc.as_deref() {
+        let m = craft_metadata::parse_iptc(iptc);
+        let n = notes.get_or_insert_with(XmpNotes::default);
+        if n.caption.is_none() {
+            n.caption = m.caption.as_deref().map(str::trim).filter(|c| !c.is_empty()).map(limit);
+        }
+        if n.tags.is_none() && !m.keywords.is_empty() {
+            n.tags = Some(m.keywords.iter().map(|k| limit(k.trim())).filter(|k| !k.is_empty()).map(|k| vec![k]).collect());
+        }
+        let n = std::mem::take(n).normalized();
+        notes = (!n.is_empty()).then_some(n);
+    }
+    Found { sidecar, notes, embedded }
 }
 
 /// Where `write_for` put the notes.
@@ -1010,8 +631,7 @@ fn embed(picture: &Path, old: &str, notes: &XmpNotes) -> Result<(), Embed> {
     let file = std::fs::read(picture).map_err(|e| Embed::Failed(e.to_string()))?;
     let new = replace_embedded(&file, &packet).map_err(|_| Embed::Unsupported)?;
     // check before writing: the new file holds the new packet and the same picture data
-    let mut cur = std::io::Cursor::new(&new);
-    let back = if new.starts_with(PNG_SIG) { png_read(&mut cur) } else { jpeg_read(&mut cur).and_then(|e| e.packet) };
+    let back = embedded_of(&craft_metadata::embedded(&new)).packet;
     if back.as_deref() != Some(packet.trim_end_matches(['\0', ' ', '\n', '\r', '\t'])) {
         return Err(Embed::Failed("the XMP could not be checked after writing; the file was not changed".into()));
     }

@@ -2074,7 +2074,7 @@ mod tests {
             .to_rgb8()
             .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
             .unwrap();
-        std::fs::write(&keys[0], crate::exifinfo::jpeg_with_exif(&jpeg, &geo::exif_gps_fields(bordeaux), None).unwrap()).unwrap();
+        std::fs::write(&keys[0], crate::filemeta::jpeg_with_exif(&jpeg, &geo::exif_with_gps(bordeaux)).unwrap()).unwrap();
         h.rescan();
         assert_eq!(call(&mut h, "search_photos", json!({ "has_location": true })).unwrap()["total"], 1);
         assert_eq!(call(&mut h, "search_photos", json!({ "has_location": false })).unwrap()["total"], 2);
@@ -2102,7 +2102,7 @@ mod tests {
         std::fs::create_dir_all(&out).unwrap();
         let gps_of_copy = |v: &Value| {
             let path = v["written"][0].as_str().unwrap().to_string();
-            exif::Reader::new().read_from_container(&mut std::io::BufReader::new(std::fs::File::open(path).unwrap())).ok().and_then(|e| geo::gps_of(&e))
+            crate::filemeta::exif(Path::new(&path)).and_then(|m| geo::gps_of(&m))
         };
         let e = call(&mut h, "export", json!({ "keys": [keys[1]], "folder": out.to_string_lossy(), "max_size": 64 })).unwrap();
         assert!(gps_of_copy(&e).is_some_and(|g| g.km_to(LatLon { lat: 48.8566, lon: 2.3522 }) < 0.01));

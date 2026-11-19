@@ -23,15 +23,14 @@ ab_glyph.workspace = true
 ffmpeg-next = { workspace = true, optional = true }
 chrono.workspace = true
 craft-atomic.workspace = true
+craft-metadata.workspace = true
+craft-tiff.workspace = true
 dirs.workspace = true
 epaint_default_fonts.workspace = true
 getrandom = "0.4"
 image = { workspace = true, features = ["jpeg", "png", "gif", "bmp", "webp", "tiff", "rayon"] }
-kamadak-exif = "0.6.1"
 miniz_oxide.workspace = true
 rayon.workspace = true
-# reading XMP (already in the dependency tree)
-roxmltree = "0.21"
 serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true

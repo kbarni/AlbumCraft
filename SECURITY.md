@@ -27,7 +27,7 @@ Don't attach a harmful or non-redistributable file to a public issue. First give
 ## Scope
 
 - picture decoding (JPEG, PNG, GIF, BMP, WebP, TIFF through the `image` crate), including decompression bombs and oversized dimensions;
-- EXIF parsing and embedded thumbnails (`kamadak-exif`), and how AlbumCraft formats the values;
+- EXIF, IPTC and XMP parsing and embedded thumbnails (the suite's `craft-metadata` and `craft-tiff`), and how AlbumCraft formats the values;
 - `.picasa.ini` parsing;
 - `library.json` loading and saving (corruption, data loss, absurd values);
 - the thumbnail cache (`dirs::cache_dir()/AlbumCraft/thumbs`): file naming, overwrite, symlinks;

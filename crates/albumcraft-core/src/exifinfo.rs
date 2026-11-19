@@ -1,8 +1,15 @@
 //! Camera information (EXIF) read from a photo, formatted for the Properties panel
-//! ("Exposure time 0.0015625 s (1/640)", "F-number f/5", "Focal length 11mm", ...).
+//! ("Exposure time 0.0015625 s (1/640)", "F-number f/5", "Focal length 11mm", ...), and the EXIF
+//! kept in exported copies. Read with `craft-metadata` (the model, the tag list) and
+//! `craft-tiff` (the few tags the model leaves out, writing).
 
-use exif::{In, Tag, Value};
+use craft_tiff::{IfdBuilder, Tiff, Value, tags};
 use image::RgbaImage;
+
+/// Tags the model doesn't hold, read from the EXIF directories.
+const SUBJECT_DISTANCE: u16 = 37382;
+const LIGHT_SOURCE: u16 = 37384;
+const COLOR_SPACE: u16 = 40961;
 
 #[derive(Default)]
 pub struct CameraInfo {
@@ -31,29 +38,6 @@ pub struct CameraInfo {
     pub thumbnail: Option<RgbaImage>,
     /// Every EXIF entry: (name, value), in file order.
     pub all: Vec<(String, String)>,
-}
-
-fn ascii(v: &Value) -> Option<String> {
-    match v {
-        Value::Ascii(parts) => {
-            let s = parts
-                .iter()
-                .map(|p| String::from_utf8_lossy(p).trim_end_matches('\0').trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
-            (!s.is_empty()).then_some(s)
-        }
-        _ => None,
-    }
-}
-
-fn real(v: &Value) -> Option<f64> {
-    match v {
-        Value::Rational(r) => r.first().filter(|r| r.denom != 0).map(|r| r.to_f64()),
-        Value::SRational(r) => r.first().filter(|r| r.denom != 0).map(|r| r.to_f64()),
-        _ => v.get_uint(0).map(|u| u as f64),
-    }
 }
 
 /// Plain number without trailing zeros: 5.0 -> "5", 5.6 -> "5.6".
@@ -156,61 +140,49 @@ fn light_source_text(v: u32) -> String {
 }
 
 pub fn read(path: &str) -> Option<CameraInfo> {
-    let file = std::fs::File::open(path).ok()?;
-    let mut reader = std::io::BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    let get = |t: Tag| exif.get_field(t, In::PRIMARY).map(|f| &f.value);
+    let exif = crate::filemeta::blocks(std::path::Path::new(path)).exif?;
+    let m = craft_metadata::try_read_exif(&exif).ok()?;
+    let tiff = Tiff::parse(crate::filemeta::tiff_of(&exif)).ok();
+    // IFD0, then the EXIF directory
+    let text = |tag: u16| tiff.as_ref()?.find(tag)?.value.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let number = |tag: u16| tiff.as_ref()?.find(tag)?.value.get_f64(0).filter(|v| v.is_finite());
     let mut info = CameraInfo {
-        make: get(Tag::Make).and_then(ascii),
-        model: get(Tag::Model).and_then(ascii),
-        lens: get(Tag::LensModel).and_then(ascii),
-        date_taken: get(Tag::DateTimeOriginal).and_then(ascii),
-        date_digitized: get(Tag::DateTimeDigitized).and_then(ascii),
-        date_modified: get(Tag::DateTime).and_then(ascii),
-        flash: get(Tag::Flash).and_then(|v| v.get_uint(0)).map(flash_text),
-        focal_mm: get(Tag::FocalLength).and_then(real),
-        focal_35mm: get(Tag::FocalLengthIn35mmFilm).and_then(|v| v.get_uint(0)).filter(|&v| v > 0),
-        exposure_s: get(Tag::ExposureTime).and_then(real),
-        fnumber: get(Tag::FNumber).and_then(real),
-        iso: get(Tag::PhotographicSensitivity).and_then(|v| v.get_uint(0)),
-        exposure_bias: get(Tag::ExposureBiasValue).and_then(real),
-        metering: get(Tag::MeteringMode).and_then(|v| v.get_uint(0)).map(metering_text),
-        program: get(Tag::ExposureProgram).and_then(|v| v.get_uint(0)).map(program_text),
-        white_balance: get(Tag::LightSource)
-            .and_then(|v| v.get_uint(0))
-            .map(light_source_text)
-            .or_else(|| get(Tag::WhiteBalance).and_then(|v| v.get_uint(0)).map(|v| if v == 1 { "Manual".into() } else { "Auto".into() })),
-        subject_distance: get(Tag::SubjectDistance).and_then(real).filter(|d| *d > 0.0),
-        color_space: get(Tag::ColorSpace).and_then(|v| v.get_uint(0)).map(|v| if v == 1 { "sRGB".into() } else { "Uncalibrated".into() }),
-        software: get(Tag::Software).and_then(ascii),
-        orientation: get(Tag::Orientation).and_then(|v| v.get_uint(0)),
+        make: m.make.clone(),
+        model: m.model.clone(),
+        lens: m.lens_model.clone(),
+        date_taken: text(tags::DATE_TIME_ORIGINAL),
+        date_digitized: text(tags::DATE_TIME_DIGITIZED),
+        date_modified: text(tags::DATE_TIME),
+        flash: m.flash.map(|f| flash_text(f.raw as u32)),
+        focal_mm: m.focal_length,
+        focal_35mm: m.focal_length_35mm.map(|f| f.round() as u32).filter(|&v| v > 0),
+        exposure_s: m.exposure_time,
+        fnumber: m.f_number,
+        iso: m.iso,
+        exposure_bias: m.exposure_bias,
+        metering: m.metering_mode.map(|v| metering_text(v as u32)),
+        program: m.exposure_program.map(|v| program_text(v as u32)),
+        white_balance: number(LIGHT_SOURCE)
+            .map(|v| light_source_text(v as u32))
+            .or_else(|| m.white_balance.map(|v| if v == 1 { "Manual".into() } else { "Auto".into() })),
+        subject_distance: number(SUBJECT_DISTANCE).filter(|d| *d > 0.0),
+        color_space: number(COLOR_SPACE).map(|v| if v == 1.0 { "sRGB".into() } else { "Uncalibrated".into() }),
+        software: m.software.clone(),
+        orientation: m.orientation.map(|o| o.to_exif() as u32),
         ..Default::default()
     };
-    // the camera's own small preview (IFD1: offset and length inside the EXIF block)
-    let off = exif.get_field(Tag::JPEGInterchangeFormat, In::THUMBNAIL).and_then(|f| f.value.get_uint(0));
-    let len = exif.get_field(Tag::JPEGInterchangeFormatLength, In::THUMBNAIL).and_then(|f| f.value.get_uint(0));
-    if let (Some(off), Some(len)) = (off, len) {
-        let (o, l) = (off as usize, len as usize);
-        if let Some(bytes) = exif.buf().get(o..o.saturating_add(l)) {
-            let orientation = info
-                .orientation
-                .and_then(|o| u8::try_from(o).ok())
-                .and_then(image::metadata::Orientation::from_exif);
-            info.thumbnail = image::load_from_memory(bytes).ok().map(|mut i| {
-                if let Some(o) = orientation {
-                    i.apply_orientation(o);
-                }
-                i.to_rgba8()
-            });
-        }
+    // the camera's own small preview (IFD1)
+    if let Some(bytes) = crate::filemeta::exif_thumbnail(&exif) {
+        let orientation = info.orientation.and_then(|o| u8::try_from(o).ok()).and_then(image::metadata::Orientation::from_exif);
+        info.thumbnail = image::load_from_memory(bytes).ok().map(|mut i| {
+            if let Some(o) = orientation {
+                i.apply_orientation(o);
+            }
+            i.to_rgba8()
+        });
     }
-    for f in exif.fields() {
-        if f.tag == Tag::MakerNote {
-            continue;
-        }
-        let value = shorten(f.display_value().with_unit(&exif).to_string(), 120);
-        let name = if f.ifd_num == In::THUMBNAIL { format!("{} (thumbnail)", f.tag) } else { f.tag.to_string() };
-        info.all.push((name, value));
+    if let Some(t) = &tiff {
+        info.all = craft_metadata::tag_rows(t).into_iter().map(|r| (r.name, shorten(r.value, 120))).collect();
     }
     Some(info)
 }
@@ -228,100 +200,62 @@ fn shorten(value: String, max: usize) -> String {
 /// Write a small JPEG with typical camera information and an embedded thumbnail (for the test and
 /// the developer screenshot of the Properties panel).
 pub fn write_demo_jpeg(path: &std::path::Path) -> std::io::Result<()> {
-    use exif::{Field, Rational};
-    let to_io = |e: image::ImageError| std::io::Error::other(e.to_string());
+    let to_io = |e: String| std::io::Error::other(e);
     let big = crate::imaging::sample_image(3, 900, 1200);
     let small = image::imageops::resize(&big, 120, 160, image::imageops::FilterType::Triangle);
     let jpeg = |img: &RgbaImage| -> std::io::Result<Vec<u8>> {
         let mut out = Vec::new();
         let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
-        rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)).map_err(to_io)?;
+        rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90)).map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(out)
     };
     let (main, thumb) = (jpeg(&big)?, jpeg(&small)?);
-    let ascii = |t: Tag, s: &str| Field { tag: t, ifd_num: In::PRIMARY, value: Value::Ascii(vec![s.as_bytes().to_vec()]) };
-    let rat = |t: Tag, n: u32, d: u32| Field { tag: t, ifd_num: In::PRIMARY, value: Value::Rational(vec![Rational { num: n, denom: d }]) };
-    let short = |t: Tag, v: u16| Field { tag: t, ifd_num: In::PRIMARY, value: Value::Short(vec![v]) };
-    let fields = vec![
-        ascii(Tag::Make, "Example Camera Co."),
-        ascii(Tag::Model, "EC-10"),
-        ascii(Tag::DateTime, "2006:08:18 10:34:25"),
-        ascii(Tag::DateTimeOriginal, "2006:08:18 10:34:25"),
-        ascii(Tag::DateTimeDigitized, "2006:08:18 10:34:25"),
-        rat(Tag::ExposureTime, 1, 640),
-        rat(Tag::FNumber, 5, 1),
-        short(Tag::PhotographicSensitivity, 160),
-        rat(Tag::FocalLength, 11, 1),
-        short(Tag::Flash, 16),
-        short(Tag::MeteringMode, 5),
-        short(Tag::ExposureProgram, 2),
-        short(Tag::ColorSpace, 1),
-    ];
-    std::fs::write(path, jpeg_with_exif(&main, &fields, Some(&thumb))?)
+    let ascii = |s: &str| Value::Ascii(s.into());
+    let date = "2006:08:18 10:34:25";
+    let mut ifd0 = IfdBuilder::new();
+    ifd0.set(tags::MAKE, ascii("Example Camera Co.")).set(tags::MODEL, ascii("EC-10")).set(tags::DATE_TIME, ascii(date));
+    let mut ex = IfdBuilder::new();
+    ex.set(tags::DATE_TIME_ORIGINAL, ascii(date))
+        .set(tags::DATE_TIME_DIGITIZED, ascii(date))
+        .set(tags::EXPOSURE_TIME, Value::Rational(vec![(1, 640)]))
+        .set(tags::F_NUMBER, Value::Rational(vec![(5, 1)]))
+        .set(tags::ISO_SPEED, Value::Short(vec![160]))
+        .set(tags::FOCAL_LENGTH, Value::Rational(vec![(11, 1)]))
+        .set(tags::FLASH, Value::Short(vec![16]))
+        .set(tags::METERING_MODE, Value::Short(vec![5]))
+        .set(tags::EXPOSURE_PROGRAM, Value::Short(vec![2]))
+        .set(COLOR_SPACE, Value::Short(vec![1]));
+    ifd0.set_child(tags::EXIF_IFD, ex);
+    let block = crate::filemeta::write_exif_block(&ifd0, Some(&thumb)).map_err(to_io)?;
+    std::fs::write(path, crate::filemeta::jpeg_with_exif(&main, &block).map_err(to_io)?)
 }
 
-/// The original's EXIF fields worth keeping in an exported copy: camera, lens, exposure, dates,
-/// author and copyright. Left out: what the copy changes (orientation, pixel sizes, thumbnails),
-/// the camera maker's private notes, very long values, and the GPS position (which exports add
-/// only when asked, from `Meta.place`). Empty when the file has no EXIF.
-pub fn fields_to_keep(path: &str) -> Vec<exif::Field> {
-    use exif::Context;
-    const TIFF_KEPT: [Tag; 7] = [Tag::Make, Tag::Model, Tag::DateTime, Tag::Artist, Tag::Copyright, Tag::ImageDescription, Tag::Software];
-    const EXIF_LEFT_OUT: [Tag; 4] = [Tag::MakerNote, Tag::PixelXDimension, Tag::PixelYDimension, Tag::UserComment];
-    let Ok(file) = std::fs::File::open(path) else { return vec![] };
-    let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file)) else { return vec![] };
-    exif.fields()
-        .filter(|f| f.ifd_num == In::PRIMARY)
-        .filter(|f| match f.tag.context() {
-            Context::Tiff => TIFF_KEPT.contains(&f.tag),
-            Context::Exif => !EXIF_LEFT_OUT.contains(&f.tag),
-            _ => false,
-        })
-        .filter(|f| value_bytes(&f.value) <= 4096)
-        .cloned()
-        .collect()
-}
-
-/// About how many bytes a value takes in the file.
-fn value_bytes(v: &Value) -> usize {
-    match v {
-        Value::Ascii(parts) => parts.iter().map(|p| p.len() + 1).sum(),
-        Value::Undefined(b, _) | Value::Byte(b) => b.len(),
-        Value::SByte(b) => b.len(),
-        Value::Short(x) => x.len() * 2,
-        Value::SShort(x) => x.len() * 2,
-        Value::Long(x) => x.len() * 4,
-        Value::SLong(x) => x.len() * 4,
-        Value::Float(x) => x.len() * 4,
-        Value::Rational(x) => x.len() * 8,
-        Value::SRational(x) => x.len() * 8,
-        Value::Double(x) => x.len() * 8,
-        Value::Unknown(..) => usize::MAX,
+/// The original's EXIF worth keeping in an exported copy, as an IFD0 to write (with its EXIF
+/// directory): camera, lens, exposure, dates, author and copyright. Left out: what the copy
+/// changes (orientation, pixel sizes, thumbnails), the camera maker's private notes, very long
+/// values, and the GPS position (which exports add only when asked, from `Meta.place`). Empty
+/// when the file has no EXIF.
+pub fn exif_to_keep(path: &str) -> IfdBuilder {
+    const TIFF_KEPT: [u16; 7] = [tags::MAKE, tags::MODEL, tags::DATE_TIME, tags::ARTIST, tags::COPYRIGHT, tags::IMAGE_DESCRIPTION, tags::SOFTWARE];
+    const EXIF_LEFT_OUT: [u16; 5] = [tags::MAKER_NOTE, tags::PIXEL_X_DIMENSION, tags::PIXEL_Y_DIMENSION, tags::USER_COMMENT, tags::INTEROP_IFD];
+    let mut out = IfdBuilder::new();
+    let Some(exif) = crate::filemeta::blocks(std::path::Path::new(path)).exif else { return out };
+    let Ok(tiff) = Tiff::parse(crate::filemeta::tiff_of(&exif)) else { return out };
+    let Some(ifd0) = tiff.ifds.first() else { return out };
+    let small = |v: &Value| !matches!(v, Value::Ifd(_) | Value::Ifd8(_)) && v.count().saturating_mul(v.field_type().size()) <= 4096;
+    for e in ifd0.entries.iter().filter(|e| TIFF_KEPT.contains(&e.tag) && small(&e.value)) {
+        out.set(e.tag, e.value.clone());
     }
-}
-
-/// A JPEG file: `jpeg` (an encoded picture) with an EXIF block holding `fields` and an optional
-/// embedded thumbnail. For tests and demo pictures.
-pub fn jpeg_with_exif(jpeg: &[u8], fields: &[exif::Field], thumb: Option<&[u8]>) -> std::io::Result<Vec<u8>> {
-    let mut w = exif::experimental::Writer::new();
-    for f in fields {
-        w.push_field(f);
+    if let Some(ex) = &ifd0.exif {
+        let mut child = IfdBuilder::new();
+        for e in ex.entries.iter().filter(|e| !EXIF_LEFT_OUT.contains(&e.tag) && small(&e.value)) {
+            child.set(e.tag, e.value.clone());
+        }
+        if !child.entries.is_empty() {
+            out.set_child(tags::EXIF_IFD, child);
+        }
     }
-    if let Some(t) = thumb {
-        w.set_jpeg(t, In::THUMBNAIL);
-    }
-    let mut tiff = std::io::Cursor::new(Vec::new());
-    w.write(&mut tiff, true).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let tiff = tiff.into_inner();
-    let len = u16::try_from(2 + 6 + tiff.len()).map_err(|_| std::io::Error::other("EXIF block too large"))?;
-    let body = jpeg.get(2..).ok_or_else(|| std::io::Error::other("not a JPEG"))?;
-    // JPEG = start marker, APP1 "Exif" block, then the encoded picture without its own start marker
-    let mut file = vec![0xFF, 0xD8, 0xFF, 0xE1];
-    file.extend_from_slice(&len.to_be_bytes());
-    file.extend_from_slice(b"Exif\0\0");
-    file.extend_from_slice(&tiff);
-    file.extend_from_slice(body);
-    Ok(file)
+    out
 }
 
 #[cfg(test)]

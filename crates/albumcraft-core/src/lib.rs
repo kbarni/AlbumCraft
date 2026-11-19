@@ -16,6 +16,7 @@ pub mod commands;
 pub mod control;
 pub mod exifinfo;
 pub mod export;
+pub mod filemeta;
 pub mod files;
 pub mod gallery;
 pub mod geo;
