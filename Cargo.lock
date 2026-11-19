@@ -215,6 +215,7 @@ dependencies = [
  "kamadak-exif",
  "miniz_oxide 0.9.1",
  "rayon",
+ "roxmltree 0.21.2",
  "serde",
  "serde_json",
  "trash",
