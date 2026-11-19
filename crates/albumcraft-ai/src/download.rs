@@ -125,8 +125,10 @@ fn fetch(agent: &ureq::Agent, url: &str, dest: &Path, file: &ModelFile, progress
         let _ = std::fs::remove_file(&part);
         return Err(format!("The download failed ({} is not the expected file); it was removed.", file.name));
     }
+    // on disk before it gets its name, so a power cut can't leave a short file that looks done
+    craft_atomic::sync_file(&out).map_err(disk)?;
     drop(out);
-    std::fs::rename(&part, dest).map_err(|e| format!("{}: {e}", dest.display()))
+    craft_atomic::retry_rename(craft_atomic::RenameRetry::platform(), || std::fs::rename(&part, dest)).map_err(|e| format!("{}: {e}", dest.display()))
 }
 
 /// The answer to a request for the bytes from `from` on really starts there.

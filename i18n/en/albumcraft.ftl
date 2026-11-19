@@ -1007,6 +1007,7 @@ search-no-folder = AlbumCraft has no folder for its data
 search-pack-failed = Smart search could not start: { $error }
 search-not-analysed = This picture is not analysed yet.
 music-dialog-title = Music for the slideshow
+file-dialog-failed = Could not show the file picker: { $error }
 filter-music = Music
 ss-previous = Previous (←)
 ss-play-pause = Play / pause (Space)

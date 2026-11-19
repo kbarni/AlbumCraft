@@ -753,24 +753,14 @@ impl Store {
     }
 }
 
-/// Write to a temporary file, flush it to disk, then rename it over the library, so that a crash
-/// or a full disk never leaves a half-written library behind.
+/// Write to a temporary file, flush it to disk, then rename it over the library (`craft-atomic`:
+/// the folder is synced after, and Windows retries while an antivirus holds the file), so that a
+/// crash or a full disk never leaves a half-written library behind.
 pub fn write_library(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    let tmp = path.with_extension("json.tmp");
-    let write = || -> std::io::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)
-    };
-    write().map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("{}: {e}", path.display())
-    })
+    craft_atomic::atomic_write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[derive(Clone, Debug)]
@@ -1181,7 +1171,7 @@ mod store_tests {
         store.meta.insert("empty.jpg".into(), Meta::default());
         store.meta.insert(format!("{SAMPLE_PREFIX}3"), Meta { rating: 5, ..Default::default() });
         store.save_to(&path).unwrap();
-        assert!(!path.with_extension("json.tmp").exists());
+        assert!(std::fs::read_dir(&dir).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".craft_tmp")), "no temporary file left");
         let Loaded::Store(back) = Store::load_from(&path) else { panic!("not loaded") };
         assert_eq!((back.meta["a.jpg"].flag, back.meta["a.jpg"].rating), (Flag::Pick, 4));
         assert!(!back.meta.contains_key("empty.jpg"));

@@ -995,36 +995,13 @@ fn embed(picture: &Path, old: &str, notes: &XmpNotes) -> Result<(), Embed> {
     if back.as_deref() != Some(packet.trim_end_matches(['\0', ' ', '\n', '\r', '\t'])) {
         return Err(Embed::Failed("the XMP could not be checked after writing; the file was not changed".into()));
     }
-    let perms = std::fs::metadata(picture).ok().map(|m| m.permissions());
-    write_atomic_with(picture, &new, perms).map_err(Embed::Failed)
+    write_atomic(picture, &new).map_err(Embed::Failed)
 }
 
+/// Write to a flushed temporary file next to `path`, then rename it over `path` (`craft-atomic`).
+/// A replaced file keeps its permissions; through a symbolic link, the file it names is written.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let perms = std::fs::metadata(path).ok().map(|m| m.permissions());
-    write_atomic_with(path, bytes, perms)
-}
-
-/// Write to a temporary file next to `path`, then rename it over `path`.
-fn write_atomic_with(path: &Path, bytes: &[u8], perms: Option<std::fs::Permissions>) -> Result<(), String> {
-    use std::io::Write;
-    let dir = path.parent().ok_or("no folder")?;
-    let name = path.file_name().ok_or("no file name")?.to_string_lossy();
-    let tmp = dir.join(format!(".{name}.albumcraft-tmp"));
-    let res = (|| -> std::io::Result<()> {
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        drop(f);
-        if let Some(p) = perms {
-            std::fs::set_permissions(&tmp, p)?;
-        }
-        std::fs::rename(&tmp, path)
-    })();
-    if let Err(e) = res {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.to_string());
-    }
-    Ok(())
+    craft_atomic::atomic_write(path, bytes).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

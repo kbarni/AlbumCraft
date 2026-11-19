@@ -241,7 +241,7 @@ impl App {
     }
 
     /// Use this file (a library picture or any picture file) as the background.
-    fn set_collage_bg(&mut self, key: String) {
+    pub(crate) fn set_collage_bg(&mut self, key: String) {
         let Some(st) = self.collage.as_mut() else { return };
         if st.bg_key.as_deref() == Some(key.as_str()) {
             return;
@@ -546,10 +546,9 @@ impl App {
                 }
             }
         }
-        if pick_file
-            && let Some(path) = rfd::FileDialog::new().set_title(tr!("collage-bg-dialog")).add_filter(tr!("filter-pictures"), &["jpg", "jpeg", "png", "webp", "tif", "tiff", "bmp", "gif"]).pick_file()
-        {
-            pick_bg = Some(path.to_string_lossy().to_string());
+        if pick_file {
+            let dialog = craft_dialogs::FileDialog::open().title(tr!("collage-bg-dialog")).filter(tr!("filter-pictures"), crate::file_dialogs::PICTURES);
+            self.ask_file(dialog, crate::file_dialogs::FileJob::CollageBackground);
         }
         if let Some(k) = pick_bg {
             self.set_collage_bg(k);
@@ -695,13 +694,18 @@ impl App {
     fn collage_save(&mut self, pages: Vec<Page>, pdf: bool) {
         let sheet = self.collage.as_ref().is_some_and(|c| c.sheet);
         let name = if sheet { tr!("collage-file-sheet") } else { tr!("collage-file-collage") };
-        let dialog = rfd::FileDialog::new().set_title(if pdf { tr!("collage-save-pdf-title") } else { tr!("collage-save-picture-title") });
-        let picked = if pdf {
-            dialog.set_file_name(format!("{name}.pdf")).add_filter(tr!("filter-pdf"), &["pdf"]).save_file()
+        let dialog = craft_dialogs::FileDialog::save().title(if pdf { tr!("collage-save-pdf-title") } else { tr!("collage-save-picture-title") });
+        let dialog = if pdf {
+            dialog.file_name(format!("{name}.pdf")).filter(tr!("filter-pdf"), &["pdf"])
         } else {
-            dialog.set_file_name(format!("{name}.jpg")).add_filter(tr!("filter-jpeg"), &["jpg", "jpeg"]).add_filter(tr!("filter-png"), &["png"]).save_file()
+            dialog.file_name(format!("{name}.jpg")).filter(tr!("filter-jpeg"), &["jpg", "jpeg"]).filter(tr!("filter-png"), &["png"])
         };
-        let Some(path) = picked else { return };
+        self.ask_file(dialog, crate::file_dialogs::FileJob::CollageSave { pages, pdf });
+    }
+
+    /// Save the collage's pages to the file picked (`collage_save`).
+    pub(crate) fn collage_save_to(&mut self, pages: Vec<Page>, pdf: bool, path: std::path::PathBuf) {
+        let sheet = self.collage.as_ref().is_some_and(|c| c.sheet);
         let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         // the picker may return a name without an extension
         let path = match (pdf, ext.as_str()) {

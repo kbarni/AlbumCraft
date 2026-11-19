@@ -1002,6 +1002,7 @@ search-no-folder = AlbumCraft n'a pas de dossier pour ses données
 search-pack-failed = La recherche intelligente n'a pas pu démarrer : { $error }
 search-not-analysed = Cette photo n'est pas encore analysée.
 music-dialog-title = Musique pour le diaporama
+file-dialog-failed = Impossible d’afficher le sélecteur de fichiers : { $error }
 filter-music = Musique
 ss-previous = Précédente (←)
 ss-play-pause = Lecture / pause (Espace)

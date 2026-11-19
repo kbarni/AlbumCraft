@@ -156,7 +156,7 @@ impl App {
         self.view = back;
     }
 
-    fn set_import_source(&mut self, source: PathBuf) {
+    pub(crate) fn set_import_source(&mut self, source: PathBuf) {
         let library: Vec<(String, u64)> =
             if self.using_samples { vec![] } else { self.photos.iter().map(|p| (p.key.clone(), p.bytes)).collect() };
         let Some(st) = self.import.as_mut() else { return };
@@ -176,10 +176,17 @@ impl App {
         self.lib.list_import(source, library);
     }
 
-    fn choose_import_source(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new().set_title(tr!("import-from-dialog")).pick_folder() {
-            self.set_import_source(dir);
+    /// Copy into a folder under `dir` (Another folder…), added to the destinations offered.
+    pub(crate) fn set_import_dest(&mut self, dir: String) {
+        let Some(st) = self.import.as_mut() else { return };
+        if !st.dest_roots.contains(&dir) {
+            st.dest_roots.push(dir.clone());
         }
+        st.dest_root = dir;
+    }
+
+    fn choose_import_source(&mut self) {
+        self.ask_file(craft_dialogs::FileDialog::folder().title(tr!("import-from-dialog")), crate::file_dialogs::FileJob::ImportSource);
     }
 
     pub fn on_import_list(&mut self, source: PathBuf, items: Vec<Candidate>, truncated: bool) {
@@ -483,14 +490,8 @@ impl App {
                     });
                 });
             });
-        if choose_dest
-            && let Some(dir) = rfd::FileDialog::new().set_title(tr!("import-dest-dialog")).pick_folder()
-        {
-            let d = dir.to_string_lossy().to_string();
-            if !st.dest_roots.contains(&d) {
-                st.dest_roots.push(d.clone());
-            }
-            st.dest_root = d;
+        if choose_dest {
+            self.ask_file(craft_dialogs::FileDialog::folder().title(tr!("import-dest-dialog")), crate::file_dialogs::FileJob::ImportDest);
         }
         if go {
             self.start_import();

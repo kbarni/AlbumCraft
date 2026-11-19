@@ -119,10 +119,7 @@ pub fn index(files: Vec<(String, i64, u64)>, seen: HashMap<String, (Stamp, Optio
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let tmp = p.with_extension("json.tmp");
-        if std::fs::write(&tmp, json).is_ok() {
-            let _ = std::fs::rename(&tmp, &p);
-        }
+        let _ = craft_atomic::atomic_write(&p, &json);
     }
 }
 

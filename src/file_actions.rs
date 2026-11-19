@@ -438,23 +438,29 @@ impl App {
         let mut close = false;
         ui.horizontal(|ui| {
             if ui.button(tr!("move-other")).clicked() {
-                let start = self.store.roots.first().cloned().unwrap_or_default();
-                if let Some(dir) = rfd::FileDialog::new().set_title(tr!("choose-folder-dialog")).set_directory(start).pick_folder() {
-                    chosen = Some(dir.to_string_lossy().into_owned());
+                let mut dialog = craft_dialogs::FileDialog::folder().title(tr!("choose-folder-dialog"));
+                if let Some(start) = self.store.roots.first() {
+                    dialog = dialog.directory(start);
                 }
+                self.ask_file(dialog, crate::file_dialogs::FileJob::MoveTo);
             }
             if ui.button(tr!("button-cancel")).clicked() {
                 close = true;
             }
         });
         if let Some(dir) = chosen {
-            let pairs = crate::commands::library_folder(&self.store, &dir)
-                .and_then(|()| sources.iter().map(|s| crate::files::moved_into(s, &dir).map(|to| (s.clone(), to))).collect::<Result<Vec<_>, _>>());
-            match pairs.and_then(|pairs| self.move_files(pairs, false)) {
+            match self.move_into(&sources, &dir) {
                 Ok(()) => close = true,
                 Err(e) => *error = e,
             }
         }
         close
+    }
+
+    /// Move these files or folders into `dir`, a folder of the library.
+    pub(crate) fn move_into(&mut self, sources: &[String], dir: &str) -> Result<(), String> {
+        let pairs = crate::commands::library_folder(&self.store, dir)
+            .and_then(|()| sources.iter().map(|s| crate::files::moved_into(s, dir).map(|to| (s.clone(), to))).collect::<Result<Vec<_>, _>>())?;
+        self.move_files(pairs, false)
     }
 }

@@ -10,6 +10,7 @@ mod display;
 mod edit_view;
 mod export_view;
 mod file_actions;
+mod file_dialogs;
 mod folder_dates;
 mod folder_tree;
 mod icons;

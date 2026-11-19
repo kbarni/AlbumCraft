@@ -599,6 +599,8 @@ pub struct App {
     pub tasks: Vec<RunningTask>,
     /// The check for a newer release, its prompt and a self-update (updates.rs).
     pub updates: crate::updates::Updates,
+    /// File and folder pickers asked for and not answered yet (file_dialogs.rs).
+    pub file_dialogs: craft_dialogs::Dialogs<crate::file_dialogs::FileJob>,
     next_task: u64,
     /// The import view's state (only while it is open).
     pub import: Option<Box<crate::import_view::ImportState>>,
@@ -802,6 +804,7 @@ impl App {
             tasks: vec![],
             next_task: 1,
             updates: Default::default(),
+            file_dialogs: crate::file_dialogs::new_queue(&ctx),
             import: None,
             importing: None,
             show_after_scan: None,
@@ -2060,29 +2063,37 @@ impl App {
     }
 
     pub fn add_library_folder(&mut self) {
-        if let Some(dir) = rfd::FileDialog::new().set_title(crate::i18n::tr!("choose-folder-dialog")).pick_folder() {
-            let s = dir.to_string_lossy().to_string();
-            match self.store.add_root(&s) {
-                Ok(()) => {
-                    self.dirty = true;
-                    self.rescan();
-                }
-                Err(e) => self.toast(e),
+        self.ask_file(craft_dialogs::FileDialog::folder().title(crate::i18n::tr!("choose-folder-dialog")), crate::file_dialogs::FileJob::LibraryFolder);
+    }
+
+    /// Watch the folder picked (`add_library_folder`).
+    pub(crate) fn add_library_folder_at(&mut self, dir: &str) {
+        match self.store.add_root(dir) {
+            Ok(()) => {
+                self.dirty = true;
+                self.rescan();
             }
+            Err(e) => self.toast(e),
         }
     }
 
     /// Pick a folder inside a library folder to leave out of the library.
     pub fn add_excluded_folder(&mut self) {
-        let start = self.store.roots.first().cloned().unwrap_or_default();
-        if let Some(dir) = rfd::FileDialog::new().set_title(crate::i18n::tr!("choose-folder-dialog")).set_directory(start).pick_folder() {
-            match self.store.add_excluded(&dir.to_string_lossy()) {
-                Ok(()) => {
-                    self.dirty = true;
-                    self.rescan();
-                }
-                Err(e) => self.toast(e),
+        let mut dialog = craft_dialogs::FileDialog::folder().title(crate::i18n::tr!("choose-folder-dialog"));
+        if let Some(start) = self.store.roots.first() {
+            dialog = dialog.directory(start);
+        }
+        self.ask_file(dialog, crate::file_dialogs::FileJob::ExcludedFolder);
+    }
+
+    /// Leave out the folder picked (`add_excluded_folder`).
+    pub(crate) fn add_excluded_folder_at(&mut self, dir: &str) {
+        match self.store.add_excluded(dir) {
+            Ok(()) => {
+                self.dirty = true;
+                self.rescan();
             }
+            Err(e) => self.toast(e),
         }
     }
 
@@ -2157,7 +2168,11 @@ impl App {
             self.toast(crate::i18n::tr!("export-select-first"));
             return;
         }
-        let Some(parent) = rfd::FileDialog::new().set_title(crate::i18n::tr!("gallery-folder-dialog")).pick_folder() else { return };
+        self.ask_file(craft_dialogs::FileDialog::folder().title(crate::i18n::tr!("gallery-folder-dialog")), crate::file_dialogs::FileJob::Gallery { ids, opts });
+    }
+
+    /// Make the web gallery in a new folder inside `parent`, the folder picked (`make_gallery`).
+    pub(crate) fn make_gallery_in(&mut self, ids: Vec<usize>, opts: crate::gallery::Options, parent: PathBuf) {
         let items: Vec<crate::gallery::Item> = ids
             .iter()
             .filter_map(|&id| {
@@ -2171,9 +2186,12 @@ impl App {
     }
 
     pub fn make_movie(&mut self, ids: Vec<usize>, size: (u32, u32)) {
-        let Some(out) = rfd::FileDialog::new().set_title(crate::i18n::tr!("movie-save-dialog")).set_file_name("Slideshow.mp4").add_filter(crate::i18n::tr!("filter-mp4"), &["mp4"]).save_file() else {
-            return;
-        };
+        let dialog = craft_dialogs::FileDialog::save().title(crate::i18n::tr!("movie-save-dialog")).file_name("Slideshow.mp4").filter(crate::i18n::tr!("filter-mp4"), &["mp4"]);
+        self.ask_file(dialog, crate::file_dialogs::FileJob::Movie { ids, size });
+    }
+
+    /// Make the movie into `out`, the file picked (`make_movie`).
+    pub(crate) fn make_movie_to(&mut self, ids: Vec<usize>, size: (u32, u32), out: PathBuf) {
         let out = if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4")) { out } else { out.with_extension("mp4") };
         let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().filter_map(|&id| Some((self.photos.get(id)?.key.clone(), self.edits(id)))).collect();
         let task = self.start_task(crate::i18n::tr!("task-movie"));
@@ -2502,6 +2520,20 @@ impl App {
 
 impl eframe::App for App {
     fn on_exit(&mut self) {
+        // Closing the window saved everything in its last frame. On macOS the app can also end
+        // without a close request (Quit in winit's app menu, ⌘Q, logging out): save what is left.
+        self.save_catalogue(0.0, true);
+        if let Some(result) = self.lib.take_saved(true) {
+            self.save_finished(result);
+        }
+        if self.persist && (self.unsaved || self.dirty) {
+            self.unsaved = false;
+            self.dirty = false;
+            self.lib.save(&mut self.store, true);
+            if let Some(Err(e)) = self.lib.take_saved(true) {
+                eprintln!("could not save the library: {e}");
+            }
+        }
         self.start_pending_update();
     }
 
@@ -2515,6 +2547,8 @@ impl eframe::App for App {
         self.thumb_budget = 8;
         self.process_results();
         library::trace_since("frame: results", t0, 30);
+        // what the file pickers answered (file_dialogs.rs)
+        self.file_answers();
         self.trim_thumbs();
         let t0 = std::time::Instant::now();
         self.geo_tick();
@@ -2562,9 +2596,13 @@ impl eframe::App for App {
         } else if self.unsaved && self.persist {
             ctx.request_repaint_after(std::time::Duration::from_secs(3));
         }
+        // last, after everything above has seen the close request (the library is saved by
+        // now): on macOS, quit through NSApplication instead of closing the window, which can
+        // crash in AppKit (craft-quit); elsewhere the window closes as before
+        craft_quit::on_close_request(ctx);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let t0 = std::time::Instant::now();
         // the editor's video stops (its thread and sound end) once the editor is left
@@ -2600,6 +2638,8 @@ impl eframe::App for App {
         self.dialogs(&ctx);
         self.toast_ui(&ctx);
         self.updates_ui(&ctx);
+        // the file pickers asked for in this frame, owned by the window, answered on a later one
+        self.file_dialogs.show_pending(Some(&*frame));
         // a change made in this frame is taken up (lists rebuilt, save planned) by the next one
         if self.dirty {
             ctx.request_repaint();

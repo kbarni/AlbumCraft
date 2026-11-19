@@ -16,6 +16,10 @@ albumcraft-ai = { path = "crates/albumcraft-ai", default-features = false }
 albumcraft-core = { path = "crates/albumcraft-core", default-features = false }
 albumcraft-edit = { path = "crates/albumcraft-edit" }
 ab_glyph = "0.2"
+# crash-safe saving (flushed temporary file, renamed over the old one, folder synced; retries on
+# Windows while an antivirus holds the file), shared with the other Craft apps. Every craft-libs
+# crate is pinned to the same rev (craft-update below).
+craft-atomic = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "7.0.0"
 epaint_default_fonts = "0.37.0"
@@ -60,6 +64,8 @@ epaint_default_fonts.workspace = true
 image = { workspace = true, features = ["png"] }
 miniz_oxide.workspace = true
 rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "flac", "vorbis", "wav", "mp4"] }
+# not called directly any more (the pickers go through craft-dialogs, which uses it): kept for its
+# default `wayland` feature, so that on Wayland the desktop portal's picker belongs to the window
 rfd = "0.17.2"
 # draws the colour icons of the Bright style (assets/icons/, src/color_icons.rs)
 resvg = { version = "0.45.1", default-features = false }
@@ -71,6 +77,11 @@ rust-embed = "8.14.0"
 fluent-bundle = "0.16.0"
 # the check for a newer release at start (and Help > Check for Updates), its prompt and the
 # self-update, shared with the other Craft apps (src/updates.rs)
+# file and folder pickers that don't block the event loop (on macOS a blocking dialog can make
+# winit abort the app), and quitting the macOS way (closing the window can crash in AppKit);
+# src/file_dialogs.rs, `App::logic`
+craft-dialogs = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
+craft-quit = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144", features = ["egui"] }
 craft-update = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144", features = ["egui"] }
 # printing, shared with the other Craft apps (src/print.rs, src/print_cups.rs). Same craft-libs rev as
 # craft-update. Linux / macOS: IPP straight to the CUPS socket (craft-ipp), which also works in the

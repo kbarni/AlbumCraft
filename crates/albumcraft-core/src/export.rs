@@ -141,26 +141,14 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Op
             jpeg = j;
         }
     }
+    // a free name, never one already there; written whole or not at all (`craft-atomic`)
     let mut n = 0;
-    let (file, out) = loop {
+    loop {
         let out = if n == 0 { dir.join(format!("{stem}.jpg")) } else { dir.join(format!("{stem}-{n}.jpg")) };
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&out) {
-            Ok(f) => break (f, out),
+        match craft_atomic::write_new(&out, &jpeg) {
+            Ok(()) => return Ok(out),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 10_000 => n += 1,
             Err(e) => return Err(e.to_string()),
-        }
-    };
-    let write = || -> Result<(), String> {
-        use std::io::Write;
-        let mut f = file;
-        f.write_all(&jpeg).map_err(|e| e.to_string())?;
-        f.flush().map_err(|e| e.to_string())
-    };
-    match write() {
-        Ok(()) => Ok(out),
-        Err(e) => {
-            let _ = std::fs::remove_file(&out);
-            Err(e)
         }
     }
 }

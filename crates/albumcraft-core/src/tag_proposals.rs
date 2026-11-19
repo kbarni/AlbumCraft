@@ -620,9 +620,7 @@ fn write_vocabulary(dir: &Path, model: &Model, vectors: &[Vec<f32>]) -> Result<(
         }
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let part = path.with_extension("part");
-    std::fs::write(&part, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&part, &path).map_err(|e| e.to_string())
+    craft_atomic::atomic_write(&path, &bytes).map_err(|e| e.to_string())
 }
 
 /// Make the vocabulary's vectors on a thread of their own, then keep them.

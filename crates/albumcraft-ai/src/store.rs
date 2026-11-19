@@ -258,11 +258,7 @@ impl Table {
             encode(*id, e.stamp, &found, self.spec.record_len, &mut bytes);
         }
         self.file = None;
-        let tmp = self.path.with_extension("bin.tmp");
-        std::fs::write(&tmp, &bytes).and_then(|_| std::fs::rename(&tmp, &self.path)).map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            failed(e)
-        })?;
+        craft_atomic::atomic_write(&self.path, &bytes).map_err(failed)?;
         // read it back in, so that memory and file agree again
         let spec = self.spec.clone();
         let path = std::mem::take(&mut self.path);

@@ -200,15 +200,11 @@ impl App {
                 });
             });
         if choose {
-            let mut dialog = rfd::FileDialog::new().set_title(tr!("export-dialog-title"));
+            let mut dialog = craft_dialogs::FileDialog::folder().title(tr!("export-dialog-title"));
             if !dest.is_empty() {
-                dialog = dialog.set_directory(&dest);
+                dialog = dialog.directory(&dest);
             }
-            if let Some(dir) = dialog.pick_folder()
-                && let Some(st) = self.export.as_mut()
-            {
-                st.dest = dir.to_string_lossy().to_string();
-            }
+            self.ask_file(dialog, crate::file_dialogs::FileJob::ExportDest);
         }
         if go {
             self.start_export();
@@ -244,6 +240,7 @@ impl App {
 
         heading(ui, &tr!("export-signature"));
         let creator = self.store.export_creator.trim().to_string();
+        let mut pick_logo = false;
         let sig = &mut self.store.export_signature;
         let r = ui.checkbox(&mut sig.on, tr!("export-signature-on"));
         if r.changed() {
@@ -260,11 +257,8 @@ impl App {
             if sig.use_logo {
                 ui.horizontal(|ui| {
                     let name = sig.logo.as_deref().and_then(|l| std::path::Path::new(l).file_name()).map(|n| n.to_string_lossy().to_string());
-                    if ui.button(if name.is_some() { tr!("export-logo-other") } else { tr!("export-logo-choose") }).clicked()
-                        && let Some(f) = rfd::FileDialog::new().set_title(tr!("export-logo-dialog")).add_filter(tr!("filter-pictures"), &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"]).pick_file()
-                    {
-                        sig.logo = Some(f.to_string_lossy().to_string());
-                        changed = true;
+                    if ui.button(if name.is_some() { tr!("export-logo-other") } else { tr!("export-logo-choose") }).clicked() {
+                        pick_logo = true;
                     }
                     if let Some(n) = name {
                         ui.label(RichText::new(n).weak());
@@ -318,6 +312,10 @@ impl App {
         note(ui, &tr!("export-credit-note"));
         if changed {
             self.dirty = true;
+        }
+        if pick_logo {
+            let dialog = craft_dialogs::FileDialog::open().title(tr!("export-logo-dialog")).filter(tr!("filter-pictures"), crate::file_dialogs::PICTURES);
+            self.ask_file(dialog, crate::file_dialogs::FileJob::ExportLogo);
         }
     }
 

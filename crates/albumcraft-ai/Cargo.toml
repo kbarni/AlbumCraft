@@ -19,6 +19,7 @@ onnx = ["dep:ort"]
 onnx-dynamic = ["onnx", "ort?/load-dynamic"]
 
 [dependencies]
+craft-atomic.workspace = true
 dirs.workspace = true
 image.workspace = true
 serde.workspace = true

@@ -162,8 +162,10 @@ dependencies = [
  "ab_glyph",
  "albumcraft-core",
  "chrono",
+ "craft-dialogs",
  "craft-ipp",
  "craft-print",
+ "craft-quit",
  "craft-update",
  "dirs",
  "earcut",
@@ -189,6 +191,7 @@ dependencies = [
 name = "albumcraft-ai"
 version = "0.8.5"
 dependencies = [
+ "craft-atomic",
  "dirs",
  "image",
  "ort",
@@ -207,6 +210,7 @@ dependencies = [
  "albumcraft-ai",
  "albumcraft-edit",
  "chrono",
+ "craft-atomic",
  "dirs",
  "epaint_default_fonts",
  "ffmpeg-next",
@@ -1231,6 +1235,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft-atomic"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
+dependencies = [
+ "rustix 1.1.6",
+]
+
+[[package]]
+name = "craft-dialogs"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
+dependencies = [
+ "block2 0.6.2",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "raw-window-handle",
+ "rfd",
+]
+
+[[package]]
 name = "craft-ipp"
 version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
@@ -1247,6 +1272,17 @@ dependencies = [
  "tempfile",
  "winprint",
  "winsafe",
+]
+
+[[package]]
+name = "craft-quit"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=30a568b97fa2927d2217f98ba9c799bc76102144#30a568b97fa2927d2217f98ba9c799bc76102144"
+dependencies = [
+ "dispatch2",
+ "egui",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
 ]
 
 [[package]]
@@ -4652,7 +4688,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
