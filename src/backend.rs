@@ -148,6 +148,17 @@ pub trait Library {
     /// Propose tags for `targets` with `pack`, learning from `examples`; the answer is
     /// `Done::TagProposals(asked, …)`.
     fn propose_tags(&self, pack: String, asked: u64, examples: Arc<crate::tag_proposals::Examples>, targets: Vec<crate::tag_proposals::Picture>);
+
+    /// How the connection to the server is doing; None for the folders on this computer.
+    fn remote_status(&self) -> Option<crate::immich::Status> {
+        None
+    }
+
+    /// Show this Immich server's pictures (None: this computer's folders again). The library
+    /// part of `store` (notes, albums, folders) is swapped for the one shown.
+    fn show_server(&mut self, _store: &mut Store, _account: Option<crate::immich::Account>) -> Result<(), String> {
+        Err("this library can't show a server".into())
+    }
 }
 
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).

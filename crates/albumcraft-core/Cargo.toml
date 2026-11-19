@@ -19,6 +19,7 @@ video = ["dep:ffmpeg-next"]
 [dependencies]
 albumcraft-ai.workspace = true
 albumcraft-edit.workspace = true
+albumcraft-immich.workspace = true
 ab_glyph.workspace = true
 ffmpeg-next = { workspace = true, optional = true }
 chrono.workspace = true

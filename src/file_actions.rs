@@ -42,7 +42,8 @@ impl App {
     /// changes on disk. `id` is the picture right-clicked, `tray` what the actions apply to.
     pub fn picture_file_menu(&mut self, ui: &mut egui::Ui, id: usize, tray: &[usize]) {
         let Some(p) = self.photos.get(id) else { return };
-        if p.is_sample() {
+        // a server's picture is no file on this computer: nothing to open, rename or move
+        if p.is_sample() || crate::remote::is_remote(&p.key) {
             return;
         }
         let key = p.key.clone();
@@ -148,6 +149,16 @@ impl App {
             ui.close();
         }
         if self.using_samples {
+            return;
+        }
+        // a server's month: thumbnails can be made again; nothing is a folder on this computer
+        if crate::remote::is_remote(&f.path) {
+            ui.separator();
+            if ui.button(format!("{} {}", icons::REFRESH, tr!("folder-refresh"))).on_hover_text(tr!("folder-refresh-hint")).clicked() {
+                self.refresh_thumbs(&ids);
+                self.toast(tr!("folder-refreshing", name = f.name.as_str()));
+                ui.close();
+            }
             return;
         }
         ui.separator();

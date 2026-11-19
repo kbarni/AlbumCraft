@@ -438,6 +438,15 @@ impl App {
                 _ => self.search_terms = vec![SearchTerm::Tag("Nature".into())],
             }
         }
+        if shot_view == "immich" {
+            // the sign-in dialog, filled in (nothing is sent)
+            self.open_immich_dialog();
+            if let Some(Dialog::Immich(f)) = &mut self.dialog {
+                f.address = "https://demo.immich.app".into();
+                f.email = "demo@immich.app".into();
+                f.password = "demo".into();
+            }
+        }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
         }

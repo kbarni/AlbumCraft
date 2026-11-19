@@ -336,6 +336,15 @@ impl App {
             self.open_tag_manager(None);
             ui.close();
         }
+        if self.store.immich.is_none() {
+            if ui.button(tr!("menu-immich-connect")).clicked() {
+                self.open_immich_dialog();
+                ui.close();
+            }
+        } else if ui.button(tr!("menu-immich-sign-out")).clicked() {
+            self.sign_out_immich();
+            ui.close();
+        }
         ui.separator();
         if ui.add(egui::Button::new(tr!("menu-select-all")).shortcut_text("Ctrl+A")).clicked() {
             self.selection = self.visible_flat().into_iter().collect();
@@ -416,10 +425,11 @@ impl App {
                         .size(12.0)
                         .weak(),
                     );
-                    if self.scanning {
+                    if self.scanning && !self.showing_server() {
                         ui.spinner();
                         ui.label(RichText::new(tr!("scanning")).size(12.0));
                     }
+                    self.immich_status(ui);
                     if let Some(i) = &self.importing {
                         ui.separator();
                         ui.spinner();
@@ -826,6 +836,10 @@ pub(crate) fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<
 /// Open a file with the system's default program (a web page in the browser).
 pub fn open_with_system(path: &std::path::Path) -> std::io::Result<()> {
     use std::process::Command;
+    // a server's picture is an address, not a file: never hand it to the system
+    if crate::remote::is_remote(&path.to_string_lossy()) {
+        return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, tr!("immich-not-here")));
+    }
     if cfg!(target_os = "windows") {
         Command::new("explorer").arg(path).spawn().map(drop)
     } else if cfg!(target_os = "macos") {

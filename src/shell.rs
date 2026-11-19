@@ -347,12 +347,16 @@ impl App {
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if pill(ui, &format!("{}  {}", icons::DRIVE, tr!("bar-import")), true)
-                            .on_hover_text(tr!("bar-import-hint"))
-                            .clicked()
+                        // copying from a card goes into this computer's folders
+                        if !self.showing_server()
+                            && pill(ui, &format!("{}  {}", icons::DRIVE, tr!("bar-import")), true)
+                                .on_hover_text(tr!("bar-import-hint"))
+                                .clicked()
                         {
                             self.open_import();
                         }
+                        // this computer / the Immich server, once one was signed in to
+                        self.library_switch(ui);
                         // icon only when the window is narrow (a longer language needs the room)
                         let folders = if wide >= 760.0 { pill(ui, &format!("{}  {}", icons::FOLDER, tr!("bar-folders")), false) } else { icon_btn(ui, icons::FOLDER, &tr!("bar-folders")) };
                         if folders.on_hover_text(tr!("bar-folders-hint")).clicked() {

@@ -7,6 +7,9 @@ use image::{ImageDecoder, RgbaImage};
 /// Load a picture (a file path or a built-in sample) scaled so its longest side is at most `max_dim`
 /// (0 = keep the original size).
 pub fn load_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
+    if let Some(img) = crate::remote::ask(key, |s| s.picture(key, max_dim)) {
+        return img;
+    }
     if key.starts_with(SAMPLE_PREFIX) {
         return sample_source(key, max_dim);
     }
@@ -47,6 +50,9 @@ fn open_decoder(path: &str) -> Option<impl image::ImageDecoder> {
 /// turned a quarter (EXIF orientation 5–8). Reads only the file header.
 pub fn oriented_dims(path: &str) -> Option<(u32, u32)> {
     use image::metadata::Orientation as O;
+    if let Some(d) = crate::remote::ask(path, |s| s.dims(path)) {
+        return d;
+    }
     if crate::raw::is_raw(path) {
         return crate::raw::preview_dims(path);
     }
@@ -232,6 +238,7 @@ pub fn decode_jpeg_scaled(stream: impl std::io::Read, head: &JpegHead, max_dim: 
 /// else from the picture itself.
 pub fn load_thumbnail(key: &str, dim: u32) -> Option<RgbaImage> {
     if !key.starts_with(SAMPLE_PREFIX)
+        && !crate::remote::is_remote(key)
         && !crate::raw::is_raw(key)
         && !crate::video::is_video(key)
         && let Some(t) = embedded_preview(key, dim)

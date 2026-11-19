@@ -296,6 +296,65 @@ pub struct Store {
     pub gallery: crate::gallery::GallerySettings,
     /// Look for a newer release of AlbumCraft when it starts (Settings > Interface).
     pub check_updates: bool,
+    /// The Immich server the user signed in to (no secret here: see `immich::save_secret`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub immich: Option<crate::immich::Account>,
+    /// The window shows the Immich server's pictures rather than the folders on this computer.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub use_immich: bool,
+}
+
+/// The part of a `Store` that belongs to one library (its pictures' notes, albums, folders),
+/// as opposed to the settings. The window has one `Store`; switching between the folders on
+/// this computer and a server swaps this part (`Store::swap_library`), so the settings stay.
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[serde(default)]
+pub struct LibraryPart {
+    pub roots: Vec<String>,
+    pub excluded: Vec<String>,
+    pub meta: HashMap<String, Meta>,
+    pub albums: Vec<Album>,
+    pub folder_notes: HashMap<String, String>,
+    pub folder_captions: HashMap<String, String>,
+    pub imported_ini: Vec<String>,
+    pub tag_parents: std::collections::BTreeMap<String, String>,
+}
+
+impl Store {
+    /// Exchange this library's notes, albums and folders with `other`'s (settings stay).
+    pub fn swap_library(&mut self, other: &mut LibraryPart) {
+        std::mem::swap(&mut self.roots, &mut other.roots);
+        std::mem::swap(&mut self.excluded, &mut other.excluded);
+        std::mem::swap(&mut self.meta, &mut other.meta);
+        std::mem::swap(&mut self.albums, &mut other.albums);
+        std::mem::swap(&mut self.folder_notes, &mut other.folder_notes);
+        std::mem::swap(&mut self.folder_captions, &mut other.folder_captions);
+        std::mem::swap(&mut self.imported_ini, &mut other.imported_ini);
+        std::mem::swap(&mut self.tag_parents, &mut other.tag_parents);
+    }
+}
+
+impl LibraryPart {
+    /// Read a library part saved with `save_to` (missing: an empty one; damaged: an error, and
+    /// the file is left as it is).
+    pub fn load_from(path: &Path) -> Result<LibraryPart, String> {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                let mut part: LibraryPart = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+                for m in part.meta.values_mut() {
+                    m.upgrade();
+                }
+                Ok(part)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(LibraryPart::default()),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    pub fn snapshot(&mut self) -> Result<Vec<u8>, String> {
+        self.meta.retain(|_, m| !m.is_empty());
+        serde_json::to_vec(self).map_err(|e| e.to_string())
+    }
 }
 
 fn without_samples<S: serde::Serializer>(meta: &HashMap<String, Meta>, s: S) -> Result<S::Ok, S::Error> {
@@ -364,6 +423,8 @@ impl Default for Store {
             search_pack: String::new(),
             gallery: Default::default(),
             check_updates: true,
+            immich: None,
+            use_immich: false,
         }
     }
 }
@@ -1681,6 +1742,10 @@ pub enum Done {
     Dropped(Vec<String>),
     /// A short progress note for the toast.
     Toast(String),
+    /// What changed in the notes of a server's pictures (`immich::Engine`).
+    ServerNotes(Box<crate::immich::Changes>),
+    /// The server connection's status changed (`Library::remote_status`).
+    RemoteStatus,
     /// Files or folders moved to another disk in the background (`Library::move_across`):
     /// (old path, new path) of those moved (the task's report says why others were not).
     Moved(Vec<(String, String)>),

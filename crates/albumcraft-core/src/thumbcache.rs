@@ -35,6 +35,11 @@ fn base(cache: &Path, key: &str, dim: u32) -> Option<PathBuf> {
     if key.starts_with(crate::imaging::SAMPLE_PREFIX) {
         return None;
     }
+    // a server picture: what the server says identifies this version of it
+    if let Some(stamp) = crate::remote::ask(key, |s| s.stamp(key)) {
+        let id = format!("{VERSION}\0{key}\0{}\0{dim}", stamp?);
+        return Some(cache.join(format!("{:016x}", fnv(id.as_bytes()))));
+    }
     let meta = std::fs::metadata(key).ok()?;
     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
     // bump VERSION when the way thumbnails are made changes (2: EXIF orientation applied)

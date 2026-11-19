@@ -274,6 +274,9 @@ pub fn gps_of(exif: &exif::Exif) -> Option<LatLon> {
 
 /// The GPS position stored in a picture file (JPEG, TIFF-based raw files, HEIF, PNG, WebP).
 pub fn file_gps(path: &str) -> Option<LatLon> {
+    if let Some(gps) = crate::remote::ask(path, |s| s.gps(path)) {
+        return gps;
+    }
     if path.starts_with(crate::imaging::SAMPLE_PREFIX) {
         return None;
     }

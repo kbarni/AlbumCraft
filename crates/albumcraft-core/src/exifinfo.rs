@@ -156,6 +156,9 @@ fn light_source_text(v: u32) -> String {
 }
 
 pub fn read(path: &str) -> Option<CameraInfo> {
+    if let Some(info) = crate::remote::ask(path, |s| s.camera(path)) {
+        return info;
+    }
     let file = std::fs::File::open(path).ok()?;
     let mut reader = std::io::BufReader::new(file);
     let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;

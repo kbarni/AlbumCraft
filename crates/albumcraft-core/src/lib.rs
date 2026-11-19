@@ -33,6 +33,8 @@ pub mod online;
 pub mod collage;
 pub mod print;
 pub mod raw;
+pub mod remote;
+pub mod immich;
 pub mod slides;
 pub mod smart_search;
 pub mod tag_proposals;

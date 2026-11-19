@@ -272,6 +272,8 @@ pub enum Dialog {
     ManageTags(crate::tags_view::ManageTags),
     /// The Settings dialog, showing this section (`settings_view`).
     Settings { section: crate::settings_view::SettingsSection },
+    /// Signing in to an Immich server (`immich_view`).
+    Immich(Box<crate::immich_view::ImmichForm>),
 }
 
 /// Where the editor goes next.
@@ -617,7 +619,9 @@ impl App {
         crate::theme::apply(&ctx, crate::theme::Mode::System, crate::theme::Style::Calm, true);
         let (tx, rx) = std::sync::mpsc::channel();
         let wake_ctx = ctx.clone();
-        let mut lib: Box<dyn Library> = Box::new(LocalLibrary::new(tx.clone(), Arc::new(move || wake_ctx.request_repaint())));
+        let wake: crate::library::Wake = Arc::new(move || wake_ctx.request_repaint());
+        // this computer's folders, which can show an Immich server's pictures instead
+        let mut lib: Box<dyn Library> = Box::new(crate::immich_library::ImmichLibrary::new(Box::new(LocalLibrary::new(tx.clone(), wake.clone())), tx.clone(), wake));
 
         let mut persist = shot.is_none();
         let mut first_run = false;
@@ -802,6 +806,14 @@ impl App {
         if app.shot.is_some() {
             app.demo_setup();
         } else {
+            // the Immich server, when it was shown last time
+            if app.store.use_immich
+                && let Some(account) = app.store.immich.clone()
+                && let Err(e) = app.lib.show_server(&mut app.store, Some(account))
+            {
+                app.store.use_immich = false;
+                app.error(crate::i18n::tr!("immich-failed", error = e));
+            }
             // the folders as the last scan found them, at once; the scan then brings what changed
             if !app.store.roots.is_empty() {
                 app.lib.cached(app.store.roots.clone(), app.store.excluded.clone());
@@ -2270,6 +2282,9 @@ impl App {
                     }
                 }
                 Done::Toast(m) => self.toast(m),
+                Done::ServerNotes(ch) => self.on_server_notes(*ch),
+                // the status bar reads it each frame
+                Done::RemoteStatus => {}
                 Done::ThumbsForgotten(keys) => self.thumbs_forgotten(keys),
                 Done::Moved(done) => self.moved_across(done),
                 Done::NotTrashed(paths) => {
@@ -2455,7 +2470,7 @@ pub fn several_text(count: usize, items: impl Iterator<Item = (i64, u64)>) -> St
 }
 
 impl App {
-    fn save_finished(&mut self, result: Result<(), String>) {
+    pub(crate) fn save_finished(&mut self, result: Result<(), String>) {
         match result {
             Ok(()) => {
                 if self.save_error.take().is_some() {

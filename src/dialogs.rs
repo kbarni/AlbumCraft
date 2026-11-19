@@ -15,6 +15,12 @@ impl App {
             self.settings_dialog(ctx, section);
             return;
         }
+        // signing in to a server
+        if let Some(Dialog::Immich(_)) = &self.dialog {
+            let Some(Dialog::Immich(f)) = self.dialog.take() else { return };
+            self.immich_dialog(ctx, f);
+            return;
+        }
         // the tag manager too
         if let Some(Dialog::ManageTags(_)) = &self.dialog {
             let Some(Dialog::ManageTags(st)) = self.dialog.take() else { return };
@@ -44,6 +50,7 @@ impl App {
             Dialog::LibraryThere { .. } => tr!("dialog-library-there"),
             Dialog::Settings { .. } => tr!("settings-title"),
             Dialog::ManageTags(_) => tr!("tags-manage-title"),
+            Dialog::Immich(_) => tr!("immich-title"),
         };
         let targets = self.targets();
         #[allow(deprecated)]
@@ -430,7 +437,7 @@ impl App {
                     });
                 }
                 // drawn by `settings_dialog` and `tag_manager_dialog`, before this one
-                Dialog::Settings { .. } | Dialog::ManageTags(_) => close = true,
+                Dialog::Settings { .. } | Dialog::ManageTags(_) | Dialog::Immich(_) => close = true,
             }
         });
         // Esc, or a click beside the dialog: the same as Cancel

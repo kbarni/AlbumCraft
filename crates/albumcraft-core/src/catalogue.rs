@@ -72,6 +72,9 @@ pub fn path() -> Option<PathBuf> {
 
 /// Read the shape and the date taken from the picture's header (JPEG: the first segments only).
 pub fn read_details(key: &str) -> Details {
+    if let Some(d) = crate::remote::ask(key, |s| s.details(key)) {
+        return d.unwrap_or_default();
+    }
     if let Some(seed) = key.strip_prefix(imaging::SAMPLE_PREFIX) {
         return Details { dims: seed.parse().ok().map(imaging::sample_size), ..Details::default() };
     }

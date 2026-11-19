@@ -3,6 +3,8 @@
 mod i18n;
 mod app;
 mod backend;
+mod immich_library;
+mod immich_view;
 mod basemap;
 mod demo;
 mod dialogs;
@@ -40,7 +42,7 @@ mod video_view;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{ai, analysis, auto, catalogue, collage, commands, control, decor, develop, exifinfo, export, files, gallery, geo, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, steps, thumbcache, video};
+pub use albumcraft_core::{ai, analysis, auto, catalogue, collage, commands, control, decor, develop, exifinfo, export, files, gallery, geo, imaging, immich, import, library, remote, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, steps, thumbcache, video};
 
 use std::path::PathBuf;
 
