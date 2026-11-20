@@ -1870,3 +1870,51 @@ export-notes-hint = Valutazione, didascalia, tag e persone, nell'XMP della copia
 
 # folder_dates.rs: a folder's pictures were taken from one date to another
 folder-dates = { $first } – { $last }
+
+## Date taken (src/date_view.rs; taken-* are made by the core crate's taken.rs)
+
+ctx-date = Data di scatto…
+info-date-hint = Cambia la data di scatto…
+date-title = Data di scatto
+date-intro = { $n ->
+    [one] Quando è stata scattata questa foto. Il file stesso non viene modificato.
+   *[other] Quando sono state scattate queste { $n } foto. I file stessi non vengono modificati.
+}
+date-mode-set = La stessa data per tutte
+date-mode-shift = Sposta tutte le date della stessa quantità (l'orologio della fotocamera era sbagliato)
+date-shift-intro = Scrivi la data e l'ora vere di { $name } (ora { $date }): le altre si spostano della stessa quantità.
+date-shift-by = Sposta ogni foto di { $by }
+date-shift-none = nessuna modifica
+date-shift-years = { $n ->
+    [one] { $n } anno
+   *[other] { $n } anni
+}
+date-shift-days = { $n ->
+    [one] { $n } giorno
+   *[other] { $n } giorni
+}
+date-unknown-parts = Lascia vuoti il mese, il giorno o l'ora se non li conosci.
+date-year = Anno
+date-month = Mese
+date-day = Giorno
+date-time = Ora
+date-time-hint = se nota
+date-unknown = Non noto
+date-apply = Imposta la data
+date-reset = Usa la data del file
+date-reset-hint = Dimentica la data impostata in AlbumCraft e usa di nuovo quella del file
+date-bad-year = Scrivi un anno, per esempio 1978.
+date-bad-day = Quel giorno non esiste.
+date-bad-time = Scrivi l'ora come 10:30.
+date-shift-needs-day = Per spostare le date serve il giorno esatto.
+date-changed = { $n ->
+    [one] Data cambiata per 1 foto.
+   *[other] Data cambiata per { $n } foto.
+}
+date-left-alone = { $left ->
+    [one] 1 foto senza una data esatta è rimasta com'era.
+   *[other] { $left } foto senza una data esatta sono rimaste com'erano.
+}
+date-month-year = { $month } { $year }
+taken-bad-date = { $text } non è una data (scrivila come 1978, 1978-07, 1978-07-14 o 1978-07-14T10:30)
+taken-bad-year = l'anno deve essere tra { $first } e { $last }

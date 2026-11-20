@@ -350,3 +350,42 @@ fn tempdir(name: &str) -> PathBuf {
     d
 }
 
+
+#[test]
+fn dates_round_trip_with_their_precision() {
+    let d = |t: &str| Some(crate::taken::parse(t).unwrap());
+    for date in ["1978", "1978-07", "1978-07-14T10:30:00"] {
+        let out = merge(None, &XmpNotes { date: d(date), ..Default::default() }, true).unwrap();
+        assert_eq!(parse(&out).unwrap().date.map(|x| x.to_iso()).as_deref(), Some(date), "{out}");
+        // a year or a month alone is not an EXIF date
+        assert_eq!(out.contains("exif:DateTimeOriginal"), date.len() > 7, "{out}");
+    }
+    // a camera date written by another program is replaced, then removed
+    let theirs = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" exif:DateTimeOriginal="2001-01-01T00:00:00" photoshop:DateCreated="2001-01-01T00:00:00" xmp:CreateDate="2020-05-05T10:00:00" xmp:Rating="2"/></rdf:RDF></x:xmpmeta>"#;
+    let set = merge(Some(theirs), &XmpNotes { date: d("1978-07"), ..Default::default() }, true).unwrap();
+    let back = parse(&set).unwrap();
+    assert_eq!((back.date.map(|x| x.to_iso()), back.rating), (Some("1978-07".to_string()), Some(2)));
+    assert!(!set.contains("2001-01-01"), "{set}");
+    let gone = merge(Some(&set), &XmpNotes { date_removed: true, ..Default::default() }, true).unwrap();
+    // xmp:CreateDate (a scanning program's day of the scan) is neither read nor removed
+    assert_eq!(parse(&gone).unwrap().date, None);
+    assert!(gone.contains("2020-05-05"), "{gone}");
+}
+
+#[test]
+fn the_files_own_date_is_not_a_date_set() {
+    let dir = tempdir("dates");
+    let pic = dir.join("e.jpg");
+    crate::exifinfo::write_demo_jpeg(&pic).unwrap();
+    let camera = crate::filemeta::exif(&pic).and_then(|m| m.capture_time).unwrap();
+    let side = dir.join("e.jpg.xmp");
+    // a sidecar repeating the camera's date (as raw developers write it): none set
+    let same = merge(None, &XmpNotes { date: Some(camera), rating: Some(1), ..Default::default() }, true).unwrap();
+    std::fs::write(&side, same).unwrap();
+    assert_eq!(read_for(&pic, Some(&side)).notes.unwrap().date, None);
+    // another date: set
+    let other = merge(None, &XmpNotes { date: Some(crate::taken::parse("1950").unwrap()), ..Default::default() }, true).unwrap();
+    std::fs::write(&side, other).unwrap();
+    assert_eq!(read_for(&pic, Some(&side)).notes.unwrap().date.map(|d| d.to_iso()).as_deref(), Some("1950"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

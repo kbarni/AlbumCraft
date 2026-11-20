@@ -61,7 +61,7 @@ impl App {
         let span: Vec<Option<(i64, i64)>> = self
             .folders
             .iter()
-            .map(|f| span_of(f.photos.iter().filter_map(|&id| self.taken.get(&id).copied().or_else(|| Some(self.photos.get(id)?.modified)))))
+            .map(|f| span_of(f.photos.iter().filter_map(|&id| self.taken_at(id).or_else(|| Some(self.photos.get(id)?.modified)))))
             .collect();
         let fallback: Vec<i64> = self.folders.iter().map(|f| f.date).collect();
         let names: Vec<&str> = self.folders.iter().map(|f| f.name.as_str()).collect();

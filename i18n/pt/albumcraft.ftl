@@ -1870,3 +1870,51 @@ export-notes-hint = A classificação, a legenda, as etiquetas e as pessoas, no 
 
 # folder_dates.rs: a folder's pictures were taken from one date to another
 folder-dates = { $first } – { $last }
+
+## Date taken (src/date_view.rs; taken-* are made by the core crate's taken.rs)
+
+ctx-date = Data da foto…
+info-date-hint = Alterar a data da foto…
+date-title = Data da foto
+date-intro = { $n ->
+    [one] Quando esta foto foi tirada. O arquivo em si não é alterado.
+   *[other] Quando estas { $n } fotos foram tiradas. Os arquivos em si não são alterados.
+}
+date-mode-set = A mesma data para todas
+date-mode-shift = Mover todas as datas pelo mesmo valor (o relógio da câmera estava errado)
+date-shift-intro = Digite a data e a hora reais de { $name } (agora { $date }): as outras se movem pelo mesmo valor.
+date-shift-by = Move cada foto em { $by }
+date-shift-none = sem alteração
+date-shift-years = { $n ->
+    [one] { $n } ano
+   *[other] { $n } anos
+}
+date-shift-days = { $n ->
+    [one] { $n } dia
+   *[other] { $n } dias
+}
+date-unknown-parts = Deixe o mês, o dia ou a hora em branco se não os souber.
+date-year = Ano
+date-month = Mês
+date-day = Dia
+date-time = Hora
+date-time-hint = se souber
+date-unknown = Desconhecido
+date-apply = Definir a data
+date-reset = Usar a data do arquivo
+date-reset-hint = Esquecer a data definida no AlbumCraft e voltar a usar a do arquivo
+date-bad-year = Digite um ano, por exemplo 1978.
+date-bad-day = Esse dia não existe.
+date-bad-time = Escreva a hora como 10:30.
+date-shift-needs-day = Para mover as datas é preciso o dia exato.
+date-changed = { $n ->
+    [one] Data alterada em 1 foto.
+   *[other] Data alterada em { $n } fotos.
+}
+date-left-alone = { $left ->
+    [one] 1 foto sem data exata ficou como estava.
+   *[other] { $left } fotos sem data exata ficaram como estavam.
+}
+date-month-year = { $month } de { $year }
+taken-bad-date = { $text } não é uma data (escreva-a como 1978, 1978-07, 1978-07-14 ou 1978-07-14T10:30)
+taken-bad-year = o ano deve estar entre { $first } e { $last }

@@ -64,13 +64,14 @@ pub struct Carried {
 }
 
 impl Carried {
-    /// The XMP packet for the copy, None when it would hold nothing.
+    /// The XMP packet for the copy, None when it would hold nothing. The date the user set is
+    /// always in it (a year or a month alone can only be said there), the rest when
+    /// `opts.notes`.
     fn packet(&self, opts: &Options) -> Option<String> {
-        if !opts.notes {
-            return None;
+        let mut n = if opts.notes { self.notes.clone() } else { crate::xmp::XmpNotes { date: self.notes.date, ..Default::default() } };
+        if opts.notes {
+            n.gps = self.gps.map(|g| [g.lat, g.lon]);
         }
-        let mut n = self.notes.clone();
-        n.gps = self.gps.map(|g| [g.lat, g.lon]);
         if n.is_empty() {
             return None;
         }
@@ -124,6 +125,9 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Op
             ifd0.set(tag, craft_tiff::Value::Ascii(text.to_string()));
         }
     }
+    if let Some(d) = &carried.notes.date {
+        set_exif_date(&mut ifd0, d);
+    }
     if let Some(at) = gps {
         ifd0.set_child(craft_tiff::tags::GPS_IFD, crate::geo::exif_gps_ifd(at));
     }
@@ -152,6 +156,21 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Op
             Err(e) => return Err(e.to_string()),
         }
     }
+}
+
+/// Put the date the user set in a copy's EXIF, in place of the camera's: when it was taken and
+/// digitized (a year or a month alone as its first day, which EXIF needs; the XMP says how
+/// much is known), without the camera's time zone and fractions of a second, which were about
+/// the other date.
+fn set_exif_date(ifd0: &mut craft_tiff::IfdBuilder, d: &craft_metadata::DateTime) {
+    use craft_tiff::{Value, tags};
+    let exif = ifd0.children.entry(tags::EXIF_IFD).or_default();
+    for tag in [tags::OFFSET_TIME_ORIGINAL, tags::OFFSET_TIME_DIGITIZED, tags::SUBSEC_TIME_ORIGINAL, tags::SUBSEC_TIME_DIGITIZED] {
+        exif.entries.remove(&tag);
+    }
+    let text = crate::taken::exif_text(d);
+    exif.set(tags::DATE_TIME_ORIGINAL, Value::Ascii(text.clone()));
+    exif.set(tags::DATE_TIME_DIGITIZED, Value::Ascii(text));
 }
 
 #[cfg(test)]
@@ -271,5 +290,38 @@ mod tests {
         assert!(still_jpeg);
         // the EXIF segment is still read
         assert!(exif.is_some_and(|i| i.camera().is_some()));
+    }
+
+    #[test]
+    fn the_date_set_replaces_the_cameras() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-export-date-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("original.jpg");
+        crate::exifinfo::write_demo_jpeg(&original).unwrap();
+        let key = original.to_string_lossy().to_string();
+        let camera = crate::filemeta::exif(&original).and_then(|m| m.capture_time).expect("the demo has a date");
+        let carry = |date: &str| Carried { notes: crate::xmp::XmpNotes { date: Some(crate::taken::parse(date).unwrap()), ..Default::default() }, ..Default::default() };
+        let opts = |camera_info| Options { max_dim: 100, quality: 80, camera_info, ..Default::default() };
+        let full = export_one(&key, &[], &dir, "full", &opts(true), &carry("1999-12-31T23:59:58"), None).unwrap();
+        let bare = export_one(&key, &[], &dir, "bare", &opts(false), &carry("1999-12-31T23:59:58"), None).unwrap();
+        let month = export_one(&key, &[], &dir, "month", &opts(true), &carry("1978-07"), None).unwrap();
+        let plain = export_one(&key, &[], &dir, "plain", &opts(true), &Carried::default(), None).unwrap();
+        let date = |p: &Path| crate::filemeta::exif(p).and_then(|m| m.capture_time).map(|d| d.to_iso());
+        let xmp = |p: &Path| crate::xmp::read_embedded(p).packet.and_then(|t| crate::xmp::parse(&t)).and_then(|n| n.date).map(|d| d.to_iso());
+        let got = [date(&full), date(&bare), date(&month), date(&plain), xmp(&full), xmp(&month), xmp(&plain)];
+        let model = crate::filemeta::exif(&full).and_then(|m| m.model);
+        let _ = std::fs::remove_dir_all(&dir);
+        let s = |v: &str| Some(v.to_string());
+        // EXIF: the date set, with or without the camera's information; a month as its first day
+        assert_eq!(got[0], s("1999-12-31T23:59:58"));
+        assert_eq!(got[1], s("1999-12-31T23:59:58"));
+        assert_eq!(got[2], s("1978-07-01T00:00:00"));
+        assert_eq!(got[3], Some(camera.to_iso()), "no date set: the camera's");
+        // XMP: the date with its precision, even without the notes
+        assert_eq!(got[4], s("1999-12-31T23:59:58"));
+        assert_eq!(got[5], s("1978-07"));
+        assert_eq!(got[6], None);
+        assert!(model.is_some(), "the rest of the camera information stays");
     }
 }

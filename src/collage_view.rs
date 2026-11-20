@@ -292,7 +292,10 @@ impl App {
                     aspect: self.shown_aspect(id),
                     name: p.name.clone(),
                     caption: self.meta(id).map(|m| m.caption.clone()).unwrap_or_default(),
-                    date: library::fmt_date(p.modified),
+                    date: match self.user_taken(id) {
+                        Some(d) => crate::date_view::date_text(&d),
+                        None => library::fmt_date(self.taken_at(id).unwrap_or(p.modified)),
+                    },
                 }
             })
             .collect()

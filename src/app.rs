@@ -139,6 +139,8 @@ pub enum Undo {
     /// A change of the tag manager: the tags and "not this tag"s of the pictures it changed
     /// (by key) and the tag hierarchy as they were.
     Tags { meta: Vec<(String, Vec<String>, Vec<String>)>, parents: std::collections::BTreeMap<String, String> },
+    /// Dates taken changed (`date_view`): each picture's date set as it was (by key).
+    Dates(Vec<(String, Option<crate::taken::DateTime>)>),
 }
 
 /// Background work the user watches: see `App::start_task`.
@@ -272,6 +274,8 @@ pub enum Dialog {
     ManageTags(crate::tags_view::ManageTags),
     /// The Settings dialog, showing this section (`settings_view`).
     Settings { section: crate::settings_view::SettingsSection },
+    /// When pictures were taken (`date_view`).
+    DateTaken(crate::date_view::DateDialog),
 }
 
 /// Where the editor goes next.
@@ -1292,7 +1296,7 @@ impl App {
         match self.store.sort {
             library::Sort::Name => {}
             library::Sort::Taken => {
-                let when = |id: &usize| self.taken.get(id).copied().or_else(|| Some(self.photos.get(*id)?.modified)).unwrap_or(0);
+                let when = |id: &usize| self.taken_at(*id).or_else(|| Some(self.photos.get(*id)?.modified)).unwrap_or(0);
                 for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h)) {
                     ids.sort_by_cached_key(when);
                 }
@@ -1404,8 +1408,13 @@ impl App {
                 self.dims_pending = true;
                 self.lib.request(Job::Dims(vec![(id, p.key.clone())]), true);
             }
-            let t = taken.unwrap_or(p.modified);
-            let date = format!("{} {}", library::fmt_date(t), library::fmt_time(t));
+            let date = match self.user_taken(id) {
+                Some(d) => crate::date_view::date_text(&d),
+                None => {
+                    let t = taken.unwrap_or(p.modified);
+                    format!("{} {}", library::fmt_date(t), library::fmt_time(t))
+                }
+            };
             return selection_text(&[(p.name.clone(), p.modified, p.bytes)], Some(&date), dims);
         }
         // several pictures: only their dates and sizes count (no copies of their names)
@@ -2033,6 +2042,7 @@ impl App {
                 }
             }
             Undo::Moved(done) => self.move_back(done),
+            Undo::Dates(before) => self.undo_dates(before),
             Undo::Tags { meta, parents } => {
                 for (key, tags, not_tags) in meta {
                     let m = self.store.meta.entry(key).or_default();

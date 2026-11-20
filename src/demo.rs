@@ -435,6 +435,22 @@ impl App {
             }
             self.dialog = Some(Dialog::Settings { section: crate::settings_view::SettingsSection::Ai });
         }
+        // the Date taken dialog for three pictures: a month alone (a scanned print), or every
+        // date moved by the first one's (`dateshift`)
+        if matches!(shot_view.as_str(), "date" | "dateshift") {
+            use crate::date_view::{DateDialog, DateMode};
+            let keys: Vec<String> = self.photos.iter().take(3).map(|p| p.key.clone()).collect();
+            let at = crate::taken::seconds(&crate::taken::parse("2019-06-02T09:14:00").unwrap_or_default()).unwrap_or(0);
+            let mut st = DateDialog { keys, mode: DateMode::Set, year: "1978".into(), month: 7, day: String::new(), time: String::new(), reference: None, error: String::new() };
+            if shot_view == "dateshift" {
+                st.reference = st.keys.first().map(|k| (k.clone(), at));
+                st.mode = DateMode::Shift;
+                (st.year, st.month, st.day, st.time) = ("2019".into(), 6, "3".into(), "10:14".into());
+            } else {
+                st.reference = st.keys.first().map(|k| (k.clone(), at));
+            }
+            self.dialog = Some(Dialog::DateTaken(st));
+        }
         if matches!(shot_view.as_str(), "tags" | "managetags" | "tagged") {
             // tags on the samples, two near-duplicates (Church / Cathedral) and a small hierarchy
             let sets: [&[&str]; 6] = [&["Sea", "Sunset"], &["Beach", "Sea"], &["Mountains"], &["Church"], &["Cathedral", "Old town"], &["Garden", "Flowers"]];

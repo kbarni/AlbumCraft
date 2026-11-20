@@ -781,6 +781,10 @@ impl App {
                 self.start_placing(tray.clone());
                 ui.close();
             }
+            if !self.photos[id].is_sample() && ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::CALENDAR, tr!("ctx-date")), 13.5))).clicked() {
+                self.ask_date(&tray);
+                ui.close();
+            }
             if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("ctx-export")), 13.5))).clicked() {
                 self.open_export(tray.clone());
                 ui.close();
