@@ -1876,3 +1876,51 @@ export-notes-hint = The rating, caption, tags and people, in the copy's XMP.
 
 # folder_dates.rs: a folder's pictures were taken from one date to another
 folder-dates = { $first } – { $last }
+
+## Date taken (src/date_view.rs; taken-* are made by the core crate's taken.rs)
+
+ctx-date = Date taken…
+info-date-hint = Change the date taken…
+date-title = Date taken
+date-intro = { $n ->
+    [one] When this picture was taken. The file itself is not changed.
+   *[other] When these { $n } pictures were taken. The files themselves are not changed.
+}
+date-mode-set = The same date for all
+date-mode-shift = Move every date by the same amount (the camera's clock was off)
+date-shift-intro = Type the real date and time of { $name } (now { $date }): the others move by the same amount.
+date-shift-by = Moves every picture by { $by }
+date-shift-none = no change
+date-shift-years = { $n ->
+    [one] { $n } year
+   *[other] { $n } years
+}
+date-shift-days = { $n ->
+    [one] { $n } day
+   *[other] { $n } days
+}
+date-unknown-parts = Leave the month, day or time empty when you don't know them.
+date-year = Year
+date-month = Month
+date-day = Day
+date-time = Time
+date-time-hint = if known
+date-unknown = Not known
+date-apply = Set date
+date-reset = Use the file's date
+date-reset-hint = Forget the date set in AlbumCraft and use the one in the file again
+date-bad-year = Type a year, such as 1978.
+date-bad-day = That day does not exist.
+date-bad-time = Write the time as 10:30.
+date-shift-needs-day = Moving the dates needs the exact day.
+date-changed = { $n ->
+    [one] Date changed for 1 picture.
+   *[other] Date changed for { $n } pictures.
+}
+date-left-alone = { $left ->
+    [one] 1 picture without an exact date was left as it was.
+   *[other] { $left } pictures without an exact date were left as they were.
+}
+date-month-year = { $month } { $year }
+taken-bad-date = { $text } is not a date (write it as 1978, 1978-07, 1978-07-14 or 1978-07-14T10:30)
+taken-bad-year = the year must be between { $first } and { $last }

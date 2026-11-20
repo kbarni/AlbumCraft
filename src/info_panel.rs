@@ -153,14 +153,27 @@ impl App {
         });
         row(ui, &tr!("info-camera"), c.and_then(|c| c.camera()));
         row(ui, &tr!("info-lens"), c.and_then(|c| c.lens.clone()));
-        row(
-            ui,
-            &tr!("info-taken"),
-            Some(match taken {
-                Some(ts) => format!("{} {}", fmt_date(ts), fmt_time(ts)),
-                None => tr!("info-file-date", date = format!("{} {}", fmt_date(p.modified), fmt_time(p.modified))),
-            }),
-        );
+        // the date set in AlbumCraft, else the file's; a click changes it (`date_view`)
+        let set = self.user_taken(id);
+        let text = match (set, taken) {
+            (Some(d), _) => crate::date_view::date_text(&d),
+            (None, Some(ts)) => format!("{} {}", fmt_date(ts), fmt_time(ts)),
+            (None, None) => tr!("info-file-date", date = format!("{} {}", fmt_date(p.modified), fmt_time(p.modified))),
+        };
+        let mut change = false;
+        ui.horizontal_top(|ui| {
+            name_cell(ui, &tr!("info-taken"));
+            ui.vertical(|ui| {
+                let r = ui.add(egui::Label::new(RichText::new(text).size(12.5).color(t().text)).wrap().sense(Sense::click()));
+                change = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr!("info-date-hint")).clicked();
+                if set.is_some() {
+                    ui.label(RichText::new(tr!("info-set-in-app")).size(11.5).color(t().text_weak));
+                }
+            });
+        });
+        if change && !p.is_sample() {
+            self.ask_date(&[id]);
+        }
         row(
             ui,
             &tr!("info-size"),

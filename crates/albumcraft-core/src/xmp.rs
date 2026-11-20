@@ -63,6 +63,15 @@ pub struct XmpNotes {
     pub gps_removed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edits: Option<Vec<EditOp>>,
+    /// When the picture was taken, when the XMP says another date than the file's own EXIF
+    /// (`exif:DateTimeOriginal`, else `photoshop:DateCreated`; a year or a month alone kept as
+    /// such). The same date as the file's reads as None (`read_for`), so that the camera's date
+    /// copied into the XMP is not taken for one the user set.
+    #[serde(default, with = "crate::taken::iso", skip_serializing_if = "Option::is_none")]
+    pub date: Option<craft_metadata::DateTime>,
+    /// When writing: remove the date (the user went back to the file's own date).
+    #[serde(skip)]
+    pub date_removed: bool,
 }
 
 impl XmpNotes {
@@ -147,6 +156,11 @@ fn notes_of(data: &craft_metadata::XmpData) -> XmpNotes {
         out.people = Some(people);
     }
     out.gps = data.metadata.gps.filter(|g| crate::geo::LatLon::new(g.latitude, g.longitude).is_some()).map(|g| [g.latitude, g.longitude]);
+    // not `xmp:CreateDate`: scanning programs put the day of the scan there
+    out.date = ["exif:DateTimeOriginal", "photoshop:DateCreated"]
+        .iter()
+        .find_map(|k| first(k).and_then(|v| craft_metadata::DateTime::parse_iso(&v)))
+        .and_then(|d| crate::taken::checked(craft_metadata::DateTime { offset_minutes: None, millis: 0, ..d }).ok());
     out.normalized()
 }
 
@@ -218,6 +232,7 @@ fn owned(notes: &XmpNotes) -> Vec<&'static str> {
     add(notes.tags.is_some(), &["dc:subject", "lr:hierarchicalSubject", "digiKam:TagsList"]);
     add(notes.people.is_some(), &["Iptc4xmpExt:PersonInImage"]);
     add(notes.gps.is_some() || notes.gps_removed, &["exif:GPSLatitude", "exif:GPSLongitude"]);
+    add(notes.date.is_some() || notes.date_removed, &["exif:DateTimeOriginal", "photoshop:DateCreated"]);
     out
 }
 
@@ -273,6 +288,10 @@ fn fresh_packet(notes: &XmpNotes, digikam: bool) -> String {
         && crate::geo::LatLon::new(lat, lon).is_some()
     {
         m.gps = Some(craft_metadata::Gps { latitude: lat, longitude: lon, altitude: None });
+    }
+    // a year or a month alone goes in `photoshop:DateCreated` only (`craft-metadata`)
+    if !notes.date_removed {
+        m.capture_time = notes.date;
     }
     let flag = match notes.flag {
         Some(Flag::Pick) => Some("pick"),
@@ -554,8 +573,12 @@ pub fn read_for(picture: &Path, sidecar: Option<&Path>) -> Found {
         let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
         parse(std::str::from_utf8(bytes).ok()?.trim_end_matches(['\0', ' ', '\n', '\r', '\t']))
     });
-    if side_notes.is_some() {
-        return Found { sidecar, notes: side_notes, embedded: false };
+    if let Some(mut n) = side_notes {
+        if n.date.is_some() {
+            let file = crate::filemeta::exif(picture).and_then(|m| m.capture_time);
+            drop_file_date(&mut n, file);
+        }
+        return Found { sidecar, notes: Some(n), embedded: false };
     }
     let blocks = crate::filemeta::blocks(picture);
     let emb = embedded_of(&blocks);
@@ -573,7 +596,24 @@ pub fn read_for(picture: &Path, sidecar: Option<&Path>) -> Found {
         let n = std::mem::take(n).normalized();
         notes = (!n.is_empty()).then_some(n);
     }
+    if let Some(n) = notes.as_mut().filter(|n| n.date.is_some()) {
+        let file = blocks.exif.as_deref().and_then(|e| craft_metadata::try_read_exif(e).ok()).and_then(|m| m.capture_time);
+        drop_file_date(n, file);
+        if n.is_empty() {
+            notes = None;
+        }
+    }
     Found { sidecar, notes, embedded }
+}
+
+/// Leave out the XMP's date when it is the file's own (`file`, from its EXIF): programs copy
+/// the camera's date into the XMP; only another date is one the user set.
+fn drop_file_date(notes: &mut XmpNotes, file: Option<craft_metadata::DateTime>) {
+    if let (Some(d), Some(f)) = (notes.date, file)
+        && crate::taken::same(&d, &f)
+    {
+        notes.date = None;
+    }
 }
 
 /// Where `write_for` put the notes.

@@ -21,6 +21,11 @@ impl App {
             self.tag_manager_dialog(ctx, st);
             return;
         }
+        if let Some(Dialog::DateTaken(_)) = &self.dialog {
+            let Some(Dialog::DateTaken(st)) = self.dialog.take() else { return };
+            self.date_dialog(ctx, st);
+            return;
+        }
         let Some(mut dialog) = self.dialog.take() else { return };
         let mut close = false;
         let mut pick_music = false;
@@ -45,6 +50,7 @@ impl App {
             Dialog::LibraryThere { .. } => tr!("dialog-library-there"),
             Dialog::Settings { .. } => tr!("settings-title"),
             Dialog::ManageTags(_) => tr!("tags-manage-title"),
+            Dialog::DateTaken(_) => tr!("date-title"),
         };
         let targets = self.targets();
         #[allow(deprecated)]
@@ -431,7 +437,7 @@ impl App {
                     });
                 }
                 // drawn by `settings_dialog` and `tag_manager_dialog`, before this one
-                Dialog::Settings { .. } | Dialog::ManageTags(_) => close = true,
+                Dialog::Settings { .. } | Dialog::ManageTags(_) | Dialog::DateTaken(_) => close = true,
             }
         });
         // Esc, or a click beside the dialog: the same as Cancel

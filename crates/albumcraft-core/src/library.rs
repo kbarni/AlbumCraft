@@ -69,6 +69,10 @@ pub struct Meta {
     /// Where the picture was taken, when the user set or removed it (else the file's GPS is used).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place: Option<crate::geo::Place>,
+    /// When the picture was taken, when the user set it (else the file's date is used); may be
+    /// a year or a month alone (`taken.rs`).
+    #[serde(default, with = "crate::taken::iso", skip_serializing_if = "Option::is_none")]
+    pub taken: Option<craft_metadata::DateTime>,
     /// A video's in and out points and the frame its thumbnail shows, when the user set them.
     #[serde(skip_serializing_if = "crate::video::VideoMeta::is_empty")]
     pub video: crate::video::VideoMeta,
@@ -92,6 +96,7 @@ impl Meta {
             && self.people.is_empty()
             && self.edits.is_empty()
             && self.place.is_none()
+            && self.taken.is_none()
             && self.video.is_empty()
     }
 

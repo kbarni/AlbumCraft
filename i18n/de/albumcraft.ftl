@@ -1870,3 +1870,51 @@ export-notes-hint = Bewertung, Beschriftung, Tags und Personen im XMP der Kopie.
 
 # folder_dates.rs: a folder's pictures were taken from one date to another
 folder-dates = { $first } – { $last }
+
+## Date taken (src/date_view.rs; taken-* are made by the core crate's taken.rs)
+
+ctx-date = Aufnahmedatum…
+info-date-hint = Aufnahmedatum ändern…
+date-title = Aufnahmedatum
+date-intro = { $n ->
+    [one] Wann dieses Bild aufgenommen wurde. Die Datei selbst wird nicht geändert.
+   *[other] Wann diese { $n } Bilder aufgenommen wurden. Die Dateien selbst werden nicht geändert.
+}
+date-mode-set = Dasselbe Datum für alle
+date-mode-shift = Alle Daten um denselben Betrag verschieben (die Uhr der Kamera ging falsch)
+date-shift-intro = Geben Sie das richtige Datum und die Uhrzeit von { $name } ein (jetzt { $date }): Die anderen werden um denselben Betrag verschoben.
+date-shift-by = Verschiebt jedes Bild um { $by }
+date-shift-none = keine Änderung
+date-shift-years = { $n ->
+    [one] { $n } Jahr
+   *[other] { $n } Jahre
+}
+date-shift-days = { $n ->
+    [one] { $n } Tag
+   *[other] { $n } Tage
+}
+date-unknown-parts = Lassen Sie Monat, Tag oder Uhrzeit leer, wenn Sie sie nicht kennen.
+date-year = Jahr
+date-month = Monat
+date-day = Tag
+date-time = Uhrzeit
+date-time-hint = falls bekannt
+date-unknown = Unbekannt
+date-apply = Datum festlegen
+date-reset = Datum der Datei verwenden
+date-reset-hint = Das in AlbumCraft festgelegte Datum vergessen und wieder das der Datei verwenden
+date-bad-year = Geben Sie ein Jahr ein, zum Beispiel 1978.
+date-bad-day = Diesen Tag gibt es nicht.
+date-bad-time = Schreiben Sie die Uhrzeit als 10:30.
+date-shift-needs-day = Zum Verschieben der Daten wird der genaue Tag gebraucht.
+date-changed = { $n ->
+    [one] Datum für 1 Bild geändert.
+   *[other] Datum für { $n } Bilder geändert.
+}
+date-left-alone = { $left ->
+    [one] 1 Bild ohne genaues Datum blieb unverändert.
+   *[other] { $left } Bilder ohne genaues Datum blieben unverändert.
+}
+date-month-year = { $month } { $year }
+taken-bad-date = { $text } ist kein Datum (schreiben Sie es als 1978, 1978-07, 1978-07-14 oder 1978-07-14T10:30)
+taken-bad-year = das Jahr muss zwischen { $first } und { $last } liegen

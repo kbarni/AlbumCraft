@@ -82,6 +82,39 @@ pub fn remove_place(host: &mut dyn Host, ids: &[usize], back_to_file: bool) {
     }
 }
 
+/// The date a picture was taken as AlbumCraft uses it: the user's (`Meta.taken`), else the
+/// file's (`file`, Unix seconds in this computer's time zone).
+pub fn taken_of(store: &Store, key: &str, file: Option<i64>) -> Option<craft_metadata::DateTime> {
+    store.meta.get(key).and_then(|m| m.taken).or_else(|| file.and_then(crate::taken::from_seconds))
+}
+
+/// Set the date these pictures were taken (Some) or go back to the files' own dates (None).
+pub fn set_taken(host: &mut dyn Host, ids: &[usize], date: Option<craft_metadata::DateTime>) {
+    for &id in ids {
+        if let Some(m) = meta_mut(host, id) {
+            m.taken = date;
+        }
+        host.changed(id);
+    }
+}
+
+/// Move the date of these pictures by `secs` (a camera clock that was off): from the date set
+/// in AlbumCraft, else the file's (`file_taken`). Returns how many moved; a picture with no
+/// date, or only a year or a month, is left as it is.
+pub fn shift_taken(host: &mut dyn Host, ids: &[usize], secs: i64, file_taken: &dyn Fn(&str) -> Option<i64>) -> usize {
+    let mut moved = 0;
+    for &id in ids {
+        let Some(key) = host.photos().get(id).map(|p| p.key.clone()) else { continue };
+        let Some(to) = taken_of(host.store(), &key, file_taken(&key)).and_then(|d| crate::taken::shifted(&d, secs)) else { continue };
+        if let Some(m) = meta_mut(host, id) {
+            m.taken = Some(to);
+            moved += 1;
+        }
+        host.changed(id);
+    }
+    moved
+}
+
 /// What `move_on_disk` did: the (old, new) paths moved and why the others were not.
 #[derive(Debug, Default)]
 pub struct Moves {
@@ -577,6 +610,17 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "set_date_taken",
+            description: "Set when pictures were taken, for scanned prints or a camera whose clock was wrong (kept in the library, overriding the date in the file; the file is not changed). Give one of: `date` (the same date for all: \"1978\", \"1978-07\", \"1978-07-14\" or \"1978-07-14T10:30\", local time; a year or a month alone when that is all that is known), `shift_seconds` (move each picture's date by this many seconds, e.g. 3600 for a clock an hour behind; pictures with no exact date are left alone), or `reset: true` (back to the files' own dates). Sorting, folder dates, the XMP written and exported copies' EXIF use it.",
+            schema: || {
+                keys_schema(json!({
+                    "date": { "type": "string", "required": false },
+                    "shift_seconds": { "type": "integer", "required": false },
+                    "reset": { "type": "boolean", "required": false }
+                }))
+            },
+        },
+        Spec {
             name: "remove_location",
             description: "Remove the location of pictures, including the GPS position stored in the file (hidden, the file is not changed). With back_to_file, forget the location set in AlbumCraft and use the file's own GPS position again.",
             schema: || keys_schema(json!({ "back_to_file": { "type": "boolean", "default": false, "required": false } })),
@@ -767,6 +811,7 @@ fn summary(host: &dyn Host, id: usize) -> Value {
         "tags": m.map(|m| m.tags.clone()).unwrap_or_default(),
         "people": m.map(|m| m.people.clone()).unwrap_or_default(),
         "edits": m.map(|m| m.edits.len()).unwrap_or(0),
+        "date_taken_set": m.and_then(|m| m.taken).map(|d| d.to_iso()),
     })
 }
 
@@ -812,7 +857,10 @@ pub fn export_job(host: &dyn Host, id: usize) -> ExportJob {
 /// The notes to write into a picture's XMP (`xmp_sync::to_write`).
 pub fn xmp_notes_of(store: &Store, key: &str) -> crate::xmp::XmpNotes {
     let meta = store.meta.get(key).cloned().unwrap_or_default();
-    crate::xmp_sync::to_write(&meta, &store.tag_parents)
+    let mut notes = crate::xmp_sync::to_write(&meta, &store.tag_parents);
+    // back to the file's date: a date the XMP says (another than the file's) goes
+    notes.date_removed = meta.taken.is_none() && store.xmp_seen.get(key).is_some_and(|s| s.notes.date.is_some());
+    notes
 }
 
 fn edits_of(host: &dyn Host, id: usize) -> Vec<EditOp> {
@@ -1053,6 +1101,29 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let name = opt_str(args, "name").unwrap_or("");
             set_place(host, &ids, Some(Place::set(at, name)));
             now(json!({ "changed": ids.len(), "place": geo::describe(Some(&Place::set(at, name)), at) }))
+        }
+        "set_date_taken" => {
+            let ids = ids(host, args)?;
+            let date = opt_str(args, "date");
+            let shift = match args.get("shift_seconds") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(v.as_i64().ok_or("`shift_seconds` must be a whole number")?),
+            };
+            let reset = opt_bool(args, "reset")?.unwrap_or(false);
+            if [date.is_some(), shift.is_some(), reset].iter().filter(|b| **b).count() != 1 {
+                return Err("give one of `date`, `shift_seconds` or `reset: true`".into());
+            }
+            if let Some(secs) = shift {
+                // a century either way is plenty for a wrong clock
+                if secs.unsigned_abs() > 100 * 366 * 86_400 {
+                    return Err("`shift_seconds` is too large".into());
+                }
+                let moved = shift_taken(host, &ids, secs, &|k: &str| crate::import::date_taken(k));
+                return now(json!({ "changed": moved, "left_alone": ids.len() - moved }));
+            }
+            let d = date.map(crate::taken::parse).transpose()?;
+            set_taken(host, &ids, d);
+            now(json!({ "changed": ids.len(), "date": d.map(|d| d.to_iso()) }))
         }
         "list_tags" => {
             fn node(n: &crate::tags::Node) -> Value {
@@ -1967,6 +2038,51 @@ mod tests {
         let mut h = Headless::open(dir.join("library.json")).unwrap();
         h.gps_cache = Some(dir.join("gps.json"));
         (dir, h, keys)
+    }
+
+    #[test]
+    fn dates_taken_set_shifted_and_reset() {
+        let (dir, mut h, keys) = fixture("dates");
+        // the demo picture has a camera date; the samples have none
+        crate::exifinfo::write_demo_jpeg(Path::new(&keys[0])).unwrap();
+        h.rescan();
+        let set = |h: &Headless, k: &str| h.store.meta.get(k).and_then(|m| m.taken).map(|d| d.to_iso());
+        let r = call(&mut h, "set_date_taken", json!({ "keys": [keys[1], keys[2]], "date": "1978-07" })).unwrap();
+        assert_eq!((r["changed"].clone(), r["date"].clone()), (json!(2), json!("1978-07")));
+        assert_eq!(set(&h, &keys[2]).as_deref(), Some("1978-07"));
+        let p = call(&mut h, "get_photo", json!({ "key": keys[1] })).unwrap();
+        assert_eq!(p["date_taken_set"], "1978-07");
+        // shifting: the camera's date moves, a month alone and a picture without a date don't
+        let camera = crate::import::date_taken(&keys[0]).unwrap();
+        let r = call(&mut h, "set_date_taken", json!({ "keys": [keys[0], keys[1]], "shift_seconds": 3600 })).unwrap();
+        assert_eq!((r["changed"].clone(), r["left_alone"].clone()), (json!(1), json!(1)));
+        let moved = h.store.meta.get(&keys[0]).and_then(|m| m.taken).and_then(|d| crate::taken::seconds(&d));
+        assert_eq!(moved, Some(camera + 3600));
+        // and again from the date set
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[0]], "shift_seconds": -7200 })).unwrap();
+        assert_eq!(h.store.meta.get(&keys[0]).and_then(|m| m.taken).and_then(|d| crate::taken::seconds(&d)), Some(camera - 3600));
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[0], keys[1]], "reset": true })).unwrap();
+        assert_eq!((set(&h, &keys[0]), set(&h, &keys[1])), (None, None));
+        // the XMP gets the date; going back to the file's date removes it there
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[2]], "date": "1950" })).unwrap();
+        run(&mut h, "write_xmp", &json!({ "keys": [keys[2]] })).and_then(|o| o.finish()).unwrap();
+        let side = format!("{}.xmp", keys[2]);
+        let read = |p: &str| crate::xmp::parse(&std::fs::read_to_string(p).unwrap()).and_then(|n| n.date).map(|d| d.to_iso());
+        assert_eq!(read(&side).as_deref(), Some("1950"));
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[2]], "reset": true })).unwrap();
+        run(&mut h, "write_xmp", &json!({ "keys": [keys[2]] })).and_then(|o| o.finish()).unwrap();
+        assert_eq!(read(&side), None);
+        for bad in [
+            json!({ "keys": [keys[0]] }),
+            json!({ "keys": [keys[0]], "date": "1978", "reset": true }),
+            json!({ "keys": [keys[0]], "date": "July" }),
+            json!({ "keys": [keys[0]], "date": "1600" }),
+            json!({ "keys": [keys[0]], "shift_seconds": 1.5 }),
+            json!({ "keys": [keys[0]], "shift_seconds": 1_000_000_000_000i64 }),
+        ] {
+            assert!(call(&mut h, "set_date_taken", bad.clone()).is_err(), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

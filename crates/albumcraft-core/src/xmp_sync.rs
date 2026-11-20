@@ -171,6 +171,9 @@ fn fill(meta: &mut Meta, new: &XmpNotes) {
     {
         meta.edits = e.clone();
     }
+    if meta.taken.is_none() {
+        meta.taken = new.date;
+    }
 }
 
 /// Later: each field that changed in the XMP replaces the notes' value.
@@ -219,6 +222,10 @@ fn changes(meta: &mut Meta, new: &XmpNotes, old: &XmpNotes) {
     {
         // an edit list removed elsewhere is kept: AlbumCraft's own edits are only undone here
         meta.edits = e.clone();
+    }
+    if new.date != old.date {
+        // None: the XMP says the file's own date again
+        meta.taken = new.date;
     }
 }
 
@@ -326,11 +333,15 @@ pub fn to_write(meta: &Meta, tag_parents: &BTreeMap<String, String>) -> XmpNotes
         gps,
         gps_removed,
         edits: Some(meta.edits.clone()),
+        // the file's own date is left alone (see `commands::xmp_notes_of` for removing one
+        // written earlier)
+        date: meta.taken,
+        date_removed: false,
     }
 }
 
 /// The notes an exported copy carries in its XMP: rating, caption, tags (with their
-/// hierarchy) and people. Not the pick / reject flag (a choice about the original) nor the
+/// hierarchy), people and the date the user set. Not the pick / reject flag (a choice about the original) nor the
 /// edits (already applied); the position follows the export's location setting.
 pub fn for_copy(meta: &Meta, tag_parents: &BTreeMap<String, String>) -> XmpNotes {
     let some = |v: Vec<String>| (!v.is_empty()).then_some(v);
@@ -339,6 +350,7 @@ pub fn for_copy(meta: &Meta, tag_parents: &BTreeMap<String, String>) -> XmpNotes
         caption: Some(meta.caption.trim().to_string()).filter(|c| !c.is_empty()),
         tags: some(meta.tags.clone()).map(|t| t.iter().map(|t| path_of(t, tag_parents)).collect()),
         people: some(meta.people.clone()),
+        date: meta.taken,
         ..Default::default()
     }
 }
@@ -403,6 +415,30 @@ mod tests {
         let gone = XmpNotes { caption: None, ..back.clone() };
         apply(&mut m, &gone, Some(&back));
         assert_eq!(m.caption, "");
+    }
+
+    #[test]
+    fn dates_are_kept_in_step() {
+        let d = |t: &str| Some(crate::taken::parse(t).unwrap());
+        // first sight: fills a date not set here, never replaces one
+        let mut m = Meta::default();
+        assert!(apply(&mut m, &XmpNotes { date: d("1978"), ..Default::default() }, None));
+        assert_eq!(m.taken, d("1978"));
+        let mut mine = Meta { taken: d("1980-05"), ..Default::default() };
+        assert!(!apply(&mut mine, &XmpNotes { date: d("1978"), ..Default::default() }, None));
+        // later: changed elsewhere, or gone back to the file's own date
+        let old = XmpNotes { date: d("1978"), ..Default::default() };
+        let new = XmpNotes { date: d("1978-07"), ..Default::default() };
+        assert!(apply(&mut m, &new, Some(&old)));
+        assert_eq!(m.taken, d("1978-07"));
+        assert!(apply(&mut m, &XmpNotes::default(), Some(&new)));
+        assert_eq!(m.taken, None);
+        // unchanged in the XMP: the date set here stays
+        let mut here = Meta { taken: d("1990"), ..Default::default() };
+        assert!(!apply(&mut here, &old, Some(&old)));
+        // written and copied
+        assert_eq!(to_write(&here, &BTreeMap::new()).date, d("1990"));
+        assert_eq!(for_copy(&here, &BTreeMap::new()).date, d("1990"));
     }
 
     #[test]
