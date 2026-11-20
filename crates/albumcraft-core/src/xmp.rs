@@ -7,7 +7,7 @@
 //!   every property AlbumCraft doesn't manage as it was. Both through `craft-metadata`
 //!   (`parse_xmp_with`, `write_xmp_with`, `merge_xmp`).
 //! - `read_embedded` / `replace_embedded`: the packet inside a file (read by `filemeta`: JPEG,
-//!   PNG, WebP, TIFF-based raws, CR3, RAF, JPEG XL; replaced in JPEG and PNG).
+//!   PNG, WebP, TIFF-based raws, CR3, RAF, JPEG XL, HEIF / AVIF; replaced in JPEG and PNG).
 //! - `sidecar_of`, `read_for`, `write_for`: where a picture's XMP is, and writing it there.
 //!
 //! Every input is hostile: sizes are capped, nothing panics, a packet that can't be read is

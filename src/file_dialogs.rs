@@ -60,7 +60,7 @@ pub fn new_queue(ctx: &eframe::egui::Context) -> Dialogs<FileJob> {
 }
 
 /// The picture types the pickers offer (signature logo, collage background).
-pub const PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"];
+pub const PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "heic", "heif", "avif"];
 
 impl App {
     /// Ask for a file or folder; `then` runs with the answer on a later frame. While a picker is

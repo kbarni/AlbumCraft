@@ -76,7 +76,7 @@ if (-not $SkipBuild) {
   # Fail the build instead of warning when the icon can't be embedded.
   $env:ALBUMCRAFT_REQUIRE_ICON = '1'
   if ($NoVideo) {
-    Invoke-Native 'cargo build (without videos)' { cargo build --release --locked -p albumcraft --target $Target --no-default-features --features onnx }
+    Invoke-Native 'cargo build (without videos)' { cargo build --release --locked -p albumcraft --target $Target --no-default-features --features onnx,heif,avif }
   } else {
     # ffmpeg-sys-next takes the headers and import libraries from FFMPEG_DIR (with the MSVC
     # toolchain it would otherwise ask vcpkg)
