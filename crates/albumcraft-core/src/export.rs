@@ -120,7 +120,10 @@ pub fn export_one(key: &str, edits: &[EditOp], dir: &Path, stem: &str, opts: &Op
     let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
     // encoded before the file is made, so that a failure leaves nothing behind
     let mut jpeg = vec![];
-    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, opts.quality.clamp(1, 100))).map_err(|e| e.to_string())?;
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, opts.quality.clamp(1, 100));
+    // the pictures are turned into sRGB as they are read (`cms`): the copy says so
+    let _ = image::ImageEncoder::set_icc_profile(&mut encoder, crate::cms::srgb_icc());
+    rgb.write_with_encoder(encoder).map_err(|e| e.to_string())?;
     let mut ifd0 = if opts.camera_info { crate::exifinfo::exif_to_keep(key) } else { craft_tiff::IfdBuilder::new() };
     for (tag, text) in [(craft_tiff::tags::ARTIST, &opts.creator), (craft_tiff::tags::COPYRIGHT, &opts.copyright)] {
         let text = text.trim();
@@ -326,5 +329,18 @@ mod tests {
         assert_eq!(got[5], s("1978-07"));
         assert_eq!(got[6], None);
         assert!(model.is_some(), "the rest of the camera information stays");
+    }
+
+    #[test]
+    fn copies_are_tagged_srgb() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-export-srgb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("in.png");
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 200, 30, 255])).save(&src).unwrap();
+        let out = export_one(&src.to_string_lossy(), &[], &dir, "out", &small(), &Carried::default(), None).unwrap();
+        let head = crate::imaging::jpeg_head(&out.to_string_lossy()).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let icc = craft_cms::Profile::parse(&head.icc.expect("an ICC profile")).unwrap();
+        assert!(icc.same_colors(craft_cms::Builtin::Srgb.profile()));
     }
 }

@@ -116,11 +116,11 @@ mod heic {
         if max_dim > 0
             && let Ok(Some(t)) = craft_heif::decode_thumbnail(bytes, max_dim, &options())
             && same_shape((t.width, t.height), (info.width, info.height))
-            && let Some(img) = rgba(&t)
+            && let Some(img) = rgba(t)
         {
             return Some(img);
         }
-        rgba(&craft_heif::decode(bytes, &options()).ok()?)
+        rgba(craft_heif::decode(bytes, &options()).ok()?)
     }
 
     pub(super) fn dims(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -133,8 +133,21 @@ mod heic {
         (r(a) / r(b) - 1.0).abs() <= 0.02
     }
 
-    fn rgba(d: &craft_heif::Decoded) -> Option<RgbaImage> {
+    /// The decoded samples in 8-bit RGBA, their colours turned into sRGB (`cms`) from the
+    /// file's ICC profile, else its `nclx` colour description.
+    fn rgba(mut d: craft_heif::Decoded) -> Option<RgbaImage> {
         let channels = if d.has_alpha { 4 } else { 3 };
+        let source = match &d.icc {
+            Some(icc) => crate::cms::Source::Icc(icc),
+            None => crate::cms::Source::Cicp { primaries: d.colour.primaries, transfer: d.colour.transfer, linear: false },
+        };
+        if let Some(t) = crate::cms::to_srgb(source) {
+            let src = std::mem::take(&mut d.data);
+            d.data = vec![0; src.len()];
+            if t.convert_u16(&src, channels, &mut d.data, channels, true).is_err() {
+                d.data = src;
+            }
+        }
         let mut out = Vec::with_capacity(d.width as usize * d.height as usize * 4);
         for p in d.data.chunks_exact(channels) {
             out.extend_from_slice(&[to_u8(p[0]), to_u8(p[1]), to_u8(p[2]), if d.has_alpha { to_u8(p[3]) } else { 255 }]);
@@ -165,14 +178,25 @@ mod avif {
         let limits = Limits { max_pixels: MAX_PIXELS, max_alloc: 4 << 30, ..Limits::default() };
         let img = craft_image_codecs::decode_as_with(Format::Avif, bytes, &DecodeOptions { limits, keep_orientation: false }).ok()?;
         let (w, h) = img.dimensions();
-        let data = if img.sample_type() == SampleType::F32 {
-            // PQ and HLG photos open as linear light: shown as sRGB, highlights clipped
-            let lin = img.to_rgba_f32(&Limits::default()).ok()?;
-            lin.as_chunks::<4>().0.iter().flat_map(|p| [srgb(p[0]), srgb(p[1]), srgb(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8]).collect()
-        } else {
-            img.to_rgba8()
+        if img.sample_type() == SampleType::F32 {
+            // PQ and HLG photos open as linear light on their primaries: shown as sRGB,
+            // highlights clipped
+            let mut lin = img.to_rgba_f32(&Limits::default()).ok()?;
+            if let Some(c) = img.cicp {
+                crate::cms::linear_rgba_f32_to_srgb(&mut lin, c.primaries);
+            }
+            let data = lin.as_chunks::<4>().0.iter().flat_map(|p| [srgb(p[0]), srgb(p[1]), srgb(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8]).collect();
+            return RgbaImage::from_raw(w, h, data);
+        }
+        let mut out = RgbaImage::from_raw(w, h, img.to_rgba8())?;
+        // the colours from the file's ICC profile, else its `nclx` colour description
+        let source = match (&img.icc, img.cicp) {
+            (Some(icc), _) => Some(crate::cms::Source::Icc(icc)),
+            (None, Some(c)) => Some(crate::cms::Source::Cicp { primaries: c.primaries, transfer: c.transfer, linear: false }),
+            (None, None) => None,
         };
-        RgbaImage::from_raw(w, h, data)
+        crate::cms::rgba8_to_srgb(&mut out, source);
+        Some(out)
     }
 
     pub(super) fn dims(bytes: &[u8]) -> Option<(u32, u32)> {

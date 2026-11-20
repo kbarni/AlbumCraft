@@ -12,6 +12,7 @@ pub use albumcraft_ai as ai;
 
 pub mod analysis;
 pub mod catalogue;
+pub mod cms;
 pub mod commands;
 pub mod control;
 pub mod exifinfo;

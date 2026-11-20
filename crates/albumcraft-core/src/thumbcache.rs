@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const MAX_BYTES: u64 = 2 << 30;
 
 const JPEG_QUALITY: u8 = 88;
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// Where the thumbnails are kept.
 pub fn cache_dir() -> Option<PathBuf> {
@@ -37,7 +37,7 @@ fn base(cache: &Path, key: &str, dim: u32) -> Option<PathBuf> {
     }
     let meta = std::fs::metadata(key).ok()?;
     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
-    // bump VERSION when the way thumbnails are made changes (2: EXIF orientation applied)
+    // bump VERSION when the way thumbnails are made changes (2: EXIF orientation applied; 3: colours turned into sRGB)
     let id = format!("{VERSION}\0{key}\0{mtime}\0{}\0{dim}", meta.len());
     Some(cache.join(format!("{:016x}", fnv(id.as_bytes()))))
 }
