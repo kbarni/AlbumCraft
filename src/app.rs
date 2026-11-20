@@ -141,6 +141,8 @@ pub enum Undo {
     Tags { meta: Vec<(String, Vec<String>, Vec<String>)>, parents: std::collections::BTreeMap<String, String> },
     /// Dates taken changed (`date_view`): each picture's date set as it was (by key).
     Dates(Vec<(String, Option<crate::taken::DateTime>)>),
+    /// Locations set from a GPS track (`geotag_view`): each picture's place as it was (by key).
+    Places(Vec<(String, Option<crate::geo::Place>)>),
 }
 
 /// Background work the user watches: see `App::start_task`.
@@ -276,6 +278,8 @@ pub enum Dialog {
     Settings { section: crate::settings_view::SettingsSection },
     /// When pictures were taken (`date_view`).
     DateTaken(crate::date_view::DateDialog),
+    /// Locations from a GPS track (`geotag_view`).
+    Geotag(Box<crate::geotag_view::GeotagDialog>),
 }
 
 /// Where the editor goes next.
@@ -2043,6 +2047,7 @@ impl App {
             }
             Undo::Moved(done) => self.move_back(done),
             Undo::Dates(before) => self.undo_dates(before),
+            Undo::Places(before) => self.undo_places(before),
             Undo::Tags { meta, parents } => {
                 for (key, tags, not_tags) in meta {
                     let m = self.store.meta.entry(key).or_default();
@@ -2384,6 +2389,7 @@ impl App {
                 Done::Analysis(progress) => self.analysis = progress,
                 Done::LooksLike(query, found) => self.on_looks_like(query, found),
                 Done::TagProposals(n, found) => self.on_tag_proposals(n, found),
+                Done::Geotag(n, read) => self.on_geotag(n, read),
                 Done::Progress { task, done, total } => {
                     if let Some(t) = self.tasks.iter_mut().find(|t| t.id == task) {
                         (t.done, t.total) = (done, total);

@@ -156,6 +156,9 @@ pub trait Library {
     /// Propose tags for `targets` with `pack`, learning from `examples`; the answer is
     /// `Done::TagProposals(asked, …)`.
     fn propose_tags(&self, pack: String, asked: u64, examples: Arc<crate::tag_proposals::Examples>, targets: Vec<crate::tag_proposals::Picture>);
+    /// Read GPX track logs and when these pictures were taken (`geotag::read`), off the
+    /// window's thread; the answer is `Done::Geotag(asked, …)`.
+    fn read_geotag(&self, asked: u64, gpx: Vec<PathBuf>, photos: Vec<(String, Option<crate::taken::DateTime>, Option<crate::geo::Place>)>);
 }
 
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).
@@ -662,6 +665,14 @@ impl Library for LocalLibrary {
                 crate::tag_proposals::propose(pack, &files, &dir, &examples, &targets)
             }));
             send(Done::TagProposals(asked, found.unwrap_or_else(|_| Err(tr!("search-failed")))));
+        });
+    }
+
+    fn read_geotag(&self, asked: u64, gpx: Vec<PathBuf>, photos: Vec<(String, Option<crate::taken::DateTime>, Option<crate::geo::Place>)>) {
+        let send = self.sender();
+        std::thread::spawn(move || {
+            let read = std::panic::catch_unwind(|| crate::geotag::read(&gpx, &photos).map(Arc::new));
+            send(Done::Geotag(asked, read.unwrap_or_else(|_| Err(tr!("geotag-read-failed")))));
         });
     }
 }

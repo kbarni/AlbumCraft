@@ -43,6 +43,8 @@ pub enum FileJob {
     Music(MusicFor),
     /// The Move to dialog: move into the folder picked (Other folder…).
     MoveTo,
+    /// Locations from a GPS track: the GPX files (several).
+    Gpx,
 }
 
 /// Whose slideshow music the user picked.
@@ -79,6 +81,11 @@ impl App {
     pub(crate) fn file_answers(&mut self) {
         for (then, answer) in self.file_dialogs.take_answers() {
             match answer {
+                Answer::Paths(paths) if matches!(then, FileJob::Gpx) => {
+                    if !paths.is_empty() {
+                        self.gpx_chosen(paths);
+                    }
+                }
                 Answer::Paths(paths) => {
                     if let Some(path) = paths.into_iter().next() {
                         self.file_chosen(then, path);
@@ -129,6 +136,7 @@ impl App {
                 show.settings.music_on = true;
                 self.slide_settings_changed(viewer, true);
             }
+            FileJob::Gpx => self.gpx_chosen(vec![path]),
             FileJob::MoveTo => {
                 let Some(crate::app::Dialog::MoveTo { what, .. }) = &self.dialog else { return };
                 let sources = match what {

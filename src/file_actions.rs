@@ -136,6 +136,10 @@ impl App {
                 self.show_set_on_map(f.name.clone(), &ids);
                 ui.close();
             }
+            if !self.using_samples && ui.button(tr!("ctx-geotag")).on_hover_text(tr!("ctx-geotag-hint")).clicked() {
+                self.ask_geotag(&ids);
+                ui.close();
+            }
             self.album_menu(ui, format!("{} {}", icons::ALBUM, tr!("ctx-add-to-album")), &ids);
             if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("ctx-export")), 13.5))).clicked() {
                 self.open_export(ids.clone());

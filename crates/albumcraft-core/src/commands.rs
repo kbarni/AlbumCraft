@@ -610,6 +610,20 @@ Call `rescan` afterwards to see the new pictures in the library.",
             },
         },
         Spec {
+            name: "geotag_from_gpx",
+            description: "Set where pictures were taken from GPS track logs (GPX files, e.g. from a phone app or a hiking GPS): each picture gets the position the track had when it was taken, interpolated between the two logged points around that time. GPX times are UTC; give `time_zone` when the pictures' times are local time of another zone than this computer's (the camera's own offset is used when it wrote one), and `clock_shift_seconds` when the camera clock was off (+120 for a clock 2 minutes slow). Pictures that already have a location are kept unless `replace_existing`. Kept in the library like set_location; the files are not changed. With `dry_run`, nothing is changed and the answer says what would be. When few are placed, `best_time_zone` in the answer is the zone that would place the most.",
+            schema: || {
+                keys_schema(json!({
+                    "gpx_files": { "type": "array", "items": { "type": "string" }, "description": "Paths of the GPX files" },
+                    "time_zone": { "type": "string", "description": "\"pictures\" (default: the zone each picture says, else this computer's), or a UTC offset such as \"+02:00\", \"-03:30\", \"UTC\"", "required": false },
+                    "clock_shift_seconds": { "type": "integer", "description": "Added to every picture's time", "required": false },
+                    "max_gap_seconds": { "type": "number", "description": "A picture further than this from a logged point gets no position (default 600)", "minimum": 1, "required": false },
+                    "replace_existing": { "type": "boolean", "default": false, "required": false },
+                    "dry_run": { "type": "boolean", "default": false, "required": false }
+                }))
+            },
+        },
+        Spec {
             name: "set_date_taken",
             description: "Set when pictures were taken, for scanned prints or a camera whose clock was wrong (kept in the library, overriding the date in the file; the file is not changed). Give one of: `date` (the same date for all: \"1978\", \"1978-07\", \"1978-07-14\" or \"1978-07-14T10:30\", local time; a year or a month alone when that is all that is known), `shift_seconds` (move each picture's date by this many seconds, e.g. 3600 for a clock an hour behind; pictures with no exact date are left alone), or `reset: true` (back to the files' own dates). Sorting, folder dates, the XMP written and exported copies' EXIF use it.",
             schema: || {
@@ -703,6 +717,34 @@ Call `rescan` afterwards to see the new pictures in the library.",
 
 fn str_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, String> {
     args.get(name).and_then(|v| v.as_str()).ok_or_else(|| format!("`{name}` (text) is required"))
+}
+
+/// A time zone as an agent writes it: "pictures", "UTC", "+02:00", "UTC-03:30", "+0530", "+2".
+fn parse_zone(z: &str) -> Option<crate::geotag::Zone> {
+    let z = z.trim();
+    if z.eq_ignore_ascii_case("pictures") {
+        return Some(crate::geotag::Zone::Pictures);
+    }
+    let rest = z.strip_prefix("UTC").or_else(|| z.strip_prefix("utc")).or_else(|| z.strip_prefix("GMT")).unwrap_or(z).trim();
+    if rest.is_empty() || rest == "Z" {
+        return Some(crate::geotag::Zone::Fixed(0));
+    }
+    let (sign, digits) = match rest.chars().next()? {
+        '+' => (1, &rest[1..]),
+        '-' | '−' => (-1, &rest[rest.chars().next()?.len_utf8()..]),
+        _ => return None,
+    };
+    let (h, m) = match digits.split_once(':') {
+        Some((h, m)) => (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?),
+        None if digits.len() == 4 => (digits[..2].parse().ok()?, digits[2..].parse().ok()?),
+        None => (digits.parse().ok()?, 0),
+    };
+    (h <= 14 && (0..60).contains(&m) && h * 60 + m <= 14 * 60).then_some(crate::geotag::Zone::Fixed(sign * (h * 60 + m)))
+}
+
+/// Unix seconds as "2024-06-01T10:00:00Z".
+fn utc_text(secs: f64) -> String {
+    chrono::DateTime::from_timestamp(secs as i64, 0).map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default()
 }
 
 fn opt_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
@@ -1101,6 +1143,53 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let name = opt_str(args, "name").unwrap_or("");
             set_place(host, &ids, Some(Place::set(at, name)));
             now(json!({ "changed": ids.len(), "place": geo::describe(Some(&Place::set(at, name)), at) }))
+        }
+        "geotag_from_gpx" => {
+            let ids = ids(host, args)?;
+            let files = strings(args, "gpx_files")?;
+            if files.is_empty() {
+                return Err("`gpx_files` must name at least one GPX file".into());
+            }
+            let zone = match opt_str(args, "time_zone") {
+                None => crate::geotag::Zone::Pictures,
+                Some(z) => parse_zone(z).ok_or("`time_zone` must be \"pictures\" or a UTC offset such as \"+02:00\"")?,
+            };
+            let clock_shift = match args.get("clock_shift_seconds") {
+                None | Some(Value::Null) => 0,
+                Some(v) => v.as_i64().filter(|s| s.unsigned_abs() <= 100 * 366 * 86_400).ok_or("`clock_shift_seconds` must be a whole number of seconds")?,
+            };
+            let max_gap = match args.get("max_gap_seconds") {
+                None | Some(Value::Null) => crate::geotag::DEFAULT_MAX_GAP,
+                Some(v) => v.as_f64().filter(|g| g.is_finite() && *g >= 1.0).ok_or("`max_gap_seconds` must be a number of at least 1")?,
+            };
+            let replace = opt_bool(args, "replace_existing")?.unwrap_or(false);
+            let dry_run = opt_bool(args, "dry_run")?.unwrap_or(false);
+            let log = crate::geotag::read_gpx(&files)?;
+            let keys: Vec<String> = ids.iter().filter_map(|&id| host.photos().get(id).map(|p| p.key.clone())).collect();
+            let photos = crate::geotag::photo_times(host.store(), &keys);
+            let opts = crate::geotag::Options { zone, clock_shift, max_gap, replace };
+            let (found, c) = crate::geotag::matches(&photos, &log, &opts);
+            let mut placed = vec![];
+            for (p, o) in photos.iter().zip(&found) {
+                if let crate::geotag::Outcome::Placed { at, interpolated } = *o {
+                    if !dry_run && let Some(id) = host.find(&p.key) {
+                        set_place(host, &[id], Some(Place::set(at, "")));
+                    }
+                    placed.push(json!({ "key": p.key, "latitude": at.lat, "longitude": at.lon, "between_points": interpolated }));
+                }
+            }
+            let best = crate::geotag::best_zone(&photos, &log, &opts).map(|(m, n)| json!({ "time_zone": crate::geotag::Zone::offset_text(m), "would_place": n }));
+            now(json!({
+                "dry_run": dry_run,
+                "placed": c.placed,
+                "kept_their_location": c.kept,
+                "without_date": c.no_date,
+                "outside_track": c.outside,
+                "track_points": log.points.len(),
+                "track_span_utc": log.span().map(|(a, b)| [utc_text(a), utc_text(b)]),
+                "best_time_zone": best,
+                "pictures": placed,
+            }))
         }
         "set_date_taken" => {
             let ids = ids(host, args)?;
@@ -2038,6 +2127,46 @@ mod tests {
         let mut h = Headless::open(dir.join("library.json")).unwrap();
         h.gps_cache = Some(dir.join("gps.json"));
         (dir, h, keys)
+    }
+
+    #[test]
+    fn geotagging_from_a_track_log() {
+        let (dir, mut h, keys) = fixture("geotag");
+        h.rescan();
+        // logged every minute from 10:00 to 10:30 UTC, going north
+        let mut gpx = String::from(r#"<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>"#);
+        for i in 0..=30 {
+            gpx += &format!(r#"<trkpt lat="{}" lon="-0.58"><time>2024-06-01T10:{i:02}:00Z</time></trkpt>"#, 44.0 + f64::from(i) * 0.01);
+        }
+        gpx += "</trkseg></trk></gpx>";
+        let track = dir.join("walk.gpx");
+        std::fs::write(&track, gpx).unwrap();
+        let track = track.to_string_lossy().to_string();
+        // 12:10:30 and 13:00 local time in UTC+02:00: in the track, and half an hour after it
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[1]], "date": "2024-06-01T12:10:30" })).unwrap();
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[2]], "date": "2024-06-01T13:00:00" })).unwrap();
+        let args = json!({ "keys": keys, "gpx_files": [track], "time_zone": "+02:00", "dry_run": true });
+        let dry = call(&mut h, "geotag_from_gpx", args.clone()).unwrap();
+        assert_eq!((dry["placed"].as_u64(), dry["without_date"].as_u64(), dry["outside_track"].as_u64()), (Some(1), Some(1), Some(1)), "{dry}");
+        assert!(h.store.meta.get(&keys[1]).and_then(|m| m.place.as_ref()).is_none(), "a dry run changes nothing");
+        let mut real = args;
+        real["dry_run"] = json!(false);
+        let done = call(&mut h, "geotag_from_gpx", real).unwrap();
+        let lat = done["pictures"][0]["latitude"].as_f64().unwrap();
+        assert!((lat - 44.105).abs() < 1e-9, "{done}");
+        assert!(matches!(h.store.meta.get(&keys[1]).and_then(|m| m.place.as_ref()), Some(Place::Set { .. })));
+        // read as UTC the picture is two hours after the track: only UTC+02:00 places it
+        let utc = call(&mut h, "geotag_from_gpx", json!({ "keys": [keys[1]], "gpx_files": [track], "time_zone": "UTC", "dry_run": true, "replace_existing": true })).unwrap();
+        assert_eq!(utc["placed"], 0);
+        assert_eq!(utc["best_time_zone"]["time_zone"], "UTC+02:00");
+        // bad input is an error
+        for bad in [json!({ "keys": [keys[1]], "gpx_files": [] }), json!({ "keys": [keys[1]], "gpx_files": [track], "time_zone": "Mars" }), json!({ "keys": [keys[1]], "gpx_files": ["/no/such.gpx"] })] {
+            assert!(call(&mut h, "geotag_from_gpx", bad).is_err());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        use crate::geotag::Zone::{Fixed, Pictures};
+        assert_eq!(["pictures", "UTC", "+02:00", "UTC-03:30", "+0530", "+2", "−05:00"].map(parse_zone), [Some(Pictures), Some(Fixed(0)), Some(Fixed(120)), Some(Fixed(-210)), Some(Fixed(330)), Some(Fixed(120)), Some(Fixed(-300))]);
+        assert_eq!(["+15:00", "02:00", "+1:75"].map(parse_zone), [None, None, None]);
     }
 
     #[test]
