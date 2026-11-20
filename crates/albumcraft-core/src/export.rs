@@ -81,6 +81,9 @@ impl Carried {
 
 /// Read a logo file for `sign` (any picture format; its transparency is kept).
 pub fn load_logo(path: &str) -> Result<RgbaImage, String> {
+    if crate::heif::is_heif(path) {
+        return crate::heif::load(path, 0).ok_or_else(|| crate::msg!("export-logo-bad", "the logo {path} can't be read ({error})", path = path, error = "HEIF").to_string());
+    }
     image::open(path).map(|i| i.to_rgba8()).map_err(|e| crate::msg!("export-logo-bad", "the logo {path} can't be read ({error})", path = path, error = e).to_string())
 }
 

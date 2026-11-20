@@ -13,6 +13,9 @@ pub fn load_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
     if crate::video::is_video(key) {
         return crate::video::poster(key, max_dim);
     }
+    if crate::heif::is_heif(key) {
+        return crate::heif::load(key, max_dim);
+    }
     if crate::raw::is_raw(key) {
         if max_dim > 0
             && let Some(img) = crate::raw::preview_scaled(key, max_dim)
@@ -52,6 +55,9 @@ pub fn oriented_dims(path: &str) -> Option<(u32, u32)> {
     }
     if crate::video::is_video(path) {
         return crate::video::probe(path).map(|i| (i.width, i.height));
+    }
+    if crate::heif::is_heif(path) {
+        return crate::heif::dims(path);
     }
     if let Some(head) = jpeg_head(path) {
         return Some(head.oriented_dims());
@@ -225,6 +231,7 @@ pub fn load_thumbnail(key: &str, dim: u32) -> Option<RgbaImage> {
     if !key.starts_with(SAMPLE_PREFIX)
         && !crate::raw::is_raw(key)
         && !crate::video::is_video(key)
+        && !crate::heif::is_heif(key)
         && let Some(t) = embedded_preview(key, dim)
     {
         return Some(t);

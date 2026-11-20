@@ -26,9 +26,10 @@ pub fn trace_since(what: &str, start: std::time::Instant, min_ms: u128) {
 pub const EXTENSIONS: [&str; 9] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "jpe"];
 
 /// Whether a file with this (lower-case) extension is shown in the library: a picture, a raw
-/// file or (with the `video` feature) a video.
+/// file, a HEIC or AVIF photo (with the `heif` / `avif` features) or (with the `video` feature) a
+/// video.
 pub fn is_picture_extension(ext: &str) -> bool {
-    EXTENSIONS.contains(&ext) || crate::raw::RAW_EXTENSIONS.contains(&ext) || crate::video::is_video_extension(ext)
+    EXTENSIONS.contains(&ext) || crate::raw::RAW_EXTENSIONS.contains(&ext) || crate::heif::is_heif_extension(ext) || crate::video::is_video_extension(ext)
 }
 
 /// Culling flag: keep it (pick), drop it (reject), or not decided.

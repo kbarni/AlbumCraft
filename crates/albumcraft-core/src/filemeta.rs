@@ -5,6 +5,8 @@
 //! - PNG: every chunk but the picture data (`IDAT`, skipped), so XMP after it is found too;
 //! - TIFF and the raw formats built on it: the first `HEAD_BYTES`, and the XMP (tag 700) of the
 //!   first directory wherever it is;
+//! - HEIF, HEIC and AVIF: their `Exif` and XMP items (`heif::embedded`: the first `HEAD_BYTES`,
+//!   the whole file when the items lie past them);
 //! - anything else (WebP, CR3, RAF, JPEG XL…): the first `HEAD_BYTES`.
 //!
 //! Problems give empty blocks, never an error: metadata is optional.
@@ -22,7 +24,7 @@ const PNG_SIG: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 /// The metadata blocks of a picture file.
 pub fn blocks(path: &Path) -> Embedded {
-    head(path).map(|h| embedded_of(&h, path)).unwrap_or_default()
+    head(path).map(|h| if craft_heif::items::is_heif(&h) { crate::heif::embedded(&h, path) } else { embedded_of(&h, path) }).unwrap_or_default()
 }
 
 /// Everything `craft-metadata` reads from a picture file: EXIF, then IPTC filling gaps, then

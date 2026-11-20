@@ -24,6 +24,11 @@ craft-atomic = { git = "https://github.com/storytold/craft-libs", rev = "30a568b
 # other Craft apps (crates/albumcraft-core: filemeta, exifinfo, xmp, geo, export). Same rev.
 craft-metadata = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
 craft-tiff = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
+# HEIF / HEIC photos (iPhone, Mac): craft-heif (heic-rs, pure Rust); its box reader also gives the
+# EXIF and XMP of HEIF and AVIF files. AVIF pictures: craft-image-codecs' AV1 decoder (craft-video,
+# pure Rust). Same rev (crates/albumcraft-core: heif).
+craft-heif = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144", default-features = false, features = ["metadata"] }
+craft-image-codecs = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "7.0.0"
 epaint_default_fonts = "0.37.0"
@@ -47,7 +52,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["onnx", "video"]
+default = ["onnx", "video", "heif", "avif"]
 # ONNX Runtime linked in, to run the networks of the AI features (see crates/albumcraft-ai).
 # `cargo build --no-default-features` builds the app without it.
 onnx = ["albumcraft-core/onnx"]
@@ -57,6 +62,11 @@ onnx-dynamic = ["onnx", "albumcraft-core/onnx-dynamic"]
 # Videos in the library, the editor and slideshows, through the FFmpeg libraries (packaging/ffmpeg/build.sh).
 # Without it, video files are left out as before.
 video = ["albumcraft-core/video"]
+# HEIF / HEIC photos (HEVC: whether to ship the decoder is the distributor's call). Without it, they
+# are left out of the library.
+heif = ["albumcraft-core/heif"]
+# AVIF photos (AV1). Without it, they are left out of the library.
+avif = ["albumcraft-core/avif"]
 
 [dependencies]
 albumcraft-core.workspace = true

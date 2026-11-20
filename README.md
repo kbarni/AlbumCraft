@@ -14,13 +14,14 @@ In English, French, German, Spanish, Italian and Portuguese (Brazil).</p>
 ## What it does
 
 **Organize**
-- Point it at your picture folders; it finds every picture (JPEG, PNG, TIFF, WebP, GIF, BMP and camera raw files) and shows them by folder, newest first, in a justified grid, sorted by file name, date taken or rating. Large folders on slow or external disks stay fast, and the library shows at once when it starts.
+- Point it at your picture folders; it finds every picture (JPEG, PNG, TIFF, WebP, GIF, BMP, HEIC, AVIF and camera raw files) and shows them by folder, newest first, in a justified grid, sorted by file name, date taken or rating. Large folders on slow or external disks stay fast, and the library shows at once when it starts.
 - **Import** from a memory card, a camera or any folder: pictures grouped by time, the ones already in your library left out, copied into a new folder you name. Nothing is ever overwritten and the originals stay as they are. (Adding a folder to the library, by contrast, copies nothing.)
 - Pick or reject pictures, give them 1–5 stars, captions, tags and people; filter by any of those.
 - **One search box** for everything: words in names and captions, tags, people, albums, folders and places, with suggestions as you type. Places are found by city, region or country, also for pictures that only have the camera's GPS position.
 - **Smart search** (optional AI pack, runs on your computer): find pictures by what they show ("beach at sunset"), or *More like this* from any picture; tag proposals from your own tags and a built-in vocabulary.
 - Albums (drag pictures onto one), selection with the mouse, a box or the arrow keys, and keyboard culling in the grid and the editor (`P` pick, `X` reject, `U` clear, `0`–`5` stars); rejected pictures can be moved to the system's trash.
 - Right-click a folder or a picture: rename, move (also to another disk), move to the trash, open in another program, add a caption to a folder; Undo moves them back. Leave sub-folders out of the library in *Settings → Folders*.
+- HEIC photos from iPhones and Macs, and AVIF pictures, are read by pure-Rust decoders, turned the way the file says, with their camera information.
 - Camera raw files (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF, …) are shown through the full-size preview the camera embeds in them.
 - Picture notes made with the classic per-folder `.picasa.ini` files are brought in (read only).
 - **Places**: a map of where your pictures were taken (GPS from phones and cameras is read automatically). Set the location of any picture by searching a city or address or by dropping a pin on the map; exported copies carry it in their EXIF (optional). Show a folder or an album on the map.

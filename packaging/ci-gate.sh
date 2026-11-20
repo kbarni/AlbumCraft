@@ -7,6 +7,6 @@ if [[ "$(uname -s)" = Linux ]]; then
   cargo build --locked --all-targets
   cargo test --locked
 else
-  cargo build --locked --all-targets --no-default-features --features onnx
-  cargo test --locked --no-default-features --features onnx
+  cargo build --locked --all-targets --no-default-features --features onnx,heif,avif
+  cargo test --locked --no-default-features --features onnx,heif,avif
 fi
