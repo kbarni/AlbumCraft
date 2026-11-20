@@ -34,12 +34,15 @@ pub fn load_source(key: &str, max_dim: u32) -> Option<RgbaImage> {
     let mut decoder = open_decoder(key)?;
     // the camera's "this way up" (EXIF orientation), applied after scaling down (cheaper)
     let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+    let icc = decoder.icc_profile().ok().flatten();
     let mut dynimg = image::DynamicImage::from_decoder(decoder).ok()?;
     if max_dim > 0 && (dynimg.width() > max_dim || dynimg.height() > max_dim) {
         dynimg = dynimg.thumbnail(max_dim, max_dim);
     }
     dynimg.apply_orientation(orientation);
-    Some(dynimg.to_rgba8())
+    let mut img = dynimg.to_rgba8();
+    crate::cms::rgba8_to_srgb(&mut img, icc.as_deref().map(crate::cms::Source::Icc));
+    Some(img)
 }
 
 fn open_decoder(path: &str) -> Option<impl image::ImageDecoder> {
@@ -81,6 +84,8 @@ pub struct JpegHead {
     pub orientation: u8,
     /// The EXIF block (TIFF data, after "Exif\0\0"), when there is one.
     pub exif: Option<Vec<u8>>,
+    /// The ICC profile (from its APP2 segments), when there is a whole one.
+    pub icc: Option<Vec<u8>>,
 }
 
 impl JpegHead {
@@ -108,6 +113,7 @@ pub fn jpeg_head_of(mut r: impl std::io::Read) -> Option<JpegHead> {
         return None;
     }
     let mut exif_block: Option<Vec<u8>> = None;
+    let mut icc_chunks: Vec<Vec<u8>> = vec![];
     // a few hundred segments at most before the frame header
     for _ in 0..512 {
         let mut b = [0u8; 1];
@@ -145,12 +151,15 @@ pub fn jpeg_head_of(mut r: impl std::io::Read) -> Option<JpegHead> {
             }
             let exif = exif_block.and_then(|b| b.get(6..).map(|t| t.to_vec()));
             let orientation = exif.as_deref().map_or(1, |t| craft_metadata::edit::exif_orientation(t) as u8);
-            return Some(JpegHead { width, height, orientation, exif });
+            let icc = crate::cms::icc_from_jpeg_chunks(&icc_chunks);
+            return Some(JpegHead { width, height, orientation, exif, icc });
         }
         let mut body = vec![0u8; body_len];
         r.read_exact(&mut body).ok()?;
         if marker == 0xE1 && exif_block.is_none() && body.starts_with(b"Exif\0\0") {
             exif_block = Some(body);
+        } else if marker == 0xE2 && body.starts_with(b"ICC_PROFILE\0") && icc_chunks.len() < 255 {
+            icc_chunks.push(body);
         }
     }
     None
@@ -175,7 +184,10 @@ pub fn embedded_preview(path: &str, min_side: u32) -> Option<RgbaImage> {
     if let Some(o) = image::metadata::Orientation::from_exif(head.orientation) {
         thumb.apply_orientation(o);
     }
-    Some(thumb.to_rgba8())
+    // the camera's preview is in the colours of the picture it shows
+    let mut thumb = thumb.to_rgba8();
+    crate::cms::rgba8_to_srgb(&mut thumb, head.icc.as_deref().map(crate::cms::Source::Icc));
+    Some(thumb)
 }
 
 /// A JPEG at most `max_dim` pixels on its longest side, decoded at 1/2, 1/4 or 1/8 of its size
@@ -222,7 +234,9 @@ pub fn decode_jpeg_scaled(stream: impl std::io::Read, head: &JpegHead, max_dim: 
     if let Some(o) = image::metadata::Orientation::from_exif(orientation) {
         img.apply_orientation(o);
     }
-    Some(img.to_rgba8())
+    let mut img = img.to_rgba8();
+    crate::cms::rgba8_to_srgb(&mut img, head.icc.as_deref().map(crate::cms::Source::Icc));
+    Some(img)
 }
 
 /// A thumbnail of at most `dim` pixels: from the camera's embedded preview when it is big enough,
@@ -266,5 +280,27 @@ mod orientation_tests {
         // turned clockwise: the left (red) half is now on top
         assert!(loaded.get_pixel(10, 5)[0] > 200 && loaded.get_pixel(10, 35)[2] > 200);
     }
-}
 
+    #[test]
+    fn display_p3_pictures_are_shown_in_srgb() {
+        // a flat P3 orange: in sRGB it has more red and less green
+        let p3 = craft_cms::Builtin::DisplayP3.profile().to_bytes().to_vec();
+        let rgb = image::RgbImage::from_pixel(64, 48, image::Rgb([200, 120, 60]));
+        let mut jpeg = Vec::new();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95);
+        image::ImageEncoder::set_icc_profile(&mut enc, p3).unwrap();
+        rgb.write_with_encoder(enc).unwrap();
+        let path = std::env::temp_dir().join(format!("albumcraft-p3-{}.jpg", std::process::id()));
+        std::fs::write(&path, &jpeg).unwrap();
+        let key = path.to_string_lossy().to_string();
+        let head = jpeg_head(&key).unwrap();
+        let full = load_source(&key, 0).unwrap();
+        let scaled = load_source(&key, 16).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(head.icc.is_some());
+        for img in [&full, &scaled] {
+            let p = img.get_pixel(img.width() / 2, img.height() / 2);
+            assert!(p[0] > 212 && p[1] < 118, "{p:?}");
+        }
+    }
+}

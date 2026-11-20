@@ -103,8 +103,15 @@ pub fn preview(path: &str) -> Option<DynamicImage> {
         let Some(stream) = data.get(off..) else { continue };
         let Ok(mut dec) = image::codecs::jpeg::JpegDecoder::new(Cursor::new(stream)) else { continue };
         let own = dec.orientation().unwrap_or(Orientation::NoTransforms);
+        let icc = dec.icc_profile().ok().flatten();
         if let Ok(mut img) = DynamicImage::from_decoder(dec) {
             img.apply_orientation(orientation.unwrap_or(own));
+            if let Some(t) = icc.as_deref().and_then(|p| crate::cms::to_srgb(crate::cms::Source::Icc(p))) {
+                // some cameras write the preview in Adobe RGB, with its profile
+                let mut rgba = img.to_rgba8();
+                crate::cms::convert_rgba8(&mut rgba, &t);
+                return Some(DynamicImage::ImageRgba8(rgba));
+            }
             return Some(img);
         }
     }

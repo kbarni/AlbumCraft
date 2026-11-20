@@ -24,6 +24,9 @@ craft-atomic = { git = "https://github.com/storytold/craft-libs", rev = "30a568b
 # other Craft apps (crates/albumcraft-core: filemeta, exifinfo, xmp, geo, export). Same rev.
 craft-metadata = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
 craft-tiff = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
+# Colour management: pictures turned into sRGB from their ICC profile or HEIF / AVIF colour
+# description, exported JPEGs tagged sRGB (crates/albumcraft-core: cms). Same rev.
+craft-cms = { git = "https://github.com/storytold/craft-libs", rev = "30a568b97fa2927d2217f98ba9c799bc76102144" }
 # HEIF / HEIC photos (iPhone, Mac): craft-heif (heic-rs, pure Rust); its box reader also gives the
 # EXIF and XMP of HEIF and AVIF files. AVIF pictures: craft-image-codecs' AV1 decoder (craft-video,
 # pure Rust). Same rev (crates/albumcraft-core: heif).
