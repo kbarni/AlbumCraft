@@ -1725,6 +1725,9 @@ pub enum Done {
     LooksLike(crate::smart_search::Query, Result<Vec<crate::smart_search::Hit>, String>),
     /// Tags proposed for some pictures (`Library::propose_tags`; the number it was asked with).
     TagProposals(u64, Result<crate::tag_proposals::Proposals, String>),
+    /// The track logs and the pictures' dates read for geotagging (`Library::read_geotag`; the
+    /// number it was asked with).
+    Geotag(u64, Result<std::sync::Arc<crate::geotag::Read>, String>),
 }
 
 /// (photo id, key, what its header says).

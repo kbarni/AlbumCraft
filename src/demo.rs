@@ -451,6 +451,10 @@ impl App {
             }
             self.dialog = Some(Dialog::DateTaken(st));
         }
+        if shot_view == "geotag" {
+            let keys: Vec<String> = self.photos.iter().take(10).map(|p| p.key.clone()).collect();
+            self.dialog = Some(Dialog::Geotag(Box::new(crate::geotag_view::GeotagDialog::demo(keys))));
+        }
         if matches!(shot_view.as_str(), "tags" | "managetags" | "tagged") {
             // tags on the samples, two near-duplicates (Church / Cathedral) and a small hierarchy
             let sets: [&[&str]; 6] = [&["Sea", "Sunset"], &["Beach", "Sea"], &["Mountains"], &["Church"], &["Cathedral", "Old town"], &["Garden", "Flowers"]];

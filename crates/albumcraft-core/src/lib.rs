@@ -20,6 +20,7 @@ pub mod filemeta;
 pub mod files;
 pub mod gallery;
 pub mod geo;
+pub mod geotag;
 pub mod heif;
 pub mod imaging;
 pub mod import;

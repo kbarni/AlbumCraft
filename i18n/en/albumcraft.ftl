@@ -1924,3 +1924,62 @@ date-left-alone = { $left ->
 date-month-year = { $month } { $year }
 taken-bad-date = { $text } is not a date (write it as 1978, 1978-07, 1978-07-14 or 1978-07-14T10:30)
 taken-bad-year = the year must be between { $first } and { $last }
+
+# Locations from a GPS track (geotag_view.rs; core geotag.rs)
+ctx-geotag = Locations from a GPS track…
+ctx-geotag-hint = Place the pictures along a GPX track log, by the time each was taken
+geotag-title = Locations from a GPS track
+geotag-intro = { $n ->
+    [one] The picture gets the position the GPS track had when it was taken. The file itself is not changed.
+   *[other] Each of these { $n } pictures gets the position the GPS track had when it was taken. The files themselves are not changed.
+}
+geotag-pick-title = GPX track logs
+geotag-filter = GPX track logs
+geotag-no-file = No track chosen yet.
+geotag-pick = Choose GPX files…
+geotag-reading = Reading the track and the pictures' dates…
+geotag-read-failed = the track could not be read
+geotag-track-span = { $points ->
+    [one] 1 point, at { $from } (this computer's time)
+   *[other] { $points } points, from { $from } to { $to } (this computer's time)
+}
+geotag-zone = Pictures' time zone
+geotag-zone-pictures = As the pictures say, else this computer's
+geotag-clock = Camera clock
+geotag-clock-right = Right
+geotag-clock-slow = Slow
+geotag-clock-fast = Fast
+geotag-by = by
+geotag-gap = At most
+geotag-gap-hint = from a track point
+geotag-replace = Also replace the locations pictures already have
+geotag-will-place = { $n ->
+    [one] 1 picture will be placed.
+   *[other] { $n } pictures will be placed.
+}
+geotag-outside = { $n ->
+    [one] 1 taken when nothing was logged
+   *[other] { $n } taken when nothing was logged
+}
+geotag-kept = { $n ->
+    [one] 1 keeps its location
+   *[other] { $n } keep their location
+}
+geotag-no-date = { $n ->
+    [one] 1 without a date and time
+   *[other] { $n } without a date and time
+}
+geotag-best-zone = { $n ->
+    [one] In { $zone }, 1 would be placed.
+   *[other] In { $zone }, { $n } would be placed.
+}
+geotag-use-zone = Use it
+geotag-apply = Set locations
+geotag-apply-show = Set and show on map
+geotag-done = { $n ->
+    [one] Location set for 1 picture.
+   *[other] Location set for { $n } pictures.
+}
+geotag-map-title = Placed from the track
+geotag-gpx-too-large = { $name } is too large to be a track log
+geotag-no-points = the track log has no timed points

@@ -785,6 +785,10 @@ impl App {
                 self.ask_date(&tray);
                 ui.close();
             }
+            if !self.photos[id].is_sample() && ui.button(tr!("ctx-geotag")).on_hover_text(tr!("ctx-geotag-hint")).clicked() {
+                self.ask_geotag(&tray);
+                ui.close();
+            }
             if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::EXPORT, tr!("ctx-export")), 13.5))).clicked() {
                 self.open_export(tray.clone());
                 ui.close();

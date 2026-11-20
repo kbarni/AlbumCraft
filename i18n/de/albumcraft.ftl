@@ -1918,3 +1918,62 @@ date-left-alone = { $left ->
 date-month-year = { $month } { $year }
 taken-bad-date = { $text } ist kein Datum (schreiben Sie es als 1978, 1978-07, 1978-07-14 oder 1978-07-14T10:30)
 taken-bad-year = das Jahr muss zwischen { $first } und { $last } liegen
+
+# Locations from a GPS track (geotag_view.rs; core geotag.rs)
+ctx-geotag = Orte aus einem GPS-Track…
+ctx-geotag-hint = Die Bilder entlang eines GPX-Tracks platzieren, nach der Aufnahmezeit jedes Bildes
+geotag-title = Orte aus einem GPS-Track
+geotag-intro = { $n ->
+    [one] Das Bild erhält die Position, die der GPS-Track zur Aufnahmezeit hatte. Die Datei selbst wird nicht geändert.
+   *[other] Jedes dieser { $n } Bilder erhält die Position, die der GPS-Track zur Aufnahmezeit hatte. Die Dateien selbst werden nicht geändert.
+}
+geotag-pick-title = GPX-Tracks
+geotag-filter = GPX-Tracks
+geotag-no-file = Noch kein Track gewählt.
+geotag-pick = GPX-Dateien wählen…
+geotag-reading = Track und Aufnahmedaten werden gelesen…
+geotag-read-failed = der Track konnte nicht gelesen werden
+geotag-track-span = { $points ->
+    [one] 1 Punkt, am { $from } (Zeit dieses Computers)
+   *[other] { $points } Punkte, vom { $from } bis { $to } (Zeit dieses Computers)
+}
+geotag-zone = Zeitzone der Bilder
+geotag-zone-pictures = Wie die Bilder angeben, sonst die dieses Computers
+geotag-clock = Kamerauhr
+geotag-clock-right = Richtig
+geotag-clock-slow = Nach
+geotag-clock-fast = Vor
+geotag-by = um
+geotag-gap = Höchstens
+geotag-gap-hint = von einem Trackpunkt
+geotag-replace = Auch vorhandene Orte der Bilder ersetzen
+geotag-will-place = { $n ->
+    [one] 1 Bild wird platziert.
+   *[other] { $n } Bilder werden platziert.
+}
+geotag-outside = { $n ->
+    [one] 1 aufgenommen, als nichts aufgezeichnet wurde
+   *[other] { $n } aufgenommen, als nichts aufgezeichnet wurde
+}
+geotag-kept = { $n ->
+    [one] 1 behält seinen Ort
+   *[other] { $n } behalten ihren Ort
+}
+geotag-no-date = { $n ->
+    [one] 1 ohne Datum und Uhrzeit
+   *[other] { $n } ohne Datum und Uhrzeit
+}
+geotag-best-zone = { $n ->
+    [one] In { $zone } würde 1 platziert.
+   *[other] In { $zone } würden { $n } platziert.
+}
+geotag-use-zone = Übernehmen
+geotag-apply = Orte setzen
+geotag-apply-show = Setzen und auf der Karte zeigen
+geotag-done = { $n ->
+    [one] Ort für 1 Bild gesetzt.
+   *[other] Ort für { $n } Bilder gesetzt.
+}
+geotag-map-title = Aus dem Track platziert
+geotag-gpx-too-large = { $name } ist zu groß für einen GPS-Track
+geotag-no-points = der Track hat keine Punkte mit Zeit

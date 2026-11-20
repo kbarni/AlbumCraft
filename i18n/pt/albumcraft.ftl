@@ -1918,3 +1918,62 @@ date-left-alone = { $left ->
 date-month-year = { $month } de { $year }
 taken-bad-date = { $text } não é uma data (escreva-a como 1978, 1978-07, 1978-07-14 ou 1978-07-14T10:30)
 taken-bad-year = o ano deve estar entre { $first } e { $last }
+
+# Locations from a GPS track (geotag_view.rs; core geotag.rs)
+ctx-geotag = Locais a partir de um trajeto GPS…
+ctx-geotag-hint = Colocar as fotos ao longo de um trajeto GPX, pela hora de cada uma
+geotag-title = Locais a partir de um trajeto GPS
+geotag-intro = { $n ->
+    [one] A foto recebe a posição que o trajeto GPS tinha quando foi tirada. O ficheiro não é alterado.
+   *[other] Cada uma destas { $n } fotos recebe a posição que o trajeto GPS tinha quando foi tirada. Os ficheiros não são alterados.
+}
+geotag-pick-title = Trajetos GPX
+geotag-filter = Trajetos GPX
+geotag-no-file = Ainda nenhum trajeto escolhido.
+geotag-pick = Escolher ficheiros GPX…
+geotag-reading = A ler o trajeto e as datas das fotos…
+geotag-read-failed = não foi possível ler o trajeto
+geotag-track-span = { $points ->
+    [one] 1 ponto, em { $from } (hora deste computador)
+   *[other] { $points } pontos, de { $from } a { $to } (hora deste computador)
+}
+geotag-zone = Fuso horário das fotos
+geotag-zone-pictures = O que as fotos indicam, senão o deste computador
+geotag-clock = Relógio da câmara
+geotag-clock-right = Certo
+geotag-clock-slow = Atrasado
+geotag-clock-fast = Adiantado
+geotag-by = { "" }
+geotag-gap = No máximo
+geotag-gap-hint = de um ponto do trajeto
+geotag-replace = Substituir também os locais que as fotos já têm
+geotag-will-place = { $n ->
+    [one] Será colocada 1 foto.
+   *[other] Serão colocadas { $n } fotos.
+}
+geotag-outside = { $n ->
+    [one] 1 tirada quando nada era registado
+   *[other] { $n } tiradas quando nada era registado
+}
+geotag-kept = { $n ->
+    [one] 1 mantém o seu local
+   *[other] { $n } mantêm o seu local
+}
+geotag-no-date = { $n ->
+    [one] 1 sem data e hora
+   *[other] { $n } sem data e hora
+}
+geotag-best-zone = { $n ->
+    [one] Em { $zone }, seria colocada 1.
+   *[other] Em { $zone }, seriam colocadas { $n }.
+}
+geotag-use-zone = Usar
+geotag-apply = Definir locais
+geotag-apply-show = Definir e ver no mapa
+geotag-done = { $n ->
+    [one] Local definido para 1 foto.
+   *[other] Local definido para { $n } fotos.
+}
+geotag-map-title = Colocadas a partir do trajeto
+geotag-gpx-too-large = { $name } é demasiado grande para ser um trajeto GPS
+geotag-no-points = o trajeto não tem pontos com hora
