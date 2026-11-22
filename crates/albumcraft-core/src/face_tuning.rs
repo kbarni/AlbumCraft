@@ -3,7 +3,7 @@
 //! well the groups follow the marks, for several settings.
 //!
 //! ```text
-//! ALBUMCRAFT_FACES_PHOTOS=<folder> ALBUMCRAFT_FACES_PACK=<folder with sface-2021dec-1.onnx>
+//! ALBUMCRAFT_FACES_PHOTOS=<folder> ALBUMCRAFT_FACES_PACK=<folder with sface-1.onnx>
 //! ALBUMCRAFT_FACES_TABLE=<folder for the analysis, kept between runs>
 //! [ALBUMCRAFT_FACES_OUT=<folder for contact sheets of the groups>]
 //! cargo test --release -p albumcraft-core real_face_groups -- --ignored --nocapture
