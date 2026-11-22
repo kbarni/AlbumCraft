@@ -102,7 +102,7 @@ mod tests {
 
     /// The face analysis on real pictures, as the background analysis runs it (1400 px, the
     /// full-size picture for small faces): speed and what is found.
-    /// `ALBUMCRAFT_FACES_PHOTOS=<folder> ALBUMCRAFT_FACES_PACK=<folder with sface-2021dec-1.onnx>
+    /// `ALBUMCRAFT_FACES_PHOTOS=<folder> ALBUMCRAFT_FACES_PACK=<folder with sface-1.onnx>
     /// [ALBUMCRAFT_FACES_COUNT=200] cargo test --release -p albumcraft-core real_faces_analysis
     /// -- --ignored --nocapture`. Two threads, like the background analysis.
     #[test]

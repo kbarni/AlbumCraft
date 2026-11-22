@@ -639,7 +639,7 @@ mod tests {
     /// Against OpenCV's own face classes: `networks/reference_faces.py` writes, for pictures of
     /// a folder, what `FaceDetectorYN` and `FaceRecognizerSF` find
     /// (`ALBUMCRAFT_FACES_REFERENCE=<that file> ALBUMCRAFT_FACES_PACK=<folder with
-    /// sface-2021dec-1.onnx> cargo test --release -p albumcraft-ai real_faces -- --ignored
+    /// sface-1.onnx> cargo test --release -p albumcraft-ai real_faces -- --ignored
     /// --nocapture`).
     #[test]
     #[ignore]
@@ -661,8 +661,8 @@ mod tests {
         let reference = std::env::var("ALBUMCRAFT_FACES_REFERENCE").expect("ALBUMCRAFT_FACES_REFERENCE");
         let pack = std::env::var("ALBUMCRAFT_FACES_PACK").expect("ALBUMCRAFT_FACES_PACK");
         let pictures: Vec<Picture> = serde_json::from_str(&std::fs::read_to_string(reference).unwrap()).unwrap();
-        let cfg = Config { model: "sface-2021dec-1".into(), recogniser: "sface-2021dec-1.onnx".into(), same_person: 0.45 };
-        let a = FaceAnalyser { recogniser: Some((cfg, Path::new(&pack).join("sface-2021dec-1.onnx"))), detector: OnceLock::new(), describer: OnceLock::new() };
+        let cfg = Config { model: "sface-2021dec-1".into(), recogniser: "sface-1.onnx".into(), same_person: 0.45 };
+        let a = FaceAnalyser { recogniser: Some((cfg, Path::new(&pack).join("sface-1.onnx"))), detector: OnceLock::new(), describer: OnceLock::new() };
         let (mut faces, mut worst_px, mut worst_cos, mut missed) = (0, 0f32, 1f32, 0);
         let started = std::time::Instant::now();
         for p in &pictures {

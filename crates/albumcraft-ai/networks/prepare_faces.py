@@ -48,7 +48,7 @@ def main(src, out):
     yunet = free_dims(onnx.load(src / "face_detection_yunet_2023mar.onnx"), {2: "height", 3: "width"}, {1: "cells"})
     onnx.checker.check_model(yunet)
     onnx.save(yunet, out / "yunet-2023mar-1.onnx")
-    for name, dest in [("face_recognition_sface_2021dec.onnx", "sface-2021dec-1.onnx"), ("face_recognition_sface_2021dec_int8.onnx", "sface-2021dec-int8-1.onnx")]:
+    for name, dest in [("face_recognition_sface_2021dec.onnx", "sface-1.onnx"), ("face_recognition_sface_2021dec_int8.onnx", "sface-2021dec-int8-1.onnx")]:
         m = drop_weight_inputs(onnx.load(src / name))
         onnx.checker.check_model(m)
         onnx.save(m, out / dest)
