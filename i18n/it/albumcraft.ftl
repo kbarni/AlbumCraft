@@ -457,6 +457,48 @@ filter-people-with = Con persone
 filter-people-portrait = Una persona
 filter-people-group = Tre persone o più
 filter-people-none = Senza persone
+faces-page-title = Volti di { $name }
+count-faces = { $n ->
+    [one] 1 volto
+   *[other] { $n } volti
+}
+faces-check = Controlla i volti
+faces-check-hint = Tutti i volti di questa persona, per correggere quelli che non sono suoi
+faces-hide = Nascondi
+faces-unhide = Mostra di nuovo
+faces-hide-hint = Sconosciuti, passanti: fuori dall'elenco delle persone (i loro volti restano raggruppati)
+faces-show-hidden = Mostra i gruppi nascosti ({ $n })
+faces-same-person = La stessa persona di { $name }?
+faces-same-person-unnamed = La stessa persona di questa?
+faces-merge = Sì, una sola persona
+faces-move-to = Sposta in…
+faces-new-person = Una nuova persona
+faces-unnamed-n = Persona senza nome ({ $n } foto)
+faces-not-this-person = { $n ->
+    [one] Non è questa persona
+   *[other] Non è questa persona (questi { $n } volti)
+}
+faces-ignore = { $n ->
+    [one] Ignora questo volto
+   *[other] Ignora questi { $n } volti
+}
+faces-ignore-hint = Uno sconosciuto, un manifesto, una statua: fuori dai gruppi
+faces-not-a-face = { $n ->
+    [one] Non è un volto
+   *[other] Non sono volti ({ $n })
+}
+faces-corrected = { $n ->
+    [one] 1 volto corretto
+   *[other] { $n } volti corretti
+}
+faces-selected = { $n ->
+    [one] 1 volto selezionato
+   *[other] { $n } volti selezionati
+}
+faces-select-all = Seleziona tutto
+faces-clear = Deseleziona
+faces-back = Persone
+faces-hint = Fai clic sui volti per selezionarli, clic destro per correggerne uno.
 scanning = Ricerca delle foto…
 
 bar-import = Importa

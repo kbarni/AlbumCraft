@@ -155,7 +155,7 @@ pub trait Library {
     fn use_faces(&self, on: bool);
     /// Group the faces found so far, off the window's thread (`faces::group`); the answer is
     /// `Done::Faces`. Asked again while a grouping runs, it runs once more after it.
-    fn group_faces(&self, decided: crate::face_groups::Constraints, named: std::collections::HashSet<u32>);
+    fn group_faces(&self, decided: crate::faces::Decided, named: std::collections::HashSet<u32>);
     /// Rank the library's pictures for a smart search with `pack`, off the window's thread;
     /// the answer is `Done::LooksLike` (the query with it, to tell stale answers apart).
     fn looks_like(&self, pack: String, query: crate::smart_search::Query);
@@ -663,7 +663,7 @@ impl Library for LocalLibrary {
         }
     }
 
-    fn group_faces(&self, decided: crate::face_groups::Constraints, named: std::collections::HashSet<u32>) {
+    fn group_faces(&self, decided: crate::faces::Decided, named: std::collections::HashSet<u32>) {
         use std::sync::atomic::Ordering;
         // running: ask for one more round after it
         if self.grouping.compare_exchange(IDLE, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err() {

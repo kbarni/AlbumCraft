@@ -461,6 +461,48 @@ filter-people-with = With people
 filter-people-portrait = One person
 filter-people-group = Three people or more
 filter-people-none = No people
+faces-page-title = Faces of { $name }
+count-faces = { $n ->
+    [one] 1 face
+   *[other] { $n } faces
+}
+faces-check = Check faces
+faces-check-hint = All the faces of this person, to correct those that are not theirs
+faces-hide = Hide
+faces-unhide = Show again
+faces-hide-hint = Strangers, passers-by: kept out of the list of people (their faces stay grouped)
+faces-show-hidden = Show the hidden groups ({ $n })
+faces-same-person = Same person as { $name }?
+faces-same-person-unnamed = Same person as this one?
+faces-merge = Yes, one person
+faces-move-to = Move to…
+faces-new-person = A new person
+faces-unnamed-n = Unnamed person ({ $n } pictures)
+faces-not-this-person = { $n ->
+    [one] Not this person
+   *[other] Not this person (these { $n } faces)
+}
+faces-ignore = { $n ->
+    [one] Ignore this face
+   *[other] Ignore these { $n } faces
+}
+faces-ignore-hint = A stranger, a poster, a statue: left out of the groups
+faces-not-a-face = { $n ->
+    [one] Not a face
+   *[other] Not faces ({ $n })
+}
+faces-corrected = { $n ->
+    [one] 1 face corrected
+   *[other] { $n } faces corrected
+}
+faces-selected = { $n ->
+    [one] 1 face selected
+   *[other] { $n } faces selected
+}
+faces-select-all = Select all
+faces-clear = Clear
+faces-back = People
+faces-hint = Click faces to select them, right-click to correct one.
 scanning = Looking for pictures…
 
 bar-import = Import

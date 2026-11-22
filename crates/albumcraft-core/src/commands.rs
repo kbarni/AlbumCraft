@@ -681,6 +681,36 @@ Call `rescan` afterwards to see the new pictures in the library.",
             }, "required": ["from", "into"] }),
         },
         Spec {
+            name: "correct_faces",
+            description: "Correct faces found by face grouping, as the user does on a person's faces page: move them to a person (`group`: number or name), to a new person, say they are not that person (they are never put in that group again), ignore them (strangers, posters: left out of the groups) or say they are not faces; `reset` forgets what was decided. A face is a picture key and its place among the picture's faces (`faces` of get_photo / search_photos). The groups follow within a second while the window is open.",
+            schema: || json!({ "type": "object", "properties": {
+                "faces": { "type": "array", "items": { "type": "object", "properties": {
+                    "picture": { "type": "string" }, "face": { "type": "integer" }
+                }, "required": ["picture", "face"] } },
+                "action": { "type": "string", "enum": ["move", "new_person", "not_this_person", "ignore", "not_a_face", "reset"] },
+                "group": { "description": "For move and not_this_person: the group number or name", "type": ["integer", "string"] }
+            }, "required": ["faces", "action"] }),
+        },
+        Spec {
+            name: "same_person_proposals",
+            description: "Groups of faces that may be one person (seen as two: childhood, glasses, profile), closest first, without those the user already answered. Answer with merge_people (yes) or not_same_person (no).",
+            schema: || json!({ "type": "object", "properties": { "limit": { "type": "integer", "default": 20 } } }),
+        },
+        Spec {
+            name: "not_same_person",
+            description: "Say that two groups of faces are two people: they are not proposed as one again.",
+            schema: || json!({ "type": "object", "properties": {
+                "a": { "type": ["integer", "string"] }, "b": { "type": ["integer", "string"] }
+            }, "required": ["a", "b"] }),
+        },
+        Spec {
+            name: "hide_person",
+            description: "Keep a group of faces (strangers, passers-by) out of the list of people, or list it again (`hidden: false`). Its faces stay grouped.",
+            schema: || json!({ "type": "object", "properties": {
+                "group": { "type": ["integer", "string"] }, "hidden": { "type": "boolean", "default": true }
+            }, "required": ["group"] }),
+        },
+        Spec {
             name: "ai_status",
             description: "The AI features (faces, smart search, tag proposals; everything is computed on the user's computer): whether this build can run networks, the packs of networks that can be downloaded with their size, licence and whether they are installed, and how far the background analysis of the library is (only while the AlbumCraft window is open).",
             schema: || json!({ "type": "object", "properties": {} }),
@@ -771,6 +801,15 @@ fn parse_zone(z: &str) -> Option<crate::geotag::Zone> {
 /// Unix seconds as "2024-06-01T10:00:00Z".
 fn utc_text(secs: f64) -> String {
     chrono::DateTime::from_timestamp(secs as i64, 0).map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default()
+}
+
+/// A group of faces given by number or by name.
+fn group_arg(host: &dyn Host, v: Option<&Value>, what: &str) -> Result<u32, String> {
+    match v {
+        Some(Value::Number(n)) => n.as_u64().filter(|&g| g <= u32::MAX as u64).map(|g| g as u32).ok_or(format!("`{what}` is not a group number")),
+        Some(Value::String(n)) => crate::faces::group_named(host.store(), n, None).ok_or(format!("no group of faces is named {n:?} (see list_people)")),
+        _ => Err(format!("`{what}` must be a group number or a name")),
+    }
 }
 
 fn opt_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
@@ -1275,9 +1314,9 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let unnamed: Vec<Value> = index
                 .iter()
                 .flat_map(|i| i.groups.iter())
-                .filter(|g| g.faces.len() >= crate::faces::MIN_GROUP && crate::faces::name_of(s, g.id).is_none())
+                .filter(|g| g.faces.len() >= crate::faces::MIN_GROUP && crate::faces::name_of(s, g.id).is_none() && !s.hidden_groups.contains(&crate::faces::resolve(s, g.id)))
                 .take(200)
-                .map(|g| json!({ "group": g.id, "faces": g.faces.len(), "pictures": g.pictures }))
+                .map(|g| json!({ "group": g.id, "faces": g.faces.len(), "pictures": g.pictures, "cover": { "picture": g.cover.0, "face": g.cover.1 } }))
                 .collect();
             now(json!({ "people": people, "unnamed_groups": unnamed, "faces_found": index.is_some() }))
         }
@@ -1294,14 +1333,76 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 Err(other) => Err(format!("group {other} is {name:?} already; pass merge: true to make the two groups one person")),
             }
         }
-        "merge_people" => {
-            let group_of = |host: &dyn Host, v: Option<&Value>, what: &str| -> Result<u32, String> {
-                match v {
-                    Some(Value::Number(n)) => n.as_u64().filter(|&g| g <= u32::MAX as u64).map(|g| g as u32).ok_or(format!("`{what}` is not a group number")),
-                    Some(Value::String(n)) => crate::faces::group_named(host.store(), n, None).ok_or(format!("no group of faces is named {n:?} (see list_people)")),
-                    _ => Err(format!("`{what}` must be a group number or a name")),
+        "correct_faces" => {
+            let index = host.faces().ok_or("no faces were found: face grouping is off, or the library is not analysed yet")?;
+            let list = args.get("faces").and_then(Value::as_array).ok_or("`faces` must be a list of { picture, face }")?;
+            let mut faces = vec![];
+            for f in list {
+                let key = f.get("picture").and_then(Value::as_str).ok_or("each face needs `picture` (a key)")?;
+                let i = f.get("face").and_then(Value::as_u64).filter(|&i| i <= u16::MAX as u64).ok_or("each face needs `face` (its place in the picture)")? as u16;
+                if index.face(key, i).is_none() {
+                    return Err(format!("{key} has no face {i} (see get_photo)"));
                 }
+                faces.push((key.to_string(), i));
+            }
+            let c = match str_arg(args, "action")? {
+                "move" => crate::faces::Correction::MoveTo(group_arg(&*host, args.get("group"), "group")?),
+                "new_person" => crate::faces::Correction::NewPerson,
+                "not_this_person" => crate::faces::Correction::NotThisPerson(group_arg(&*host, args.get("group"), "group")?),
+                "ignore" => crate::faces::Correction::Ignore,
+                "not_a_face" => crate::faces::Correction::NotFace,
+                "reset" => crate::faces::Correction::Reset,
+                other => return Err(format!("unknown action {other:?}")),
             };
+            let n = crate::faces::correct(host.store_mut(), &index, &faces, c);
+            now(json!({ "corrected": n }))
+        }
+        "same_person_proposals" => {
+            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20).min(500) as usize;
+            let index = host.faces().ok_or("no faces were found: face grouping is off, or the library is not analysed yet")?;
+            let s = host.store();
+            let r = |g| crate::faces::resolve(s, g);
+            let size = |g: u32| index.groups.iter().filter(|x| r(x.id) == g).map(|x| x.faces.len()).sum::<usize>();
+            let mut seen = HashSet::new();
+            let list: Vec<Value> = index
+                .proposals
+                .iter()
+                .map(|&(a, b, score)| (r(a), r(b), score))
+                .filter(|&(a, b, _)| a != b && !s.refused_merges.contains(&(a.min(b), a.max(b))) && !s.hidden_groups.contains(&a) && !s.hidden_groups.contains(&b))
+                .filter(|&(a, b, _)| seen.insert((a.min(b), a.max(b))))
+                .take(limit)
+                .map(|(a, b, score)| json!({
+                    "a": { "group": a, "name": crate::faces::name_of(s, a), "faces": size(a) },
+                    "b": { "group": b, "name": crate::faces::name_of(s, b), "faces": size(b) },
+                    "likeness": (score * 1000.0).round() / 1000.0,
+                }))
+                .collect();
+            now(json!({ "proposals": list }))
+        }
+        "not_same_person" => {
+            let (a, b) = (group_arg(&*host, args.get("a"), "a")?, group_arg(&*host, args.get("b"), "b")?);
+            let (a, b) = (crate::faces::resolve(host.store(), a), crate::faces::resolve(host.store(), b));
+            if a == b {
+                return Err("these are one person".into());
+            }
+            let pair = (a.min(b), a.max(b));
+            if !host.store().refused_merges.contains(&pair) {
+                host.store_mut().refused_merges.push(pair);
+            }
+            now(json!({ "two_people": [a, b] }))
+        }
+        "hide_person" => {
+            let g = crate::faces::resolve(host.store(), group_arg(&*host, args.get("group"), "group")?);
+            let hidden = opt_bool(args, "hidden")?.unwrap_or(true);
+            if hidden {
+                host.store_mut().hidden_groups.insert(g);
+            } else {
+                host.store_mut().hidden_groups.remove(&g);
+            }
+            now(json!({ "group": g, "hidden": hidden }))
+        }
+        "merge_people" => {
+            let group_of = group_arg;
             let (from, into) = (group_of(&*host, args.get("from"), "from")?, group_of(&*host, args.get("into"), "into")?);
             if crate::faces::resolve(host.store(), from) == crate::faces::resolve(host.store(), into) {
                 return Err("these are one person already".into());
@@ -2172,7 +2273,7 @@ impl Host for Headless {
                     return None;
                 }
                 let files: Vec<crate::geo::FileStamp> = self.photos.iter().map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
-                crate::faces::saved_index(&files, &crate::faces::constraints(&self.store)).map(std::sync::Arc::new)
+                crate::faces::saved_index(&files, &crate::faces::decided(&self.store)).map(std::sync::Arc::new)
             })
             .clone()
     }
@@ -2211,7 +2312,7 @@ impl Host for Headless {
 pub fn read_only(name: &str) -> bool {
     matches!(
         name,
-        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place" | "semantic_search" | "similar_pictures" | "propose_tags" | "ai_status" | "list_tags"
+        "library_info" | "list_folders" | "search_photos" | "get_photo" | "render_preview" | "export" | "make_gallery" | "make_movie" | "show_photo" | "show_on_map" | "find_place" | "semantic_search" | "similar_pictures" | "propose_tags" | "ai_status" | "list_tags" | "list_people" | "same_person_proposals"
     )
 }
 

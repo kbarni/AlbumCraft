@@ -76,6 +76,8 @@ pub enum Source {
     Group(u32),
     /// The People page: every group of faces, to check and name them.
     People,
+    /// The faces of one person (a group), to correct them.
+    Faces(u32),
     Picks,
 }
 
@@ -178,6 +180,8 @@ pub enum Undo {
     Dates(Vec<(String, Option<crate::taken::DateTime>)>),
     /// Locations set from a GPS track (`geotag_view`): each picture's place as it was (by key).
     Places(Vec<(String, Option<crate::geo::Place>)>),
+    /// What was decided about faces of these pictures, as it was (by key; `faces_view`).
+    Faces(Vec<(String, Vec<crate::faces::FaceNote>)>),
     /// Names of face groups and merges as they were (`faces_view`).
     People { names: std::collections::BTreeMap<u32, String>, merged: std::collections::BTreeMap<u32, u32>, refused: Vec<(u32, String)> },
 }
@@ -897,8 +901,14 @@ impl App {
             app.dialog = Some(Dialog::OnlineMaps);
         }
         // for looking at the People page of a real library (`--screenshot` shows samples only)
-        if std::env::var("ALBUMCRAFT_OPEN").is_ok_and(|v| v == "people") {
-            app.source = Source::People;
+        match std::env::var("ALBUMCRAFT_OPEN").ok().as_deref() {
+            Some("people") => app.source = Source::People,
+            Some(v) if v.starts_with("faces:") => {
+                if let Ok(g) = v["faces:".len()..].parse() {
+                    app.source = Source::Faces(g);
+                }
+            }
+            _ => {}
         }
         library::trace_since("App::new", t_new, 0);
         app
@@ -1353,7 +1363,7 @@ impl App {
             Source::Album(i) => self.photos.get(id).is_some_and(|p| self.store.albums.get(*i).is_some_and(|a| a.keys.contains(&p.key))),
             Source::Person(name) => self.people_of(id).iter().any(|p| crate::tags::key(p) == crate::tags::key(name)),
             Source::Group(g) => self.in_group(id, *g),
-            Source::People => false,
+            Source::People | Source::Faces(_) => false,
             Source::Picks => self.is_picked(id),
         }
     }
@@ -2113,6 +2123,13 @@ impl App {
             Undo::Moved(done) => self.move_back(done),
             Undo::Dates(before) => self.undo_dates(before),
             Undo::Places(before) => self.undo_places(before),
+            Undo::Faces(before) => {
+                // the groups follow in `faces_tick`
+                for (key, notes) in before {
+                    self.store.meta.entry(key).or_default().faces = notes;
+                }
+                self.dirty = true;
+            }
             Undo::People { names, merged, refused } => {
                 // the lists follow in `faces_tick`
                 self.store.person_names = names;

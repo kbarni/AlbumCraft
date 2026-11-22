@@ -215,11 +215,20 @@ pub(crate) fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<
     nav_row_with(ui, icon, label, None, count, selected)
 }
 
+/// A sidebar row that can also be dragged (a person, onto another).
+pub(crate) fn nav_row_drag(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
+    nav_row_sensed(ui, icon, label, None, count, selected, Sense::click_and_drag())
+}
+
 /// A row of the sidebar, with a dimmed second line under the label when `sub` is given (a
 /// folder's caption).
 fn nav_row_with(ui: &mut egui::Ui, icon: &str, label: &str, sub: Option<&str>, count: Option<usize>, selected: bool) -> egui::Response {
+    nav_row_sensed(ui, icon, label, sub, count, selected, Sense::click())
+}
+
+fn nav_row_sensed(ui: &mut egui::Ui, icon: &str, label: &str, sub: Option<&str>, count: Option<usize>, selected: bool, sense: Sense) -> egui::Response {
     let h = if sub.is_some() { 44.0 } else { 32.0 };
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), sense);
     if !ui.is_rect_visible(rect) {
         return resp;
     }
@@ -318,6 +327,7 @@ impl App {
             Source::Person(n) => n.clone(),
             Source::Group(_) => tr!("people-unnamed"),
             Source::People => tr!("nav-people"),
+            Source::Faces(g) => tr!("faces-page-title", name = crate::faces::name_of(&self.store, *g).map(str::to_string).unwrap_or_else(|| tr!("people-unnamed"))),
             Source::Picks => tr!("nav-picks"),
         }
     }
@@ -344,6 +354,9 @@ impl App {
                         } else if self.source == Source::People {
                             let n = self.people_count();
                             tr!("count-people", n = n)
+                        } else if let Source::Faces(g) = self.source {
+                            let n = self.faces_of(g).len();
+                            tr!("count-faces", n = n)
                         } else {
                             tr!("count-pictures", n = shown)
                         };
@@ -829,6 +842,10 @@ impl App {
                 self.people_page(ui);
                 return;
             }
+            if let Source::Faces(g) = self.source {
+                self.faces_page(ui, g);
+                return;
+            }
             let groups = self.groups();
             if groups.iter().all(|(_, v)| v.is_empty()) {
                 self.empty_state(ui);
@@ -1080,7 +1097,7 @@ impl App {
             } else {
                 match self.source {
                     Source::Album(_) => (icons::ALBUM, tr!("empty-album")),
-                    Source::Person(_) | Source::Group(_) | Source::People => (icons::PERSON, tr!("empty-person")),
+                    Source::Person(_) | Source::Group(_) | Source::People | Source::Faces(_) => (icons::PERSON, tr!("empty-person")),
                     Source::Picks => (icons::FLAG, tr!("empty-picks")),
                     Source::Library if !self.store.roots.is_empty() => {
                         (icons::FOLDER, tr!("empty-unreachable"))

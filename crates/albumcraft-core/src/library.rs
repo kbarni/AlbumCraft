@@ -77,6 +77,10 @@ pub struct Meta {
     /// A video's in and out points and the frame its thumbnail shows, when the user set them.
     #[serde(skip_serializing_if = "crate::video::VideoMeta::is_empty")]
     pub video: crate::video::VideoMeta,
+    /// What the user decided about faces of this picture (moved, "not this person", ignored,
+    /// not a face), by the face's box: no vectors here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub faces: Vec<crate::faces::FaceNote>,
 }
 
 fn is_zero(v: &u8) -> bool {
@@ -99,6 +103,7 @@ impl Meta {
             && self.place.is_none()
             && self.taken.is_none()
             && self.video.is_empty()
+            && self.faces.is_empty()
     }
 
     /// Turn an old yes/no star into a pick, keep the rating in range and drop a damaged place.
@@ -111,6 +116,7 @@ impl Meta {
             self.place = None;
         }
         self.video.sanitize();
+        self.faces.retain(|f| f.r.iter().all(|v| v.is_finite()) && f.r[2] > 0.0 && f.r[3] > 0.0);
     }
 }
 
@@ -311,6 +317,10 @@ pub struct Store {
     pub person_merged: std::collections::BTreeMap<u32, u32>,
     /// Names proposed for a group and refused (group, name as `tags::key`).
     pub refused_names: Vec<(u32, String)>,
+    /// "Same person?" answered No: pairs of groups (smaller number first).
+    pub refused_merges: Vec<(u32, u32)>,
+    /// Groups of faces kept out of the way (strangers): not listed with the people.
+    pub hidden_groups: std::collections::BTreeSet<u32>,
     /// Last used web gallery theme, layout, picture size and captions.
     #[serde(deserialize_with = "or_default")]
     pub gallery: crate::gallery::GallerySettings,
@@ -395,6 +405,8 @@ impl Default for Store {
             person_names: Default::default(),
             person_merged: Default::default(),
             refused_names: vec![],
+            refused_merges: vec![],
+            hidden_groups: Default::default(),
             gallery: Default::default(),
             check_updates: true,
             xmp_embedded: true,

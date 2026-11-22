@@ -32,9 +32,15 @@ pub struct FaceGroups {
     was_active: bool,
     /// The library's pictures at the last grouping (a scan changes them).
     pictures: usize,
-    /// The names and merges the lists were made with (changed by the People page, a command,
-    /// an Undo: whichever it is, the lists follow).
-    seen: Option<(std::collections::BTreeMap<u32, String>, std::collections::BTreeMap<u32, u32>)>,
+    /// What the user decided (names, merges, corrections…) as the lists were made, and the
+    /// list revision it was looked at (`decisions_hash`): changed by the People page, a
+    /// command, an Undo, the lists and the groups follow.
+    decisions: Option<u64>,
+    decisions_rev: u64,
+    /// Faces selected on a person's faces page.
+    pub selected: HashSet<(String, u16)>,
+    /// The hidden groups are listed on the People page.
+    show_hidden: bool,
     /// Picture -> the names of the people recognised in it.
     pub names: HashMap<String, Vec<String>>,
     /// Names proposed for unnamed groups (from the names typed on their pictures).
@@ -46,6 +52,16 @@ pub struct FaceGroups {
     /// A name typed for a group that is another group's: (group, the other, the name).
     merge_question: Option<(GroupId, GroupId, String)>,
 }
+
+/// A person dragged in the sidebar (onto another: one person).
+#[derive(Clone, Copy, Debug)]
+pub struct DraggedPerson(pub GroupId);
+
+pub use crate::faces::Correction;
+
+/// Faces on a person's faces page.
+const GRID_FACE: f32 = 96.0;
+const GRID_GAP: f32 = 6.0;
 
 /// One block of the People page.
 struct Person {
@@ -99,13 +115,15 @@ impl App {
             self.face_groups = FaceGroups::default();
             return;
         }
-        // names or merges changed since the lists were made
-        let same = self.face_groups.seen.as_ref().is_some_and(|(n, m)| *n == self.store.person_names && *m == self.store.person_merged);
-        if !same {
-            let first = self.face_groups.seen.is_none();
-            self.face_groups.seen = Some((self.store.person_names.clone(), self.store.person_merged.clone()));
-            if !first {
+        // what the user decided changed since the lists were made (looked at once per change
+        // of the notes, which every change of them goes with)
+        if self.face_groups.decisions.is_none() || self.face_groups.decisions_rev != self.list_rev {
+            self.face_groups.decisions_rev = self.list_rev;
+            let h = decisions_hash(&self.store);
+            let before = self.face_groups.decisions.replace(h);
+            if before.is_some_and(|b| b != h) {
                 self.people_changed();
+                self.face_groups.decisions_rev = self.list_rev;
                 if self.scanned {
                     self.regroup_faces();
                 }
@@ -132,7 +150,7 @@ impl App {
     /// Group the faces again now, with what the user decided.
     pub fn regroup_faces(&mut self) {
         let named = self.store.person_names.keys().copied().filter(|g| !self.store.person_merged.contains_key(g)).collect();
-        self.lib.group_faces(crate::faces::constraints(&self.store), named);
+        self.lib.group_faces(crate::faces::decided(&self.store), named);
     }
 
     /// The people of a picture: names typed on it and people recognised in it.
@@ -201,32 +219,30 @@ impl App {
 
     /// The people to show, named ones first (by name), then the unnamed groups, largest first.
     fn people_list(&self) -> Vec<Person> {
+        self.people_list_with(false)
+    }
+
+    /// The people (or, `hidden`, only the groups the user hid).
+    fn people_list_with(&self, hidden: bool) -> Vec<Person> {
         let Some(index) = &self.face_groups.index else { return vec![] };
-        let mut named = vec![];
-        let mut unnamed = vec![];
-        for g in &index.groups {
-            let id = crate::faces::resolve(&self.store, g.id);
-            let name = crate::faces::name_of(&self.store, id).map(str::to_string);
-            if name.is_none() && g.faces.len() < crate::faces::MIN_GROUP {
-                continue;
-            }
-            let p = Person { id, name: name.clone(), faces: g.faces.clone(), pictures: g.pictures, cover: g.cover.clone() };
-            if name.is_some() { named.push(p) } else { unnamed.push(p) }
-        }
         // a merge made since the last grouping: its groups are shown as one
         let mut by_id: Vec<Person> = vec![];
-        for p in named {
-            match by_id.iter_mut().find(|q| q.id == p.id) {
+        for g in &index.groups {
+            let id = crate::faces::resolve(&self.store, g.id);
+            match by_id.iter_mut().find(|q| q.id == id) {
                 Some(q) => {
-                    q.pictures += p.pictures;
-                    q.faces.extend(p.faces);
+                    q.pictures += g.pictures;
+                    q.faces.extend(g.faces.iter().cloned());
                 }
-                None => by_id.push(p),
+                None => by_id.push(Person { id, name: crate::faces::name_of(&self.store, id).map(str::to_string), faces: g.faces.clone(), pictures: g.pictures, cover: g.cover.clone() }),
             }
         }
-        by_id.sort_by_key(|p| p.name.as_deref().map(crate::tags::key));
-        by_id.extend(unnamed);
-        by_id
+        by_id.retain(|p| (p.name.is_some() || p.faces.len() >= crate::faces::MIN_GROUP) && self.store.hidden_groups.contains(&p.id) == hidden);
+        let (mut named, mut unnamed): (Vec<Person>, Vec<Person>) = by_id.into_iter().partition(|p| p.name.is_some());
+        named.sort_by_key(|p| p.name.as_deref().map(crate::tags::key));
+        unnamed.sort_by(|a, b| b.faces.len().cmp(&a.faces.len()).then(a.id.cmp(&b.id)));
+        named.extend(unnamed);
+        named
     }
 
     /// People on the People page.
@@ -251,20 +267,27 @@ impl App {
         }
         for (name, n) in people {
             let sel = self.source == Source::Person(name.clone());
-            let cover = crate::faces::group_named(&self.store, name, None).and_then(|g| self.face_groups.index.as_ref()?.group(g).map(|g| g.cover.clone()));
-            if self.person_row(ui, cover.as_ref(), name, Some(*n), sel).clicked() {
+            let group = crate::faces::group_named(&self.store, name, None);
+            let cover = group.and_then(|g| self.face_groups.index.as_ref()?.group(g).map(|g| g.cover.clone()));
+            let resp = self.person_row(ui, cover.as_ref(), name, Some(*n), sel);
+            if resp.clicked() {
                 self.source = Source::Person(name.clone());
                 self.pick_set(TraySet::Person(name.clone()));
+            }
+            if let Some(g) = group {
+                self.person_drag(ui, &resp, g);
             }
         }
         if faces_on {
             let unnamed: Vec<Person> = self.people_list().into_iter().filter(|p| p.name.is_none()).collect();
             for p in unnamed.iter().take(SIDEBAR_UNNAMED) {
                 let sel = self.source == Source::Group(p.id);
-                if self.person_row(ui, Some(&p.cover), &tr!("people-unnamed"), Some(p.pictures), sel).clicked() {
+                let resp = self.person_row(ui, Some(&p.cover), &tr!("people-unnamed"), Some(p.pictures), sel);
+                if resp.clicked() {
                     self.source = Source::Group(p.id);
                     self.pick_set(TraySet::Group(p.id));
                 }
+                self.person_drag(ui, &resp, p.id);
             }
             if unnamed.len() > SIDEBAR_UNNAMED {
                 let more = unnamed.len() - SIDEBAR_UNNAMED;
@@ -276,10 +299,36 @@ impl App {
         }
     }
 
+    /// A person's sidebar row can be dragged onto another: they are one person (with Undo).
+    fn person_drag(&mut self, ui: &egui::Ui, resp: &egui::Response, g: GroupId) {
+        resp.dnd_set_drag_payload(DraggedPerson(g));
+        if resp.dnd_hover_payload::<DraggedPerson>().is_some_and(|d| crate::faces::resolve(&self.store, d.0) != crate::faces::resolve(&self.store, g)) {
+            ui.painter().rect_stroke(resp.rect, 9.0, egui::Stroke::new(2.0, t().accent), egui::StrokeKind::Inside);
+        }
+        if let Some(d) = resp.dnd_release_payload::<DraggedPerson>()
+            && crate::faces::resolve(&self.store, d.0) != crate::faces::resolve(&self.store, g)
+        {
+            let name = crate::faces::name_of(&self.store, g).or_else(|| crate::faces::name_of(&self.store, d.0)).map(str::to_string).unwrap_or_else(|| tr!("people-unnamed"));
+            self.merge_into(d.0, g, &name);
+        }
+        // what is dragged, under the pointer
+        if resp.dragged()
+            && let Some(pos) = ui.ctx().pointer_interact_pos()
+        {
+            let label = crate::faces::name_of(&self.store, g).map(str::to_string).unwrap_or_else(|| tr!("people-unnamed"));
+            let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged-person")));
+            let g = p.layout_no_wrap(label, egui::FontId::proportional(13.0), t().text_strong);
+            let r = Rect::from_min_size(pos + Vec2::new(14.0, 6.0), g.size() + Vec2::new(16.0, 8.0));
+            p.rect_filled(r, 8.0, t().surface);
+            p.rect_stroke(r, 8.0, egui::Stroke::new(1.0, t().border), egui::StrokeKind::Inside);
+            p.galley(r.min + Vec2::new(8.0, 4.0), g, t().text_strong);
+        }
+    }
+
     /// A sidebar row with the person's face in front (or the person icon).
     fn person_row(&mut self, ui: &mut egui::Ui, cover: Option<&(String, u16)>, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
-        let Some(cover) = cover else { return crate::shell::nav_row(ui, crate::icons::PERSON, label, count, selected) };
-        let resp = crate::shell::nav_row(ui, "", label, count, selected);
+        let Some(cover) = cover else { return crate::shell::nav_row_drag(ui, crate::icons::PERSON, label, count, selected) };
+        let resp = crate::shell::nav_row_drag(ui, "", label, count, selected);
         let face = Rect::from_center_size(Pos2::new(resp.rect.left() + 18.0, resp.rect.center().y), Vec2::splat(22.0));
         self.paint_face(ui, face, cover, 11.0);
         resp
@@ -287,7 +336,11 @@ impl App {
 
     /// The People page (`Source::People`): every person, with a name field and their faces.
     pub fn people_page(&mut self, ui: &mut egui::Ui) {
-        let list = self.people_list();
+        let mut list = self.people_list();
+        let hidden = self.people_list_with(true);
+        if self.face_groups.show_hidden {
+            list.extend(hidden.iter().map(|p| Person { id: p.id, name: p.name.clone(), faces: p.faces.clone(), pictures: p.pictures, cover: p.cover.clone() }));
+        }
         egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 14, bottom: 6 }).show(ui, |ui| {
             if self.face_groups.index.is_none() {
                 ui.label(RichText::new(tr!("people-page-off")).color(t().text_weak));
@@ -298,6 +351,9 @@ impl App {
             ui.label(RichText::new(tr!("people-page-count", named = named, unnamed = unnamed)).color(t().text_weak));
             if self.analysis.active() {
                 ui.label(RichText::new(tr!("people-page-analysing")).size(12.0).color(t().text_weak));
+            }
+            if !hidden.is_empty() {
+                ui.checkbox(&mut self.face_groups.show_hidden, tr!("faces-show-hidden", n = hidden.len()));
             }
         });
         if list.is_empty() {
@@ -354,6 +410,19 @@ impl App {
                     if ui.button(tr!("people-show-pictures")).clicked() {
                         open = Some(self.source_of(p));
                     }
+                    if ui.button(tr!("faces-check")).on_hover_text(tr!("faces-check-hint")).clicked() {
+                        open = Some(Source::Faces(p.id));
+                    }
+                    let hidden = self.store.hidden_groups.contains(&p.id);
+                    let label = if hidden { tr!("faces-unhide") } else { tr!("faces-hide") };
+                    if ui.button(label).on_hover_text(tr!("faces-hide-hint")).clicked() {
+                        if hidden {
+                            self.store.hidden_groups.remove(&p.id);
+                        } else {
+                            self.store.hidden_groups.insert(p.id);
+                        }
+                        self.dirty = true;
+                    }
                 });
                 // a name typed that is someone else's: one person?
                 if let Some((g, other, name)) = self.face_groups.merge_question.clone().filter(|q| q.0 == p.id) {
@@ -364,6 +433,29 @@ impl App {
                         }
                         if ui.button(tr!("button-cancel")).clicked() {
                             self.face_groups.merge_question = None;
+                        }
+                    });
+                } else if let Some(other) = self.same_person(p.id) {
+                    // two groups that may be one person
+                    ui.horizontal(|ui| {
+                        let who = crate::faces::name_of(&self.store, other).map(str::to_string);
+                        let text = match &who {
+                            Some(n) => tr!("faces-same-person", name = n.as_str()),
+                            None => tr!("faces-same-person-unnamed"),
+                        };
+                        ui.label(RichText::new(text).color(t().text_weak));
+                        let cover = self.face_groups.index.as_ref().and_then(|i| i.groups.iter().find(|g| crate::faces::resolve(&self.store, g.id) == other).map(|g| g.cover.clone()));
+                        if let Some(c) = cover {
+                            let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
+                            self.paint_face(ui, r, &c, 12.0);
+                        }
+                        if ui.small_button(tr!("faces-merge")).clicked() {
+                            let name = who.or_else(|| p.name.clone()).unwrap_or_else(|| tr!("people-unnamed"));
+                            self.merge_into(p.id, other, &name);
+                        }
+                        if ui.small_button(tr!("people-no")).clicked() {
+                            self.store.refused_merges.push((p.id.min(other), p.id.max(other)));
+                            self.dirty = true;
                         }
                     });
                 } else if p.name.is_none()
@@ -394,16 +486,22 @@ impl App {
             for f in p.faces.iter().step_by(step).take(shown) {
                 let (r, resp) = ui.allocate_exact_size(Vec2::splat(FACE), Sense::click());
                 self.paint_face(ui, r, f, 6.0);
-                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    open = Some(self.source_of(p));
+                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                if resp.clicked() {
+                    open = Some(Source::Faces(p.id));
                 }
+                resp.context_menu(|ui| {
+                    if let Some(c) = self.correction_menu(ui, p.id, 1) {
+                        self.correct(std::slice::from_ref(f), c);
+                    }
+                });
             }
             if p.faces.len() > shown {
                 let (r, resp) = ui.allocate_exact_size(Vec2::splat(FACE), Sense::click());
                 ui.painter().rect_filled(r, 6.0, t().surface_hover);
                 ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, format!("+{}", p.faces.len() - shown), egui::FontId::proportional(15.0), t().text_weak);
                 if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    open = Some(self.source_of(p));
+                    open = Some(Source::Faces(p.id));
                 }
             }
         });
@@ -458,4 +556,178 @@ impl App {
             }
         }
     }
+
+    /// The faces of group `g` (after merges), in the library's order.
+    pub fn faces_of(&self, g: GroupId) -> Vec<(String, u16)> {
+        let g = crate::faces::resolve(&self.store, g);
+        let Some(index) = &self.face_groups.index else { return vec![] };
+        index.groups.iter().filter(|x| crate::faces::resolve(&self.store, x.id) == g).flat_map(|x| x.faces.iter().cloned()).collect()
+    }
+
+    /// Correct these faces (picture, place among its faces); an Undo notice says what was done.
+    pub fn correct(&mut self, faces: &[(String, u16)], c: Correction) {
+        let Some(index) = self.face_groups.index.clone() else { return };
+        let mut before: Vec<(String, Vec<crate::faces::FaceNote>)> = vec![];
+        for (key, _) in faces {
+            if !before.iter().any(|(k, _)| k == key) {
+                before.push((key.clone(), self.store.meta.get(key).map(|m| m.faces.clone()).unwrap_or_default()));
+            }
+        }
+        let done = crate::faces::correct(&mut self.store, &index, faces, c);
+        if done == 0 {
+            return;
+        }
+        self.face_groups.selected.clear();
+        self.dirty = true;
+        self.undoable(tr!("faces-corrected", n = done), Undo::Faces(before));
+    }
+
+    /// The corrections for `faces` of group `from`, as menu entries; what was chosen.
+    fn correction_menu(&self, ui: &mut egui::Ui, from: GroupId, n: usize) -> Option<Correction> {
+        let mut chosen = None;
+        ui.menu_button(tr!("faces-move-to"), |ui| {
+            if ui.button(tr!("faces-new-person")).clicked() {
+                chosen = Some(Correction::NewPerson);
+            }
+            ui.separator();
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                let from = crate::faces::resolve(&self.store, from);
+                for p in self.people_list().into_iter().filter(|p| p.id != from).take(60) {
+                    let label = p.name.clone().unwrap_or_else(|| tr!("faces-unnamed-n", n = p.pictures));
+                    if ui.button(label).clicked() {
+                        chosen = Some(Correction::MoveTo(p.id));
+                    }
+                }
+            });
+        });
+        if ui.button(tr!("faces-not-this-person", n = n)).clicked() {
+            chosen = Some(Correction::NotThisPerson(from));
+        }
+        if ui.button(tr!("faces-ignore", n = n)).on_hover_text(tr!("faces-ignore-hint")).clicked() {
+            chosen = Some(Correction::Ignore);
+        }
+        if ui.button(tr!("faces-not-a-face", n = n)).clicked() {
+            chosen = Some(Correction::NotFace);
+        }
+        if chosen.is_some() {
+            ui.close();
+        }
+        chosen
+    }
+
+    /// A person's faces (`Source::Faces`): select some (a click), correct them (the bar, or a
+    /// right-click).
+    pub fn faces_page(&mut self, ui: &mut egui::Ui, g: GroupId) {
+        let faces = self.faces_of(g);
+        let mut go: Option<Source> = None;
+        let mut apply: Option<(Vec<(String, u16)>, Correction)> = None;
+        egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 12, bottom: 8 }).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(format!("{}  {}", crate::icons::ARROW_BACK, tr!("faces-back"))).clicked() {
+                    go = Some(Source::People);
+                }
+                if ui.button(tr!("people-show-pictures")).clicked() {
+                    go = Some(match crate::faces::name_of(&self.store, g) {
+                        Some(n) => Source::Person(n.to_string()),
+                        None => Source::Group(g),
+                    });
+                }
+                ui.separator();
+                let n = self.face_groups.selected.len();
+                if n == 0 {
+                    ui.label(RichText::new(tr!("faces-hint")).color(t().text_weak));
+                } else {
+                    ui.label(RichText::new(tr!("faces-selected", n = n)).strong());
+                    let chosen = ui.horizontal(|ui| self.correction_menu(ui, g, n)).inner;
+                    if let Some(c) = chosen {
+                        apply = Some((self.face_groups.selected.iter().cloned().collect(), c));
+                    }
+                    if ui.button(tr!("faces-clear")).clicked() {
+                        self.face_groups.selected.clear();
+                    }
+                }
+                if ui.button(tr!("faces-select-all")).clicked() {
+                    self.face_groups.selected = faces.iter().cloned().collect();
+                }
+            });
+        });
+        let cols = (((ui.available_width() - 48.0 + GRID_GAP) / (GRID_FACE + GRID_GAP)).floor() as usize).max(1);
+        let rows = faces.len().div_ceil(cols);
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, GRID_FACE + GRID_GAP, rows, |ui, range| {
+            for row in range {
+                ui.horizontal(|ui| {
+                    ui.add_space(24.0);
+                    ui.spacing_mut().item_spacing.x = GRID_GAP;
+                    for f in faces.iter().skip(row * cols).take(cols) {
+                        let (r, resp) = ui.allocate_exact_size(Vec2::splat(GRID_FACE), Sense::click());
+                        self.paint_face(ui, r, f, 8.0);
+                        let selected = self.face_groups.selected.contains(f);
+                        if selected {
+                            ui.painter().rect_stroke(r.shrink(1.5), 8.0, egui::Stroke::new(3.0, t().accent), egui::StrokeKind::Inside);
+                            ui.painter().circle_filled(r.right_top() + Vec2::new(-14.0, 14.0), 9.0, t().accent);
+                            ui.painter().text(r.right_top() + Vec2::new(-14.0, 14.0), egui::Align2::CENTER_CENTER, crate::icons::CHECK, egui::FontId::proportional(12.0), egui::Color32::WHITE);
+                        }
+                        if resp.clicked() {
+                            if selected {
+                                self.face_groups.selected.remove(f);
+                            } else {
+                                self.face_groups.selected.insert(f.clone());
+                            }
+                        }
+                        // right-click: the selection, or this face alone when it is not selected
+                        resp.context_menu(|ui| {
+                            let these: Vec<(String, u16)> = if selected { self.face_groups.selected.iter().cloned().collect() } else { vec![f.clone()] };
+                            if let Some(c) = self.correction_menu(ui, g, these.len()) {
+                                apply = Some((these, c));
+                            }
+                        });
+                    }
+                });
+            }
+        });
+        if let Some((these, c)) = apply {
+            self.correct(&these, c);
+        }
+        if let Some(src) = go {
+            self.face_groups.selected.clear();
+            self.source = src;
+        }
+    }
+
+    /// The closest other person this one may be ("Same person?"), when not answered yet.
+    fn same_person(&self, p: GroupId) -> Option<GroupId> {
+        let index = self.face_groups.index.as_ref()?;
+        let resolve = |g| crate::faces::resolve(&self.store, g);
+        let me_named = crate::faces::name_of(&self.store, p).is_some();
+        index
+            .proposals
+            .iter()
+            .filter_map(|&(small, large, score)| {
+                let (a, b) = (resolve(small), resolve(large));
+                let other = if a == p { b } else if b == p { a } else { return None };
+                // asked on the smaller group, or on the unnamed one of a named pair
+                let other_named = crate::faces::name_of(&self.store, other).is_some();
+                let here = if me_named != other_named { !me_named } else { a == p };
+                let refused = self.store.refused_merges.contains(&(p.min(other), p.max(other)));
+                (here && other != p && !refused && !self.store.hidden_groups.contains(&other)).then_some((other, score))
+            })
+            .max_by(|x, y| x.1.total_cmp(&y.1))
+            .map(|(g, _)| g)
+    }
+}
+
+/// A number that changes with anything the user decided about faces and people.
+fn decisions_hash(store: &crate::library::Store) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    store.person_names.hash(&mut h);
+    store.person_merged.hash(&mut h);
+    store.refused_names.hash(&mut h);
+    store.refused_merges.hash(&mut h);
+    store.hidden_groups.hash(&mut h);
+    // the notes on faces, in a fixed order
+    let mut notes: Vec<(&String, String)> = store.meta.iter().filter(|(_, m)| !m.faces.is_empty()).map(|(k, m)| (k, serde_json::to_string(&m.faces).unwrap_or_default())).collect();
+    notes.sort();
+    notes.hash(&mut h);
+    h.finish()
 }

@@ -12,6 +12,9 @@
 //!   it matches several of them (`Params::support`), so that groups grow from what they are
 //!   rather than drift towards a look-alike; two groups of one person are proposed for merging
 //!   instead (`proposals`).
+//! - **One person is in a picture once.** Two faces of one picture never go in one group
+//!   (crowds of look-alike faces at night were mixing strangers); a group made before the rule
+//!   keeps the face of a picture that fits it best (the user's placements stay).
 //! - **Poor faces only join.** Small, blurred or turned-away faces never start a group.
 //! - **The user's corrections are constraints** (`Constraints`): a face placed by the user stays
 //!   in its group, "not this person" keeps a face out of a group for good, ignored faces and
@@ -177,11 +180,13 @@ struct Group {
     id: GroupId,
     exemplars: Vec<usize>,
     sum: Vec<f32>,
+    /// The pictures it has a face in: one person is in a picture once.
+    pictures: HashSet<u128>,
 }
 
 impl Group {
     fn new(id: GroupId, dim: usize) -> Group {
-        Group { id, exemplars: vec![], sum: vec![0.0; dim] }
+        Group { id, exemplars: vec![], sum: vec![0.0; dim], pictures: HashSet::new() }
     }
 
     /// Take `i` as an exemplar when there is room and it shows something new.
@@ -243,7 +248,9 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         of[i] = g.filter(|&g| c.placed.get(&f.id).map(|&p| c.resolve(p)) == Some(g) || allowed(i, g));
     }
     let mut next = previous.next.max(c.placed.values().max().map_or(0, |g| g + 1));
-    // the groups as they are: the user's faces first, then good ones, in order
+    // the groups as they are: the user's faces first, then good ones, in order; a second face
+    // of a picture already in the group goes (one person is in a picture once), unless the user
+    // put it there
     let mut groups: Vec<Group> = vec![];
     let mut at: HashMap<GroupId, usize> = HashMap::new();
     let mut order: Vec<usize> = (0..faces.len()).filter(|&i| of[i].is_some()).collect();
@@ -254,6 +261,10 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
             groups.push(Group::new(g, dim));
             groups.len() - 1
         });
+        if !groups[k].pictures.insert(faces[i].id.0) && !c.placed.contains_key(&faces[i].id) {
+            of[i] = None;
+            continue;
+        }
         groups[k].offer(i, faces, p);
     }
     let margin = p.join - 0.2;
@@ -262,7 +273,7 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         groups
             .iter()
             .enumerate()
-            .filter(|(_, g)| allowed(i, g.id) && g.near(v, margin))
+            .filter(|(_, g)| allowed(i, g.id) && !g.pictures.contains(&faces[i].id.0) && g.near(v, margin))
             .map(|(k, g)| (k, g.score(v, faces, p.top)))
             .filter(|(_, s)| *s >= p.join)
             .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
@@ -275,6 +286,7 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         }
         if let Some((k, _)) = best_group(i, &groups) {
             of[i] = Some(groups[k].id);
+            groups[k].pictures.insert(faces[i].id.0);
             if faces[i].good && groups[k].supports(&faces[i].vector, faces, p) {
                 groups[k].offer(i, faces, p);
             }
@@ -285,11 +297,12 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         }
         // a new group: this face and two waiting ones that all match each other
         let v = &faces[i].vector;
-        let near: Vec<usize> = waiting.iter().copied().filter(|&w| dot(&faces[w].vector, v) >= p.seed).collect();
+        let pic = faces[i].id.0;
+        let near: Vec<usize> = waiting.iter().copied().filter(|&w| faces[w].id.0 != pic && dot(&faces[w].vector, v) >= p.seed).collect();
         let mut seed: Option<Vec<usize>> = None;
         'pairs: for (x, &a) in near.iter().enumerate() {
             for &b in &near[x + 1..] {
-                if dot(&faces[a].vector, &faces[b].vector) >= p.seed {
+                if faces[a].id.0 != faces[b].id.0 && dot(&faces[a].vector, &faces[b].vector) >= p.seed {
                     seed = Some(vec![i, a, b]);
                     break 'pairs;
                 }
@@ -301,7 +314,8 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         };
         // and the other waiting ones that match at least two of them
         for &w in &near {
-            if !members.contains(&w) && members.iter().filter(|&&m| dot(&faces[m].vector, &faces[w].vector) >= p.seed).count() >= 2 {
+            let other_picture = members.iter().all(|&m| faces[m].id.0 != faces[w].id.0);
+            if other_picture && members.iter().filter(|&&m| dot(&faces[m].vector, &faces[w].vector) >= p.seed).count() >= 2 {
                 members.push(w);
             }
         }
@@ -310,6 +324,7 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         let mut g = Group::new(id, dim);
         for &m in &members {
             of[m] = Some(id);
+            g.pictures.insert(faces[m].id.0);
             g.offer(m, faces, p);
         }
         waiting.retain(|w| !members.contains(w));
@@ -322,13 +337,14 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
             && let Some((k, _)) = best_group(i, &groups)
         {
             of[i] = Some(groups[k].id);
+            groups[k].pictures.insert(faces[i].id.0);
         }
     }
     Groups { of: faces.iter().zip(of).filter_map(|(f, g)| Some((f.id, g?))).collect(), next }
 }
 
-/// Pairs of groups that may be one person (smaller group first), closest first: their closest
-/// exemplars score at least `Params::propose`. Pairs the user refused are left out.
+/// Pairs of groups that may be one person (smaller group first), closest first: the exemplars
+/// of one score at least `Params::propose` in the other, typically (the median). Pairs the user refused are left out.
 pub fn proposals(faces: &[Face], groups: &Groups, c: &Constraints, p: &Params, min_faces: usize) -> Vec<(GroupId, GroupId, f32)> {
     let index: HashMap<FaceId, usize> = faces.iter().enumerate().map(|(i, f)| (f.id, i)).collect();
     let dim = faces.first().map(|f| f.vector.len()).unwrap_or(0);
@@ -351,8 +367,14 @@ pub fn proposals(faces: &[Face], groups: &Groups, c: &Constraints, p: &Params, m
             if c.refused.contains(&key) {
                 continue;
             }
-            // the score of the smaller group's exemplars in the larger one, both ways, the best
-            let s = a.exemplars.iter().map(|&i| b.score(&faces[i].vector, faces, p.top)).chain(b.exemplars.iter().map(|&i| a.score(&faces[i].vector, faces, p.top))).fold(f32::NEG_INFINITY, f32::max);
+            // how a group's exemplars score in the other, typically (the median: the best of 50
+            // tries finds a look-alike between any two groups), the closer of the two ways
+            let median = |from: &Group, to: &Group| {
+                let mut v: Vec<f32> = from.exemplars.iter().map(|&i| to.score(&faces[i].vector, faces, p.top)).collect();
+                v.sort_by(f32::total_cmp);
+                v.get(v.len() / 2).copied().unwrap_or(f32::NEG_INFINITY)
+            };
+            let s = median(a, b).max(median(b, a));
             if s >= p.propose {
                 let (small, large) = if na <= nb { (a.id, b.id) } else { (b.id, a.id) };
                 out.push((small, large, s));
@@ -562,6 +584,27 @@ mod tests {
         assert_eq!(scratch.of[&moved], g1);
         assert!(!scratch.of.contains_key(&ignored));
         assert!(scratch.next > g1);
+    }
+
+    #[test]
+    fn two_faces_of_one_picture_are_two_people() {
+        let p = Params::default();
+        // a picture of twins (alike faces), and more pictures of one of them
+        let mut faces = vec![face(1, 0, v(0, 0.2, 1), true), face(1, 1, v(0, 0.2, 2), true)];
+        faces.extend((2..8u128).map(|k| face(k, 0, v(0, 0.2, k as u32 + 10), true)));
+        let g = regroup(&faces, &Groups::default(), &Constraints::default(), &p);
+        let a = g.of.get(&(1, 0));
+        let b = g.of.get(&(1, 1));
+        assert!(a.is_some() || b.is_some());
+        assert_ne!(a, b, "the two faces of picture 1 are not in one group");
+        // a group made before the rule loses one of them
+        let before = Groups { of: faces.iter().map(|f| (f.id, 4)).collect(), next: 5 };
+        let after = regroup(&faces, &before, &Constraints::default(), &p);
+        assert_eq!(after.of.values().filter(|&&x| x == 4).count(), 7);
+        // but not one the user put there
+        let c = Constraints { placed: HashMap::from([((1, 0), 4), ((1, 1), 4)]), ..Default::default() };
+        let placed = regroup(&faces, &before, &c, &p);
+        assert_eq!((placed.of[&(1, 0)], placed.of[&(1, 1)]), (4, 4));
     }
 
     #[test]

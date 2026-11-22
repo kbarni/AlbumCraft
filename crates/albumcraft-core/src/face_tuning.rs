@@ -294,6 +294,10 @@ fn real_face_groups() {
                 v[v.len() / 2] < 0.8
             })
             .count();
+        let crowded = g.members().values().filter(|m| m.iter().map(|f| f.0).collect::<HashSet<_>>().len() < m.len()).count();
+        if crowded > 0 {
+            println!("  {crowded} groups have two faces of one picture");
+        }
         println!(
             "{name:<36} {:>9.3} {:>7.3} {:>6} {:>7} {junk:>5} {:>7.0}% {:>4} ({:>3} ok) {ms:>6}",
             s.precision,
@@ -366,6 +370,20 @@ fn real_face_groups() {
         }
     }
     if let (Ok(out), Some(g)) = (std::env::var("ALBUMCRAFT_FACES_OUT"), best_groups) {
+        // the "same person?" proposals: the first faces of each group of a pair, side by side
+        let p = Params::default();
+        let fs: Vec<Face> = faces.iter().filter(|f| records.get(&f.id).is_some_and(|r| p.is_grouped(r, nonface.as_deref()))).cloned().collect();
+        let props = proposals(&fs, &g, &Constraints::default(), &p, 3);
+        let members = g.members();
+        let mut pairs = Groups::default();
+        for (n, (a, b, score)) in props.iter().take(16).enumerate() {
+            println!("  proposal {n:>2}: groups {a} ({} faces) and {b} ({} faces), {score:.3}", members[a].len(), members[b].len());
+            for (k, f) in members[a].iter().take(8).chain(members[b].iter().take(8)).enumerate() {
+                let _ = k;
+                pairs.of.insert(*f, 10_000 + n as u32);
+            }
+        }
+        sheets(&Path::new(&out).join("proposals"), &pairs, &keys, &records);
         sheets(Path::new(&out), &g, &keys, &records);
         println!("contact sheets of the 40 largest groups in {out}");
     }

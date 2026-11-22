@@ -93,6 +93,31 @@ use crate::ai::faces::FaceRecord;
 use crate::face_groups::{Constraints, Face, FaceId, GroupId, Groups, Params};
 use serde::{Deserialize, Serialize};
 
+/// What the user decided about one face of a picture (in `Meta.faces`). It is found again by
+/// its box (`r`, as the face's in the index: left, top, width, height as fractions), so it
+/// survives the picture being analysed again.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FaceNote {
+    pub r: [f32; 4],
+    pub s: FaceState,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FaceState {
+    /// Put in this group by the user: it stays there.
+    Person(GroupId),
+    /// Never in these groups ("Not this person").
+    NotPerson(Vec<GroupId>),
+    /// A face, but of nobody to group (a stranger, a poster): left out of the groups.
+    Ignored,
+    /// Not a face at all: left out, and not counted as a person.
+    NotFace,
+}
+
+/// The box overlap at which a note is a face's.
+const NOTE_OVERLAP: f32 = 0.5;
+
 /// A face of a picture, as the window knows it (no vector).
 #[derive(Clone, Debug, PartialEq)]
 pub struct IndexedFace {
@@ -106,6 +131,8 @@ pub struct IndexedFace {
     pub good: bool,
     /// Taken for a face (`Params::is_grouped`): what the "with people" filters count.
     pub counted: bool,
+    /// What the user decided about it, if anything.
+    pub state: Option<FaceState>,
 }
 
 /// A group of faces: one person, named or not.
@@ -131,6 +158,8 @@ pub struct FaceIndex {
     pub groups: Vec<GroupInfo>,
     /// Groups that may be one person: (smaller, larger, how close).
     pub proposals: Vec<(GroupId, GroupId, f32)>,
+    /// The next group number the grouping gives: a new person made by hand takes it.
+    pub next: GroupId,
 }
 
 impl FaceIndex {
@@ -162,10 +191,39 @@ impl FaceIndex {
 // ---------------------------------------------------------------------------
 // People: the names of the groups (in `library.json`) with the names typed on pictures
 
-/// What the user decided about faces, for the grouping (from `library.json`).
+/// What the user decided about faces (from `library.json`), for the grouping: merges, refused
+/// merges, and the notes on single faces (matched to faces by their box when grouping).
+#[derive(Clone, Debug, Default)]
+pub struct Decided {
+    pub merged: HashMap<GroupId, GroupId>,
+    pub refused: HashSet<(GroupId, GroupId)>,
+    pub notes: Vec<(String, FaceNote)>,
+}
+
+pub fn decided(store: &crate::library::Store) -> Decided {
+    Decided {
+        merged: store.person_merged.iter().map(|(a, b)| (*a, *b)).collect(),
+        refused: store.refused_merges.iter().map(|&(a, b)| (a.min(b), a.max(b))).collect(),
+        notes: store.meta.iter().flat_map(|(k, m)| m.faces.iter().map(move |n| (k.clone(), n.clone()))).collect(),
+    }
+}
+
+/// Merges only (enough to follow a group to the one it was added to).
 pub fn constraints(store: &crate::library::Store) -> Constraints {
-    let merged = store.person_merged.iter().map(|(a, b)| (*a, *b)).collect();
-    Constraints { merged, ..Default::default() }
+    Constraints { merged: store.person_merged.iter().map(|(a, b)| (*a, *b)).collect(), ..Default::default() }
+}
+
+/// The face of `faces` (boxes) a note is about: the one its box overlaps most, enough.
+pub fn note_target(note: &[f32; 4], faces: impl Iterator<Item = (u16, [f32; 4])>) -> Option<u16> {
+    faces.map(|(i, r)| (i, overlap(note, &r))).filter(|(_, o)| *o >= NOTE_OVERLAP).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+}
+
+/// Write what the user decided about a face (`state` None: forget it) on its picture's notes.
+pub fn note_face(meta: &mut crate::library::Meta, rect: [f32; 4], state: Option<FaceState>) {
+    meta.faces.retain(|n| overlap(&n.r, &rect) < NOTE_OVERLAP);
+    if let Some(s) = state {
+        meta.faces.push(FaceNote { r: rect.map(|v| (v * 1e4).round() / 1e4), s });
+    }
 }
 
 /// The group `g` is now, after the user's merges.
@@ -221,6 +279,69 @@ pub fn merge_groups(store: &mut crate::library::Store, from: GroupId, into: Grou
     for r in store.refused_names.iter_mut().filter(|r| r.0 == from) {
         r.0 = into;
     }
+}
+
+/// A change to faces asked by the user.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Correction {
+    /// Into that group (a person).
+    MoveTo(GroupId),
+    /// Into a group of their own.
+    NewPerson,
+    /// Never in that group.
+    NotThisPerson(GroupId),
+    /// A stranger, a poster: out of the groups.
+    Ignore,
+    NotFace,
+    /// Forget what was decided about these faces.
+    Reset,
+}
+
+/// A group number nobody has: for a new person made by hand.
+pub fn new_person_id(store: &crate::library::Store, index: &FaceIndex) -> GroupId {
+    let mut n = index.next;
+    n = n.max(store.person_names.keys().max().map_or(0, |g| g + 1));
+    n = n.max(store.person_merged.iter().map(|(a, b)| a.max(b) + 1).max().unwrap_or(0));
+    n = n.max(index.groups.iter().map(|g| g.id + 1).max().unwrap_or(0));
+    for m in store.meta.values() {
+        for f in &m.faces {
+            if let FaceState::Person(g) = f.s {
+                n = n.max(g + 1);
+            }
+        }
+    }
+    n
+}
+
+/// Write the user's correction on these faces (picture, place among its faces) into their
+/// pictures' notes; how many were found. The groups follow at the next grouping.
+pub fn correct(store: &mut crate::library::Store, index: &FaceIndex, faces: &[(String, u16)], c: Correction) -> usize {
+    let new = (c == Correction::NewPerson).then(|| new_person_id(store, index));
+    let mut done = 0;
+    for (key, i) in faces {
+        let Some(face) = index.face(key, *i) else { continue };
+        let state = match c {
+            Correction::MoveTo(g) => Some(FaceState::Person(resolve(store, g))),
+            Correction::NewPerson => new.map(FaceState::Person),
+            Correction::NotThisPerson(g) => {
+                let g = resolve(store, g);
+                let mut not = match &face.state {
+                    Some(FaceState::NotPerson(gs)) => gs.clone(),
+                    _ => vec![],
+                };
+                if !not.contains(&g) {
+                    not.push(g);
+                }
+                Some(FaceState::NotPerson(not))
+            }
+            Correction::Ignore => Some(FaceState::Ignored),
+            Correction::NotFace => Some(FaceState::NotFace),
+            Correction::Reset => None,
+        };
+        note_face(store.meta.entry(key.clone()).or_default(), face.rect, state);
+        done += 1;
+    }
+    done
 }
 
 /// For each picture, the names of the people recognised in it (named groups only).
@@ -425,6 +546,36 @@ fn read(t: &Table, files: &[crate::geo::FileStamp], p: &Params) -> Read {
     Read { faces, records, keys, analysed, counted }
 }
 
+/// The user's decisions as constraints on these faces, and each face's state.
+fn apply(d: &Decided, r: &Read) -> (Constraints, HashMap<FaceId, FaceState>) {
+    let mut c = Constraints { merged: d.merged.clone(), refused: d.refused.clone(), ..Default::default() };
+    let mut by_pic: HashMap<u128, Vec<(u16, [f32; 4])>> = HashMap::new();
+    for (id, rec) in &r.records {
+        by_pic.entry(id.0).or_default().push((id.1, rec.rect));
+    }
+    let mut states = HashMap::new();
+    for (key, note) in &d.notes {
+        let pic = crate::ai::store::picture_id(key);
+        let Some(i) = by_pic.get(&pic).and_then(|f| note_target(&note.r, f.iter().copied())) else { continue };
+        let id = (pic, i);
+        match &note.s {
+            FaceState::Person(g) => {
+                let g = c.resolve(*g);
+                c.placed.insert(id, g);
+            }
+            FaceState::NotPerson(gs) => {
+                let gs: Vec<GroupId> = gs.iter().map(|g| c.resolve(*g)).collect();
+                c.not_in.insert(id, gs);
+            }
+            FaceState::Ignored | FaceState::NotFace => {
+                c.left_out.insert(id);
+            }
+        }
+        states.insert(id, note.s.clone());
+    }
+    (c, states)
+}
+
 /// Faces of named people that lost their group (the analysis was made again from nothing):
 /// those matching the person's reference faces go back to it.
 fn restore_named(r: &Read, before: &mut Groups, refs: &std::collections::BTreeMap<GroupId, Vec<Vec<f32>>>, named: &HashSet<GroupId>, p: &Params) {
@@ -458,7 +609,7 @@ fn make_refs(r: &Read, groups: &Groups, named: &HashSet<GroupId>) -> std::collec
     out
 }
 
-fn index_of(r: &Read, groups: &Groups, proposals: Vec<(GroupId, GroupId, f32)>, files: &[crate::geo::FileStamp], p: &Params) -> FaceIndex {
+fn index_of(r: &Read, groups: &Groups, proposals: Vec<(GroupId, GroupId, f32)>, files: &[crate::geo::FileStamp], p: &Params, states: &HashMap<FaceId, FaceState>) -> FaceIndex {
     let mut pictures: HashMap<String, Vec<IndexedFace>> = HashMap::new();
     for (id, rec) in &r.records {
         let Some(key) = r.keys.get(&id.0) else { continue };
@@ -468,7 +619,8 @@ fn index_of(r: &Read, groups: &Groups, proposals: Vec<(GroupId, GroupId, f32)>, 
             group: groups.of.get(id).copied(),
             score: rec.score,
             good: p.is_good(rec),
-            counted: r.counted.contains(id),
+            counted: r.counted.contains(id) && states.get(id) != Some(&FaceState::NotFace) || matches!(states.get(id), Some(FaceState::Person(_))),
+            state: states.get(id).cloned(),
         });
     }
     for v in pictures.values_mut() {
@@ -495,14 +647,14 @@ fn index_of(r: &Read, groups: &Groups, proposals: Vec<(GroupId, GroupId, f32)>, 
         })
         .collect();
     list.sort_by(|a, b| b.faces.len().cmp(&a.faces.len()).then(a.id.cmp(&b.id)));
-    FaceIndex { pictures, analysed: r.analysed.clone(), groups: list, proposals }
+    FaceIndex { pictures, analysed: r.analysed.clone(), groups: list, proposals, next: groups.next }
 }
 
 /// Group the faces of `files` (the library's pictures, in the order to place them) found with
 /// the Faces pack, keeping what was decided before (`c`: the user's decisions; `named`: the
 /// groups that have a name, whose reference faces are kept so that the name survives a new
 /// analysis); the groups are saved beside the table. None when faces have no vectors yet.
-pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], c: &Constraints, named: &HashSet<GroupId>) -> Result<Option<FaceIndex>, String> {
+pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], d: &Decided, named: &HashSet<GroupId>) -> Result<Option<FaceIndex>, String> {
     let Some(cfg) = pack().filter(|_| pack_installed()).and_then(|p| p.faces.as_ref()) else { return Ok(None) };
     let spec = table(Some(cfg));
     let dir = analysis.dir().ok_or_else(crate::smart_search::no_folder)?;
@@ -513,12 +665,21 @@ pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], c: &Constrain
     };
     let p = Params::default();
     let r = read(&shared.read().unwrap_or_else(PoisonError::into_inner), files, &p);
+    let (c, states) = apply(d, &r);
+    let c = &c;
     let path = saved_path(dir, &spec.model);
     let mut before = load_groups(&path, &r.records);
     let refs_file = refs_path(dir, &spec.model);
     let old_refs = std::fs::read(&refs_file).map(|b| decode_refs(&b)).unwrap_or_default();
     restore_named(&r, &mut before, &old_refs, named, &p);
-    let groups = crate::face_groups::regroup(&r.faces, &before, c, &p);
+    let mut groups = crate::face_groups::regroup(&r.faces, &before, c, &p);
+    // faces the user placed that are not grouped by themselves (too small, an unsure detection)
+    for (id, g) in &c.placed {
+        if r.records.contains_key(id) {
+            groups.of.insert(*id, *g);
+            groups.next = groups.next.max(g + 1);
+        }
+    }
     if groups != before || !path.exists() {
         save_groups(&path, &groups, &r.records)?;
     }
@@ -534,12 +695,12 @@ pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], c: &Constrain
         crate::library::write_library(&refs_file, &bytes)?;
     }
     let proposals = crate::face_groups::proposals(&r.faces, &groups, c, &p, MIN_GROUP);
-    Ok(Some(index_of(&r, &groups, proposals, files, &p)))
+    Ok(Some(index_of(&r, &groups, proposals, files, &p, &states)))
 }
 
 /// The faces and groups as last saved, without grouping again (for the commands when the
 /// window is not open). None without the Faces pack or before any grouping.
-pub fn saved_index(files: &[crate::geo::FileStamp], c: &Constraints) -> Option<FaceIndex> {
+pub fn saved_index(files: &[crate::geo::FileStamp], d: &Decided) -> Option<FaceIndex> {
     let cfg = pack().filter(|_| pack_installed()).and_then(|p| p.faces.as_ref())?;
     let spec = table(Some(cfg));
     let dir = crate::ai::store::analysis_dir()?;
@@ -550,10 +711,13 @@ pub fn saved_index(files: &[crate::geo::FileStamp], c: &Constraints) -> Option<F
     let p = Params::default();
     let r = read(&Table::open(&dir, &spec).ok()?, files, &p);
     let mut groups = load_groups(&path, &r.records);
+    let (c, states) = apply(d, &r);
     for g in groups.of.values_mut() {
         *g = c.resolve(*g);
     }
-    Some(index_of(&r, &groups, vec![], files, &p))
+    groups.of.retain(|f, _| !c.left_out.contains(f));
+    groups.of.extend(c.placed.iter().map(|(f, g)| (*f, *g)));
+    Some(index_of(&r, &groups, vec![], files, &p, &states))
 }
 
 /// Remove every face found, the groups and the reference faces from this computer (the names
@@ -635,7 +799,7 @@ mod tests {
         assert_eq!(people_of(Some(&meta), Some(&vec!["anna".into(), "Paul".into()])), vec!["Anna", "Zoé", "Paul"]);
         assert_eq!(people_of(None, None), Vec::<String>::new());
         // the index gives each picture the names of its named faces
-        let face = |g: Option<GroupId>| IndexedFace { index: 0, rect: [0.0; 4], group: g, score: 0.9, good: true, counted: true };
+        let face = |g: Option<GroupId>| IndexedFace { index: 0, rect: [0.0; 4], group: g, score: 0.9, good: true, counted: true, state: None };
         let index = FaceIndex {
             pictures: HashMap::from([("a.jpg".to_string(), vec![face(Some(7)), IndexedFace { index: 1, ..face(None) }]), ("b.jpg".to_string(), vec![face(Some(12))])]),
             analysed: HashSet::from(["a.jpg".to_string(), "b.jpg".to_string(), "c.jpg".to_string()]),
@@ -674,6 +838,71 @@ mod tests {
         let mut before = Groups::default();
         restore_named(&r, &mut before, &refs, &HashSet::new(), &p);
         assert!(before.of.is_empty());
+    }
+
+    #[test]
+    fn corrections_find_their_faces_again() {
+        let rec = |x: f32| FaceRecord { rect: [x, 0.2, 0.1, 0.12], landmarks: [[0.0; 2]; 5], score: 0.95, eyes: 30.0, sharpness: 100.0, yaw: 0.0, from_full: false, vector: None };
+        let pic = crate::ai::store::picture_id("p.jpg");
+        let records: HashMap<FaceId, FaceRecord> = (0..4u16).map(|i| ((pic, i), rec(0.1 + 0.2 * i as f32))).collect();
+        let r = Read { faces: vec![], records, keys: HashMap::from([(pic, "p.jpg".to_string())]), analysed: HashSet::new(), counted: HashSet::new() };
+        // notes written on an earlier analysis: the boxes a little off now
+        let mut meta = crate::library::Meta::default();
+        note_face(&mut meta, [0.105, 0.21, 0.1, 0.12], Some(FaceState::Person(7)));
+        note_face(&mut meta, [0.3, 0.2, 0.1, 0.12], Some(FaceState::NotPerson(vec![2, 3])));
+        note_face(&mut meta, [0.5, 0.2, 0.1, 0.12], Some(FaceState::Ignored));
+        note_face(&mut meta, [0.7, 0.2, 0.1, 0.12], Some(FaceState::NotFace));
+        // a second note on the same face replaces the first
+        note_face(&mut meta, [0.5, 0.2, 0.1, 0.12], Some(FaceState::NotFace));
+        assert_eq!(meta.faces.len(), 4);
+        let mut store = crate::library::Store::default();
+        store.meta.insert("p.jpg".into(), meta.clone());
+        store.person_merged.insert(7, 9);
+        let (c, states) = apply(&decided(&store), &r);
+        assert_eq!(c.placed.get(&(pic, 0)), Some(&9), "placed in the group 7 became");
+        assert_eq!(c.not_in.get(&(pic, 1)), Some(&vec![2, 3]));
+        assert!(c.left_out.contains(&(pic, 2)) && c.left_out.contains(&(pic, 3)));
+        assert_eq!(states.get(&(pic, 2)), Some(&FaceState::NotFace));
+        // a note whose face is not found any more does nothing
+        let mut far = meta.clone();
+        far.faces = vec![FaceNote { r: [0.9, 0.9, 0.05, 0.05], s: FaceState::Ignored }];
+        store.meta.insert("p.jpg".into(), far);
+        assert!(apply(&decided(&store), &r).0.left_out.is_empty());
+        // forgetting
+        note_face(&mut meta, [0.7, 0.2, 0.1, 0.12], None);
+        assert_eq!(meta.faces.len(), 3);
+        // as kept in library.json
+        let json = serde_json::to_string(&meta.faces[0]).unwrap();
+        assert!(json.contains("\"person\":7"), "{json}");
+        let back: Vec<FaceNote> = serde_json::from_str(&serde_json::to_string(&meta.faces).unwrap()).unwrap();
+        assert_eq!(back, meta.faces);
+    }
+
+    #[test]
+    fn corrections_are_written_on_the_pictures() {
+        let face = |i: u16, x: f32, g: Option<GroupId>| IndexedFace { index: i, rect: [x, 0.1, 0.1, 0.1], group: g, score: 0.9, good: true, counted: true, state: None };
+        let index = FaceIndex {
+            pictures: HashMap::from([("a.jpg".to_string(), vec![face(0, 0.1, Some(3)), face(1, 0.5, Some(3))])]),
+            groups: vec![GroupInfo { id: 3, faces: vec![("a.jpg".into(), 0), ("a.jpg".into(), 1)], pictures: 1, cover: ("a.jpg".into(), 0) }],
+            next: 5,
+            ..Default::default()
+        };
+        let mut store = crate::library::Store::default();
+        store.person_names.insert(8, "Anna".into());
+        // a new person: a number nobody has
+        assert_eq!(new_person_id(&store, &index), 9);
+        assert_eq!(correct(&mut store, &index, &[("a.jpg".into(), 0)], Correction::NewPerson), 1);
+        assert_eq!(store.meta["a.jpg"].faces[0].s, FaceState::Person(9));
+        assert_eq!(new_person_id(&store, &index), 10, "taken now");
+        // not this person: the group, and others said before
+        let mut index2 = index.clone();
+        index2.pictures.get_mut("a.jpg").unwrap()[1].state = Some(FaceState::NotPerson(vec![1]));
+        correct(&mut store, &index2, &[("a.jpg".into(), 1)], Correction::NotThisPerson(3));
+        assert!(store.meta["a.jpg"].faces.iter().any(|f| f.s == FaceState::NotPerson(vec![1, 3])));
+        // unknown faces are skipped; reset forgets
+        assert_eq!(correct(&mut store, &index, &[("b.jpg".into(), 0), ("a.jpg".into(), 7)], Correction::Ignore), 0);
+        correct(&mut store, &index, &[("a.jpg".into(), 0), ("a.jpg".into(), 1)], Correction::Reset);
+        assert!(store.meta["a.jpg"].faces.is_empty());
     }
 
     /// The face analysis on real pictures, as the background analysis runs it (1400 px, the
