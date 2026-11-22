@@ -656,6 +656,11 @@ impl App {
             if on && !p.installed {
                 note(ui, &tr!("settings-faces-without-pack"));
             }
+            if let Some(index) = self.face_groups.index.as_ref().filter(|_| on) {
+                let (found, grouped) = index.counts();
+                let groups = index.groups.iter().filter(|g| g.faces.len() >= crate::faces::MIN_GROUP).count();
+                note(ui, &tr!("settings-faces-count", faces = fmt_count(found), grouped = fmt_count(grouped), groups = fmt_count(groups)));
+            }
             ui.add_space(6.0);
         }
         // other packs (none yet besides search and faces)

@@ -16,6 +16,9 @@ pub mod cms;
 pub mod commands;
 pub mod control;
 pub mod exifinfo;
+pub mod face_groups;
+#[cfg(test)]
+mod face_tuning;
 pub mod faces;
 pub mod export;
 pub mod filemeta;

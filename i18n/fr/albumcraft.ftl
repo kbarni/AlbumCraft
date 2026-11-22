@@ -340,6 +340,7 @@ settings-faces-enable = Trouver les visages et les regrouper par personne
 settings-faces-enable-hint = Les visages sont trouvés par l'analyse en arrière-plan ; le réseau Visages les regroupe par personne
 settings-faces-privacy = Les données des visages restent sur cet ordinateur, hors du fichier de la bibliothèque, des fichiers annexes et des copies exportées.
 settings-faces-without-pack = Sans le réseau Visages, les visages sont trouvés mais pas regroupés par personne.
+settings-faces-count = Visages trouvés : { $faces }. Dans un groupe : { $grouped }. Groupes d'au moins trois visages : { $groups }.
 
 export-size-original = Taille d'origine
 export-size-very-large = Très grande (2560 pixels)

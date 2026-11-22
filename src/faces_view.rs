@@ -2,6 +2,18 @@
 //! (The People view and the corrections come with the grouping.)
 
 use crate::app::{App, Dialog};
+use std::sync::Arc;
+
+/// How often the faces are grouped again while the library is being analysed.
+const REGROUP_EVERY: f64 = 30.0;
+
+/// The library's faces and their groups, as last grouped.
+#[derive(Default)]
+pub struct FaceGroups {
+    pub index: Option<Arc<crate::faces::FaceIndex>>,
+    asked_at: Option<f64>,
+    was_active: bool,
+}
 
 impl App {
     /// Ask once whether to find faces: at a start, after the online-maps question, when nothing
@@ -35,6 +47,26 @@ impl App {
             if !self.downloading_pack(&id) {
                 self.download_pack(&id);
             }
+        }
+    }
+
+    /// Faces found and grouped: once at the start, every `REGROUP_EVERY` seconds while the
+    /// analysis finds more, and when it ends.
+    pub fn faces_tick(&mut self, now: f64) {
+        let on = self.store.ai_enabled && crate::ai::runtime::available() && self.store.faces_enabled == Some(true) && crate::faces::pack().is_some();
+        if !on {
+            self.face_groups = FaceGroups::default();
+            return;
+        }
+        let active = self.analysis.active() && !self.analysis.paused;
+        let due = match self.face_groups.asked_at {
+            None => true,
+            Some(at) => (active && now - at >= REGROUP_EVERY) || (self.face_groups.was_active && !active),
+        };
+        self.face_groups.was_active = active;
+        if due {
+            self.face_groups.asked_at = Some(now);
+            self.lib.group_faces();
         }
     }
 }

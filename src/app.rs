@@ -444,6 +444,8 @@ pub struct App {
     /// The question about faces was shown in this session (closed without an answer, it comes
     /// back at the next start).
     pub faces_asked: bool,
+    /// The library's faces and their groups (faces_view.rs).
+    pub face_groups: crate::faces_view::FaceGroups,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
     /// Places: GPS index, map view and "Set location" state (map_view.rs).
@@ -690,6 +692,7 @@ impl App {
             last_save: 0.0,
             persist,
             faces_asked: false,
+            face_groups: Default::default(),
             save_error: None,
             geo: Default::default(),
             xmp_index: None,
@@ -2393,6 +2396,7 @@ impl App {
                     self.dirty = true;
                 }
                 Done::Analysis(progress) => self.analysis = progress,
+                Done::Faces(index) => self.face_groups.index = Some(index),
                 Done::LooksLike(query, found) => self.on_looks_like(query, found),
                 Done::TagProposals(n, found) => self.on_tag_proposals(n, found),
                 Done::Geotag(n, read) => self.on_geotag(n, read),
@@ -2584,6 +2588,7 @@ impl eframe::App for App {
         let now = ctx.input(|i| i.time);
         self.smart_search_tick(ctx, now);
         self.ask_about_faces();
+        self.faces_tick(now);
         let closing = ctx.input(|i| i.viewport().close_requested());
         // every change to the library's notes sets `dirty`: rebuild the cached lists once after
         // it (not on every frame until the save), and remember that there is something to save

@@ -340,6 +340,7 @@ settings-faces-enable = Encontrar caras y agruparlas por persona
 settings-faces-enable-hint = Las caras se encuentran en el análisis en segundo plano; la red Caras las agrupa por persona
 settings-faces-privacy = Los datos de las caras se quedan en este ordenador, fuera del archivo de la biblioteca, de los archivos adjuntos y de las copias exportadas.
 settings-faces-without-pack = Sin la red Caras, las caras se encuentran pero no se agrupan por persona.
+settings-faces-count = Caras encontradas: { $faces }. En un grupo: { $grouped }. Grupos de tres caras o más: { $groups }.
 
 export-size-original = Tamaño original
 export-size-very-large = Muy grande (2560 píxeles)

@@ -398,6 +398,8 @@ impl Default for Store {
 //   [Picasa]  name= description= location= category= date=
 //   [.album:<token>]  name= token= date= ...
 //   [<file name>]  star=yes  caption=  keywords=a,b  rotate=rotate(n)  crop=rect64(hex)
+//                  faces=rect64(hex),<contact id>;rect64(hex),<contact id>;...
+//   [Contacts] / [Contacts2]  <contact id>=<name>[;...]
 //                  filters=name=1,args;name=1,args;  albums=token1,token2
 
 #[derive(Default, Debug)]
@@ -410,6 +412,11 @@ pub struct IniFolder {
     pub albums: Vec<(String, String)>,
     /// (lower-case file name, album token)
     pub memberships: Vec<(String, String)>,
+    /// Faces someone marked: (lower-case file name, left / top / right / bottom as fractions,
+    /// contact id). Not imported yet (people come with face grouping); read for its tests.
+    pub faces: Vec<(String, [f32; 4], u64)>,
+    /// Contact id -> the person's name.
+    pub contacts: HashMap<u64, String>,
 }
 
 /// rect64(hex): four 16-bit numbers (left, top, right, bottom) as fractions of 65535.
@@ -475,6 +482,11 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
                 "description" if !v.is_empty() => out.description = Some(v.to_string()),
                 _ => {}
             }
+        } else if section.eq_ignore_ascii_case("Contacts") || section.eq_ignore_ascii_case("Contacts2") {
+            let name = v.split(';').next().unwrap_or("").trim();
+            if let (Ok(id), false) = (u64::from_str_radix(k, 16), name.is_empty()) {
+                out.contacts.insert(id, name.to_string());
+            }
         } else if let Some(token) = section.strip_prefix(".album:") {
             if k == "name" {
                 out.albums.push((token.to_string(), v.to_string()));
@@ -498,6 +510,18 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
                     }
                 }
                 "filters" => parse_filters(v, &mut m.edits),
+                "faces" => {
+                    for part in v.split(';') {
+                        let Some((r, id)) = part.trim().split_once(',') else { continue };
+                        let rect = r.strip_prefix("rect64(").and_then(|s| s.strip_suffix(')')).and_then(parse_rect64);
+                        // "ffffffffffffffff": a face marked as nobody
+                        if let (Some(rect), Ok(id)) = (rect, u64::from_str_radix(id.trim(), 16))
+                            && id != u64::MAX
+                        {
+                            out.faces.push((file.clone(), rect, id));
+                        }
+                    }
+                }
                 "albums" => {
                     for t in v.split(',').map(|t| t.trim()).filter(|t| !t.is_empty()) {
                         out.memberships.push((file.clone(), t.to_string()));
@@ -1336,6 +1360,31 @@ mod ini_tests {
         assert_eq!(ini.albums, vec![("abc123".to_string(), "Best".to_string())]);
         assert_eq!(ini.memberships, vec![("img_1.jpg".to_string(), "abc123".to_string())]);
     }
+
+    #[test]
+    fn reads_marked_faces_and_their_names() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-ini-faces-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(".picasa.ini"),
+            "[Contacts]\r\nbbbaa90a106b852=Anna;anna@example.org;\r\n0d4e181fb616026e=Marc\r\n\
+             [IMG_2.JPG]\r\nfaces=rect64(94713f35b3287032),bbbaa90a106b852;rect64(200030004000),d4e181fb616026e;rect64(1000200030004000),ffffffffffffffff\r\n",
+        )
+        .unwrap();
+        let ini = read_picasa_ini(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(ini.contacts.len(), 2);
+        assert_eq!(ini.contacts[&0xbbbaa90a106b852], "Anna");
+        // leading zeros dropped in one place and not the other: the same contact
+        assert_eq!(ini.contacts[&0xd4e181fb616026e], "Marc");
+        assert_eq!(ini.faces.len(), 2, "a face marked as nobody is left out");
+        let (file, r, id) = &ini.faces[0];
+        assert_eq!((file.as_str(), *id), ("img_2.jpg", 0xbbbaa90a106b852));
+        assert!((r[0] - 0x9471 as f32 / 65535.0).abs() < 1e-6 && (r[3] - 0x7032 as f32 / 65535.0).abs() < 1e-6);
+        // a short hex number is the same number with its leading zeros dropped
+        assert!(ini.faces[1].1[0] < 0.001);
+        assert!(!ini.photos.contains_key("contacts"), "the contacts are not a picture");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1726,6 +1775,8 @@ pub enum Done {
     CacheSizes { thumbs: u64, tiles: u64 },
     /// How far the background analysis of the library is.
     Analysis(crate::analysis::Progress),
+    /// The library's faces and their groups (`faces::group`).
+    Faces(std::sync::Arc<crate::faces::FaceIndex>),
     /// The pictures a smart search found, best first (`Library::looks_like`).
     LooksLike(crate::smart_search::Query, Result<Vec<crate::smart_search::Hit>, String>),
     /// Tags proposed for some pictures (`Library::propose_tags`; the number it was asked with).

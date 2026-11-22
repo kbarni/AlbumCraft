@@ -340,6 +340,7 @@ settings-faces-enable = Trova i volti e raggruppali per persona
 settings-faces-enable-hint = I volti vengono trovati dall'analisi in background; la rete Volti li raggruppa per persona
 settings-faces-privacy = I dati dei volti restano su questo computer, fuori dal file della libreria, dai file collaterali e dalle copie esportate.
 settings-faces-without-pack = Senza la rete Volti, i volti vengono trovati ma non raggruppati per persona.
+settings-faces-count = Volti trovati: { $faces }. In un gruppo: { $grouped }. Gruppi di almeno tre volti: { $groups }.
 
 export-size-original = Dimensione originale
 export-size-very-large = Molto grande (2560 pixel)

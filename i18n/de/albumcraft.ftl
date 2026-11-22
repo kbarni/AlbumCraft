@@ -340,6 +340,7 @@ settings-faces-enable = Gesichter finden und nach Personen gruppieren
 settings-faces-enable-hint = Die Gesichter werden bei der Analyse im Hintergrund gefunden; das Netz Gesichter gruppiert sie nach Personen
 settings-faces-privacy = Gesichtsdaten bleiben auf diesem Computer, außerhalb der Bibliotheksdatei, der Begleitdateien und exportierter Kopien.
 settings-faces-without-pack = Ohne das Netz Gesichter werden Gesichter gefunden, aber nicht nach Personen gruppiert.
+settings-faces-count = Gefundene Gesichter: { $faces }. In einer Gruppe: { $grouped }. Gruppen ab drei Gesichtern: { $groups }.
 
 export-size-original = Originalgröße
 export-size-very-large = Sehr groß (2560 Pixel)

@@ -340,6 +340,7 @@ settings-faces-enable = Encontrar rostos e agrupá-los por pessoa
 settings-faces-enable-hint = Os rostos são encontrados pela análise em segundo plano; a rede Rostos os agrupa por pessoa
 settings-faces-privacy = Os dados dos rostos ficam neste computador, fora do arquivo da biblioteca, dos arquivos auxiliares e das cópias exportadas.
 settings-faces-without-pack = Sem a rede Rostos, os rostos são encontrados, mas não agrupados por pessoa.
+settings-faces-count = Rostos encontrados: { $faces }. Em um grupo: { $grouped }. Grupos de três rostos ou mais: { $groups }.
 
 export-size-original = Tamanho original
 export-size-very-large = Muito grande (2560 pixels)

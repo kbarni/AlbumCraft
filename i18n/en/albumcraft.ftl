@@ -344,6 +344,7 @@ settings-faces-enable = Find faces and group them by person
 settings-faces-enable-hint = Faces are found by the background analysis; the Faces network groups them by person
 settings-faces-privacy = Face data stays on this computer, out of the library file, sidecars and exported copies.
 settings-faces-without-pack = Without the Faces network, faces are found but not grouped by person.
+settings-faces-count = Faces found: { $faces }. In a group: { $grouped }. Groups of three faces or more: { $groups }.
 
 export-size-original = Original size
 export-size-very-large = Very large (2560 pixels)
