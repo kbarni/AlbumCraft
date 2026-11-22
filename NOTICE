@@ -30,6 +30,13 @@ AlbumCraft builds embed map data (assets/geo/, details in assets/geo/README.md):
   Land, lakes and country borders - Natural Earth (naturalearthdata.com), public domain
   World cities (cities15000) - GeoNames (geonames.org), Creative Commons Attribution 4.0
 
+AlbumCraft builds embed the YuNet face detector (crates/albumcraft-ai/networks/, OpenCV Zoo
+2023mar, Copyright (c) 2020 Shiqi Yu), MIT License (crates/albumcraft-ai/networks/LICENSE-YuNet);
+its input size was made free, nothing else changed (networks/README.md).
+
+When the user turns face grouping on, the SFace face recogniser (OpenCV Zoo 2021dec, Apache
+License 2.0) is downloaded from AlbumCraft's own releases; it is not distributed with the program.
+
 When the user turns online maps on, map pictures and place searches come from OpenStreetMap
 (© OpenStreetMap contributors, Open Database License); they are not distributed with AlbumCraft.
 

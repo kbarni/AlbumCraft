@@ -300,6 +300,10 @@ pub struct Store {
     pub analysis_paused: bool,
     /// The search pack the user chose (a pack id); empty: Multilingual (`smart_search::DEFAULT_PACK`).
     pub search_pack: String,
+    /// Faces are found and grouped by person (AI features): None until the user has been asked
+    /// (once, at a start; also in Settings › AI features). Off by default: face vectors are
+    /// biometric data, even kept on this computer.
+    pub faces_enabled: Option<bool>,
     /// Last used web gallery theme, layout, picture size and captions.
     #[serde(deserialize_with = "or_default")]
     pub gallery: crate::gallery::GallerySettings,
@@ -380,6 +384,7 @@ impl Default for Store {
             analysis_paused: false,
             ai_enabled: true,
             search_pack: String::new(),
+            faces_enabled: None,
             gallery: Default::default(),
             check_updates: true,
             xmp_embedded: true,

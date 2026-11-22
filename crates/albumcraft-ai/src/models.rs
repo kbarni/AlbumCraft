@@ -39,6 +39,9 @@ pub struct Pack {
     /// For a smart search pack: what its networks expect.
     #[serde(default)]
     pub search: Option<crate::search::Config>,
+    /// A face recogniser (the Faces pack).
+    #[serde(default)]
+    pub faces: Option<crate::faces::Config>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -65,6 +68,7 @@ impl Pack {
         plain_name(&self.id) && plain_name(&self.release) && !self.title.is_empty() && !self.licence.is_empty() && !self.files.is_empty()
             && self.files.iter().all(ModelFile::valid)
             && self.search.as_ref().is_none_or(|c| c.valid(self))
+            && self.faces.as_ref().is_none_or(|c| c.valid(self))
     }
 
     /// Bytes to download.

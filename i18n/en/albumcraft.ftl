@@ -52,6 +52,7 @@ dialog-gallery = Web gallery
 dialog-movie = Movie
 dialog-about = About AlbumCraft
 dialog-online-maps = Maps
+dialog-faces = Faces
 dialog-print-review = Review
 dialog-trash = Move to the trash
 
@@ -190,6 +191,13 @@ online-maps-offline = Without online maps, AlbumCraft uses its built-in world ma
 online-maps-later = You can change this later on the map, or in Settings (main menu): Maps.
 online-maps-use = Use online maps
 online-maps-builtin = Built-in map only
+faces-question = Find the people in your pictures?
+faces-what = AlbumCraft can find the faces in your pictures and group them by person, so that you only have to name each group.
+faces-privacy = This happens on this computer only: no picture or face is sent anywhere, and what describes the faces is kept out of your library file and of the copies you export.
+faces-download = It needs a download of { $size } (the face recogniser); the library is then looked at in the background.
+faces-later = You can change this later in Settings (main menu): AI features.
+faces-yes = Find faces
+faces-not-now = Not now
 
 ## Notices at the bottom of the window
 
@@ -332,6 +340,10 @@ settings-ai-progress-paused = { $n ->
 settings-ai-all-analysed = Every picture is analysed.
 settings-ai-nothing = Nothing to analyse: no network is downloaded.
 settings-ai-pause = Pause the analysis
+settings-faces-enable = Find faces and group them by person
+settings-faces-enable-hint = Faces are found by the background analysis; the Faces network groups them by person
+settings-faces-privacy = Face data stays on this computer, out of the library file, sidecars and exported copies.
+settings-faces-without-pack = Without the Faces network, faces are found but not grouped by person.
 
 export-size-original = Original size
 export-size-very-large = Very large (2560 pixels)
@@ -1005,6 +1017,7 @@ search-failed-because = Smart search failed: { $error }
 search-failed = the search stopped unexpectedly
 search-no-folder = AlbumCraft has no folder for its data
 search-pack-failed = Smart search could not start: { $error }
+faces-failed = Faces could not be looked for: { $error }
 search-not-analysed = This picture is not analysed yet.
 music-dialog-title = Music for the slideshow
 file-dialog-failed = Could not show the file picker: { $error }

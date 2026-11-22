@@ -150,6 +150,9 @@ pub trait Library {
     /// Smart search uses this pack from now on (None: none is downloaded): the background
     /// analysis makes the library's vectors with it. Called when the active pack changes.
     fn use_search_pack(&self, pack: Option<String>);
+    /// Look for faces in the library's pictures (`on`), with vectors when the Faces pack is
+    /// downloaded, or stop looking (`faces::use_faces`).
+    fn use_faces(&self, on: bool);
     /// Rank the library's pictures for a smart search with `pack`, off the window's thread;
     /// the answer is `Done::LooksLike` (the query with it, to tell stale answers apart).
     fn looks_like(&self, pack: String, query: crate::smart_search::Query);
@@ -641,6 +644,12 @@ impl Library for LocalLibrary {
         let pack = pack.and_then(|id| crate::ai::models::manifest().pack(&id));
         if let Err(e) = crate::smart_search::use_pack(&self.analysis, pack) {
             self.sender()(Done::Report(Report::failed(tr!("search-pack-failed", error = e))));
+        }
+    }
+
+    fn use_faces(&self, on: bool) {
+        if let Err(e) = crate::faces::use_faces(&self.analysis, on) {
+            self.sender()(Done::Report(Report::failed(tr!("faces-failed", error = e))));
         }
     }
 

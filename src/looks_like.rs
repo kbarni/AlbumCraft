@@ -30,6 +30,8 @@ pub struct SmartSearch {
     pub pack: Option<String>,
     /// What the library was last told to use.
     told: Option<Option<String>>,
+    /// Faces as the library was last told: looked for, and with the Faces pack downloaded.
+    faces_told: Option<(bool, bool)>,
     checked_at: Option<f64>,
     /// The typed text as last seen, and when it changed.
     text: String,
@@ -92,6 +94,13 @@ impl App {
                 }
             }
             self.smart.pack = pack;
+            // faces: looked for only when the user said yes
+            let faces = self.store.ai_enabled && crate::ai::runtime::available() && self.store.faces_enabled == Some(true);
+            let told = (faces, crate::faces::pack_installed());
+            if self.smart.faces_told != Some(told) {
+                self.lib.use_faces(faces);
+                self.smart.faces_told = Some(told);
+            }
         }
         if self.search != self.smart.text {
             self.smart.text = self.search.clone();

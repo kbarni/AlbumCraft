@@ -50,6 +50,7 @@ dialog-gallery = Galeria web
 dialog-movie = Filme
 dialog-about = Sobre o AlbumCraft
 dialog-online-maps = Mapas
+dialog-faces = Rostos
 dialog-print-review = Revisão
 dialog-trash = Mover para a lixeira
 
@@ -188,6 +189,13 @@ online-maps-offline = Sem os mapas online, o AlbumCraft usa o seu mapa-múndi e 
 online-maps-later = Você pode mudar isso depois no mapa ou em Configurações (menu principal): Mapas.
 online-maps-use = Usar os mapas online
 online-maps-builtin = Somente o mapa integrado
+faces-question = Encontrar as pessoas nas suas fotos?
+faces-what = O AlbumCraft pode encontrar os rostos nas suas fotos e agrupá-los por pessoa, para que você só precise dar um nome a cada grupo.
+faces-privacy = Tudo acontece neste computador: nenhuma foto ou rosto é enviado, e o que descreve os rostos fica fora do arquivo da biblioteca e das cópias exportadas.
+faces-download = É preciso baixar { $size } (o reconhecedor de rostos); depois a biblioteca é analisada em segundo plano.
+faces-later = Você pode mudar isso depois em Configurações (menu principal): Recursos de IA.
+faces-yes = Encontrar rostos
+faces-not-now = Agora não
 
 ## Notices at the bottom of the window
 
@@ -328,6 +336,10 @@ settings-ai-progress-paused = { $n ->
 settings-ai-all-analysed = Todas as fotos estão analisadas.
 settings-ai-nothing = Nada a analisar: nenhuma rede foi baixada.
 settings-ai-pause = Pausar a análise
+settings-faces-enable = Encontrar rostos e agrupá-los por pessoa
+settings-faces-enable-hint = Os rostos são encontrados pela análise em segundo plano; a rede Rostos os agrupa por pessoa
+settings-faces-privacy = Os dados dos rostos ficam neste computador, fora do arquivo da biblioteca, dos arquivos auxiliares e das cópias exportadas.
+settings-faces-without-pack = Sem a rede Rostos, os rostos são encontrados, mas não agrupados por pessoa.
 
 export-size-original = Tamanho original
 export-size-very-large = Muito grande (2560 pixels)
@@ -1000,6 +1012,7 @@ search-failed-because = A busca inteligente falhou: { $error }
 search-failed = a busca parou de forma inesperada
 search-no-folder = O AlbumCraft não tem pasta para seus dados
 search-pack-failed = A busca inteligente não pôde iniciar: { $error }
+faces-failed = Não foi possível procurar os rostos: { $error }
 search-not-analysed = Esta foto ainda não foi analisada.
 music-dialog-title = Música para a apresentação
 file-dialog-failed = Não foi possível mostrar o seletor de arquivos: { $error }

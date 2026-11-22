@@ -50,6 +50,7 @@ dialog-gallery = Galleria web
 dialog-movie = Filmato
 dialog-about = Informazioni su AlbumCraft
 dialog-online-maps = Mappe
+dialog-faces = Volti
 dialog-print-review = Verifica
 dialog-trash = Sposta nel cestino
 
@@ -188,6 +189,13 @@ online-maps-offline = Senza le mappe online, AlbumCraft usa la sua mappa del mon
 online-maps-later = Potrai cambiarlo più tardi sulla mappa o in Impostazioni (menu principale): Mappe.
 online-maps-use = Usa le mappe online
 online-maps-builtin = Solo la mappa integrata
+faces-question = Trovare le persone nelle tue foto?
+faces-what = AlbumCraft può trovare i volti nelle tue foto e raggrupparli per persona, così devi solo dare un nome a ogni gruppo.
+faces-privacy = Avviene solo su questo computer: nessuna foto né alcun volto viene inviato, e ciò che descrive i volti non finisce né nel file della libreria né nelle copie esportate.
+faces-download = Serve un download di { $size } (il riconoscitore di volti); poi la libreria viene analizzata in background.
+faces-later = Potrai cambiarlo più tardi in Impostazioni (menu principale): Funzioni IA.
+faces-yes = Trova i volti
+faces-not-now = Non ora
 
 ## Notices at the bottom of the window
 
@@ -328,6 +336,10 @@ settings-ai-progress-paused = { $n ->
 settings-ai-all-analysed = Tutte le foto sono analizzate.
 settings-ai-nothing = Niente da analizzare: nessuna rete è scaricata.
 settings-ai-pause = Metti in pausa l'analisi
+settings-faces-enable = Trova i volti e raggruppali per persona
+settings-faces-enable-hint = I volti vengono trovati dall'analisi in background; la rete Volti li raggruppa per persona
+settings-faces-privacy = I dati dei volti restano su questo computer, fuori dal file della libreria, dai file collaterali e dalle copie esportate.
+settings-faces-without-pack = Senza la rete Volti, i volti vengono trovati ma non raggruppati per persona.
 
 export-size-original = Dimensione originale
 export-size-very-large = Molto grande (2560 pixel)
@@ -1000,6 +1012,7 @@ search-failed-because = La ricerca intelligente non è riuscita: { $error }
 search-failed = la ricerca si è interrotta in modo imprevisto
 search-no-folder = AlbumCraft non ha una cartella per i suoi dati
 search-pack-failed = La ricerca intelligente non è potuta partire: { $error }
+faces-failed = Impossibile cercare i volti: { $error }
 search-not-analysed = Questa foto non è ancora analizzata.
 music-dialog-title = Musica per la presentazione
 file-dialog-failed = Impossibile mostrare la finestra di selezione dei file: { $error }

@@ -50,6 +50,7 @@ dialog-gallery = Galerie web
 dialog-movie = Film
 dialog-about = À propos d'AlbumCraft
 dialog-online-maps = Cartes
+dialog-faces = Visages
 dialog-print-review = Vérification
 dialog-trash = Mettre à la corbeille
 
@@ -188,6 +189,13 @@ online-maps-offline = Sans les cartes en ligne, AlbumCraft utilise sa carte du m
 online-maps-later = Vous pourrez changer cela plus tard sur la carte, ou dans les Paramètres (menu principal) : Cartes.
 online-maps-use = Utiliser les cartes en ligne
 online-maps-builtin = Carte intégrée seulement
+faces-question = Retrouver les personnes sur vos photos ?
+faces-what = AlbumCraft peut trouver les visages sur vos photos et les regrouper par personne : vous n'avez plus qu'à nommer chaque groupe.
+faces-privacy = Tout se fait sur cet ordinateur : aucune photo ni aucun visage n'est envoyé, et ce qui décrit les visages n'est enregistré ni dans le fichier de la bibliothèque ni dans les copies exportées.
+faces-download = Il faut télécharger { $size } (le réseau de reconnaissance des visages) ; la bibliothèque est ensuite analysée en arrière-plan.
+faces-later = Vous pourrez changer cela plus tard dans les Paramètres (menu principal) : Fonctions d'IA.
+faces-yes = Trouver les visages
+faces-not-now = Pas maintenant
 
 ## Notices at the bottom of the window
 
@@ -328,6 +336,10 @@ settings-ai-progress-paused = { $n ->
 settings-ai-all-analysed = Toutes les photos sont analysées.
 settings-ai-nothing = Rien à analyser : aucun réseau n'est téléchargé.
 settings-ai-pause = Mettre l'analyse en pause
+settings-faces-enable = Trouver les visages et les regrouper par personne
+settings-faces-enable-hint = Les visages sont trouvés par l'analyse en arrière-plan ; le réseau Visages les regroupe par personne
+settings-faces-privacy = Les données des visages restent sur cet ordinateur, hors du fichier de la bibliothèque, des fichiers annexes et des copies exportées.
+settings-faces-without-pack = Sans le réseau Visages, les visages sont trouvés mais pas regroupés par personne.
 
 export-size-original = Taille d'origine
 export-size-very-large = Très grande (2560 pixels)
@@ -1000,6 +1012,7 @@ search-failed-because = La recherche intelligente a échoué : { $error }
 search-failed = la recherche s'est arrêtée de façon inattendue
 search-no-folder = AlbumCraft n'a pas de dossier pour ses données
 search-pack-failed = La recherche intelligente n'a pas pu démarrer : { $error }
+faces-failed = Impossible de rechercher les visages : { $error }
 search-not-analysed = Cette photo n'est pas encore analysée.
 music-dialog-title = Musique pour le diaporama
 file-dialog-failed = Impossible d’afficher le sélecteur de fichiers : { $error }

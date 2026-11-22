@@ -270,6 +270,8 @@ pub enum Dialog {
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
+    /// The question whether to find faces (asked once, like the online maps).
+    Faces,
     /// The chosen folder for the library holds one already (`path`): open it instead?
     LibraryThere { folder: Option<PathBuf>, path: String },
     /// The tag manager (`tags_view`).
@@ -439,6 +441,9 @@ pub struct App {
     pub unsaved: bool,
     pub last_save: f64,
     pub persist: bool,
+    /// The question about faces was shown in this session (closed without an answer, it comes
+    /// back at the next start).
+    pub faces_asked: bool,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
     /// Places: GPS index, map view and "Set location" state (map_view.rs).
@@ -684,6 +689,7 @@ impl App {
             unsaved: false,
             last_save: 0.0,
             persist,
+            faces_asked: false,
             save_error: None,
             geo: Default::default(),
             xmp_index: None,
@@ -2577,6 +2583,7 @@ impl eframe::App for App {
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
         self.smart_search_tick(ctx, now);
+        self.ask_about_faces();
         let closing = ctx.input(|i| i.viewport().close_requested());
         // every change to the library's notes sets `dirty`: rebuild the cached lists once after
         // it (not on every frame until the save), and remember that there is something to save

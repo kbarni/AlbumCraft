@@ -66,6 +66,11 @@ impl Network {
         imp::Network::load(path, threads.clamp(1, 8)).map(Network)
     }
 
+    /// Load a network built into the program (`name` is for messages).
+    pub fn load_bytes(name: &str, bytes: &'static [u8], threads: usize) -> Result<Network, String> {
+        imp::Network::load_bytes(name, bytes, threads.clamp(1, 8)).map(Network)
+    }
+
     pub fn inputs(&self) -> &[Port] {
         &self.0.inputs
     }
@@ -195,12 +200,20 @@ mod imp {
 
     impl Network {
         pub fn load(path: &Path, threads: usize) -> Result<Network, String> {
-            let failed = |e: String| format!("the network {} could not be loaded: {e}", path.display());
+            Network::open(&path.display().to_string(), threads, |b| b.commit_from_file(path))
+        }
+
+        pub fn load_bytes(name: &str, bytes: &'static [u8], threads: usize) -> Result<Network, String> {
+            Network::open(name, threads, |b| b.commit_from_memory(bytes))
+        }
+
+        fn open(name: &str, threads: usize, commit: impl FnOnce(&mut ort::session::builder::SessionBuilder) -> ort::Result<Session>) -> Result<Network, String> {
+            let failed = |e: String| format!("the network {name} could not be loaded: {e}");
             // a damaged file must give a message, whatever the library does with it
-            let loaded = std::panic::catch_unwind(|| -> Result<Session, String> {
+            let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Session, String> {
                 let mut builder = Session::builder(environment()?).map_err(|e| e.to_string())?.with_intra_threads(threads).map_err(|e| e.to_string())?;
-                builder.commit_from_file(path).map_err(|e| e.to_string())
-            });
+                commit(&mut builder).map_err(|e| e.to_string())
+            }));
             let session = loaded.unwrap_or_else(|_| Err("unexpected error".into())).map_err(failed)?;
             let (inputs, outputs) = (ports(session.inputs()), ports(session.outputs()));
             Ok(Network { session: Mutex::new(session), inputs, outputs })
@@ -256,6 +269,10 @@ mod imp {
 
     impl Network {
         pub fn load(_: &Path, _: usize) -> Result<Network, String> {
+            Err(MISSING.into())
+        }
+
+        pub fn load_bytes(_: &str, _: &'static [u8], _: usize) -> Result<Network, String> {
             Err(MISSING.into())
         }
 

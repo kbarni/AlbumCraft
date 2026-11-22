@@ -49,6 +49,7 @@ impl App {
             Dialog::Movie { .. } => tr!("dialog-movie"),
             Dialog::About => tr!("dialog-about"),
             Dialog::OnlineMaps => tr!("dialog-online-maps"),
+            Dialog::Faces => tr!("dialog-faces"),
             Dialog::PrintReview { .. } => tr!("dialog-print-review"),
             Dialog::Trash { .. } | Dialog::TrashFolder { .. } => tr!("dialog-trash"),
             Dialog::DeleteForever { .. } => tr!("dialog-delete-forever"),
@@ -421,6 +422,30 @@ impl App {
                         }
                         if ui.button(tr!("online-maps-builtin")).clicked() {
                             self.store.online_maps = Some(false);
+                            self.dirty = true;
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::Faces => {
+                    ui.label(egui::RichText::new(tr!("faces-question")).strong().size(15.0));
+                    ui.add_space(4.0);
+                    ui.label(tr!("faces-what"));
+                    ui.add_space(4.0);
+                    ui.label(tr!("faces-privacy"));
+                    ui.add_space(4.0);
+                    let size = crate::faces::pack().map(|p| crate::library::fmt_bytes(p.bytes())).unwrap_or_default();
+                    ui.label(tr!("faces-download", size = size));
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(tr!("faces-later")).size(12.0).weak());
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::Button::new(egui::RichText::new(tr!("faces-yes")).color(Color32::WHITE).strong()).fill(t().accent)).clicked() {
+                            self.turn_faces_on();
+                            close = true;
+                        }
+                        if ui.button(tr!("faces-not-now")).clicked() {
+                            self.store.faces_enabled = Some(false);
                             self.dirty = true;
                             close = true;
                         }

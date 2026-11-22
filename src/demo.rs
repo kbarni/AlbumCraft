@@ -419,6 +419,7 @@ impl App {
                 release: "models-1".into(),
                 files: vec![ModelFile { name: format!("{id}.onnx"), size, sha256: "0".repeat(64) }],
                 search: None,
+                faces: None,
             };
             // the search packs as built in (their search section makes them a choice of one)
             let search = |id: &str, title: &str, about: &str, licence: &str, size: u64| crate::ai::models::manifest().pack(id).cloned().unwrap_or_else(|| pack(id, title, about, licence, size));
@@ -480,6 +481,9 @@ impl App {
         }
         if shot_view == "maps" {
             self.dialog = Some(Dialog::OnlineMaps);
+        }
+        if shot_view == "faces" {
+            self.dialog = Some(Dialog::Faces);
         }
         if shot_view == "update" {
             self.offer_demo_update();

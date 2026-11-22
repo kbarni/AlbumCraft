@@ -117,7 +117,7 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-pub fn record_len(dim: usize) -> usize {
+pub const fn record_len(dim: usize) -> usize {
     4 + dim
 }
 
@@ -348,6 +348,7 @@ mod tests {
             release: "models-1".into(),
             files: vec![file("i.onnx"), file("t.onnx"), file("tok.json")],
             search,
+            faces: None,
         }
     }
 
