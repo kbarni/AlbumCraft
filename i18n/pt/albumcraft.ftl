@@ -426,6 +426,37 @@ folders-by-year = Por ano
 folders-as-on-disk = Como no disco
 settings-folder-view = Lista de pastas
 people-hint = Indique as pessoas pela barra de seleção.
+count-people = { $n ->
+    [one] 1 pessoa
+   *[other] { $n } pessoas
+}
+people-all = Todas as pessoas
+people-unnamed = Pessoa sem nome
+people-more = { $n ->
+    [one] Mais uma pessoa…
+   *[other] Mais { $n } pessoas…
+}
+people-page-off = Os rostos são encontrados e agrupados por pessoa quando o agrupamento de rostos está ligado (Configurações, menu principal: Recursos de IA).
+people-page-count = Com nome: { $named }. Ainda sem nome: { $unnamed }. Digite um nome sob um rosto; um nome já dado faz dos dois uma só pessoa.
+people-page-analysing = A biblioteca ainda está sendo analisada: mais rostos e pessoas vão aparecer.
+people-add-name = Adicionar um nome
+people-pictures = { $n ->
+    [one] 1 foto
+   *[other] { $n } fotos
+}
+people-show-pictures = Ver as fotos
+people-merge-question = { $name } já existe. É a mesma pessoa?
+people-merge-yes = Sim, adicionar a { $name }
+people-is-it = É { $name }?
+people-yes = Sim
+people-no = Não
+people-merged = Adicionado a { $name }
+filter-people = Pessoas
+filter-people-any = Com ou sem pessoas
+filter-people-with = Com pessoas
+filter-people-portrait = Uma pessoa
+filter-people-group = Três pessoas ou mais
+filter-people-none = Sem pessoas
 scanning = Procurando fotos…
 
 bar-import = Importar

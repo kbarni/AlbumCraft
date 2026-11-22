@@ -12,7 +12,7 @@ use crate::geo::{self, LatLon, Place};
 use crate::imaging::{self, EditOp};
 use crate::library::{self, Album, Flag, Folder, Photo, Store, MAX_RATING};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// What a command needs from the app.
@@ -46,6 +46,10 @@ pub trait Host {
     /// not looked at yet may be missing.
     fn file_gps(&mut self) -> &HashMap<String, Option<LatLon>>;
     /// How far the background analysis of the library is (only the window runs it).
+    /// The library's faces and their groups (`faces::FaceIndex`), when faces are found.
+    fn faces(&self) -> Option<std::sync::Arc<crate::faces::FaceIndex>> {
+        None
+    }
     fn analysis(&self) -> Option<crate::analysis::Progress> {
         None
     }
@@ -655,6 +659,28 @@ Call `rescan` afterwards to see the new pictures in the library.",
             }, "required": ["tag"] }),
         },
         Spec {
+            name: "list_people",
+            description: "The people of the library: every name (typed on pictures, or given to a group of faces found by face grouping) with how many pictures show that person, then the groups of faces nobody has named yet (a number each, largest first). Faces are found only when the user turned face grouping on (Settings > AI features); the groups are as the window last made them.",
+            schema: || json!({ "type": "object", "properties": {} }),
+        },
+        Spec {
+            name: "name_person",
+            description: "Give a name to a group of faces (a number from list_people), or change it; an empty name takes it away. The name then finds the group's pictures like a name typed on them. When another group already has that name, nothing changes unless merge is true: then the two groups become one person (for good).",
+            schema: || json!({ "type": "object", "properties": {
+                "group": { "type": "integer", "description": "The group of faces (list_people)" },
+                "name": { "type": "string" },
+                "merge": { "type": "boolean", "default": false, "description": "When the name is another group's: make them one person" }
+            }, "required": ["group", "name"] }),
+        },
+        Spec {
+            name: "merge_people",
+            description: "Make two groups of faces one person, for good (the same person seen in two groups: as a child and grown up, with and without glasses). Each is a group number or the name of a group. The kept group keeps its name, or takes the other's when it has none.",
+            schema: || json!({ "type": "object", "properties": {
+                "from": { "description": "Group number or name: the group that is added", "type": ["integer", "string"] },
+                "into": { "description": "Group number or name: the group it is added to", "type": ["integer", "string"] }
+            }, "required": ["from", "into"] }),
+        },
+        Spec {
             name: "ai_status",
             description: "The AI features (faces, smart search, tag proposals; everything is computed on the user's computer): whether this build can run networks, the packs of networks that can be downloaded with their size, licence and whether they are installed, and how far the background analysis of the library is (only while the AlbumCraft window is open).",
             schema: || json!({ "type": "object", "properties": {} }),
@@ -840,6 +866,7 @@ pub fn parse_edit(v: &Value) -> Result<EditOp, String> {
 
 fn summary(host: &dyn Host, id: usize) -> Value {
     let Some(p) = host.photos().get(id) else { return Value::Null };
+    let faces = host.faces();
     let m = host.store().meta.get(&p.key);
     let folder = host.folders().get(p.folder).map(|f| f.path.clone()).unwrap_or_default();
     json!({
@@ -851,7 +878,12 @@ fn summary(host: &dyn Host, id: usize) -> Value {
         "rating": m.map(|m| m.rating).unwrap_or(0),
         "caption": m.map(|m| m.caption.clone()).unwrap_or_default(),
         "tags": m.map(|m| m.tags.clone()).unwrap_or_default(),
-        "people": m.map(|m| m.people.clone()).unwrap_or_default(),
+        "people": crate::faces::people_of(m, faces.as_ref().map(|i| crate::faces::names_in(i, host.store(), &p.key)).as_ref()),
+        "faces": faces.as_ref().and_then(|i| i.pictures.get(&p.key)).map(|f| f.iter().filter(|f| f.counted).map(|f| json!({
+            "box": f.rect.map(|v| (v * 1000.0).round() / 1000.0),
+            "group": f.group.map(|g| crate::faces::resolve(host.store(), g)),
+            "name": f.group.and_then(|g| crate::faces::name_of(host.store(), g)),
+        })).collect::<Vec<_>>()),
         "edits": m.map(|m| m.edits.len()).unwrap_or(0),
         "date_taken_set": m.and_then(|m| m.taken).map(|d| d.to_iso()),
     })
@@ -989,8 +1021,11 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
         "library_info" => {
             let s = host.store();
             let mut people: Vec<String> = s.meta.values().flat_map(|m| m.people.iter().cloned()).collect();
-            people.sort();
-            people.dedup();
+            if host.faces().is_some() {
+                people.extend(s.person_names.iter().filter(|(g, _)| !s.person_merged.contains_key(g)).map(|(_, n)| n.clone()));
+            }
+            people.sort_by_key(|n| crate::tags::key(n));
+            people.dedup_by_key(|n| crate::tags::key(n));
             now(json!({
                 "roots": s.roots,
                 "pictures": host.photos().len(),
@@ -1048,6 +1083,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let limit = opt_u64(args, "limit")?.unwrap_or(100).clamp(1, 1000) as usize;
             let offset = opt_u64(args, "offset")?.unwrap_or(0) as usize;
             let store = host.store();
+            let faces_in = if person.is_some() { host.faces() } else { None };
             let matching: Vec<usize> = (0..host.photos().len())
                 .filter(|&id| {
                     let p = &host.photos()[id];
@@ -1056,7 +1092,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     if folder.is_some_and(|f| f != fpath) || album.as_ref().is_some_and(|a| !a.contains(&p.key)) {
                         return false;
                     }
-                    if person.is_some_and(|who| !m.is_some_and(|m| m.people.iter().any(|x| x == who))) {
+                    if person.is_some_and(|who| !crate::faces::people_of(m, faces_in.as_ref().map(|i| crate::faces::names_in(i, store, &p.key)).as_ref()).iter().any(|x| crate::tags::key(x) == crate::tags::key(who))) {
                         return false;
                     }
                     if flag.is_some_and(|f| m.map(|m| m.flag).unwrap_or_default() != f) || m.map(|m| m.rating).unwrap_or(0) < min_rating {
@@ -1213,6 +1249,66 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let d = date.map(crate::taken::parse).transpose()?;
             set_taken(host, &ids, d);
             now(json!({ "changed": ids.len(), "date": d.map(|d| d.to_iso()) }))
+        }
+        "list_people" => {
+            let index = host.faces();
+            let s = host.store();
+            // each name once, with the pictures it is typed on or recognised in
+            let mut by_name: std::collections::BTreeMap<String, (String, HashSet<usize>, HashSet<usize>)> = Default::default();
+            for (id, p) in host.photos().iter().enumerate() {
+                for n in s.meta.get(&p.key).map(|m| m.people.as_slice()).unwrap_or_default() {
+                    by_name.entry(crate::tags::key(n)).or_insert_with(|| (n.clone(), HashSet::new(), HashSet::new())).1.insert(id);
+                }
+                if let Some(i) = &index {
+                    for n in crate::faces::names_in(i, s, &p.key) {
+                        by_name.entry(crate::tags::key(&n)).or_insert_with(|| (n.clone(), HashSet::new(), HashSet::new())).2.insert(id);
+                    }
+                }
+            }
+            let people: Vec<Value> = by_name
+                .values()
+                .map(|(name, typed, seen)| {
+                    let group = crate::faces::group_named(s, name, None);
+                    json!({ "name": name, "pictures": typed.union(seen).count(), "named_on": typed.len(), "recognised_in": seen.len(), "group": group })
+                })
+                .collect();
+            let unnamed: Vec<Value> = index
+                .iter()
+                .flat_map(|i| i.groups.iter())
+                .filter(|g| g.faces.len() >= crate::faces::MIN_GROUP && crate::faces::name_of(s, g.id).is_none())
+                .take(200)
+                .map(|g| json!({ "group": g.id, "faces": g.faces.len(), "pictures": g.pictures }))
+                .collect();
+            now(json!({ "people": people, "unnamed_groups": unnamed, "faces_found": index.is_some() }))
+        }
+        "name_person" => {
+            let group = args.get("group").and_then(Value::as_u64).filter(|&g| g <= u32::MAX as u64).ok_or("`group` must be a group number from list_people")? as u32;
+            let name = str_arg(args, "name")?.trim().to_string();
+            let merge = opt_bool(args, "merge")?.unwrap_or(false);
+            let known = host.faces().is_some_and(|i| i.group(crate::faces::resolve(host.store(), group)).is_some()) || host.store().person_names.contains_key(&group);
+            if !known {
+                return Err(format!("there is no group of faces {group} (see list_people)"));
+            }
+            match crate::faces::set_name(host.store_mut(), group, &name, merge) {
+                Ok(g) => now(json!({ "group": g, "name": crate::faces::name_of(host.store(), g) })),
+                Err(other) => Err(format!("group {other} is {name:?} already; pass merge: true to make the two groups one person")),
+            }
+        }
+        "merge_people" => {
+            let group_of = |host: &dyn Host, v: Option<&Value>, what: &str| -> Result<u32, String> {
+                match v {
+                    Some(Value::Number(n)) => n.as_u64().filter(|&g| g <= u32::MAX as u64).map(|g| g as u32).ok_or(format!("`{what}` is not a group number")),
+                    Some(Value::String(n)) => crate::faces::group_named(host.store(), n, None).ok_or(format!("no group of faces is named {n:?} (see list_people)")),
+                    _ => Err(format!("`{what}` must be a group number or a name")),
+                }
+            };
+            let (from, into) = (group_of(&*host, args.get("from"), "from")?, group_of(&*host, args.get("into"), "into")?);
+            if crate::faces::resolve(host.store(), from) == crate::faces::resolve(host.store(), into) {
+                return Err("these are one person already".into());
+            }
+            crate::faces::merge_groups(host.store_mut(), from, into);
+            let g = crate::faces::resolve(host.store(), into);
+            now(json!({ "group": g, "name": crate::faces::name_of(host.store(), g) }))
         }
         "list_tags" => {
             fn node(n: &crate::tags::Node) -> Value {
@@ -2016,6 +2112,8 @@ pub struct Headless {
     /// The files' GPS positions, read on first need (and cached on disk in `gps_cache`).
     gps: Option<HashMap<String, Option<LatLon>>>,
     pub gps_cache: Option<PathBuf>,
+    /// The faces as last grouped by the window, read on first need.
+    faces: std::sync::OnceLock<Option<std::sync::Arc<crate::faces::FaceIndex>>>,
 }
 
 impl Headless {
@@ -2032,7 +2130,7 @@ impl Headless {
                 ))
             }
         };
-        let mut h = Headless { path, store, photos: vec![], folders: vec![], index: Default::default(), gps: None, gps_cache: geo::gps_cache_path() };
+        let mut h = Headless { path, store, photos: vec![], folders: vec![], index: Default::default(), gps: None, gps_cache: geo::gps_cache_path(), faces: Default::default() };
         h.rescan();
         Ok(h)
     }
@@ -2067,6 +2165,18 @@ impl Headless {
 }
 
 impl Host for Headless {
+    fn faces(&self) -> Option<std::sync::Arc<crate::faces::FaceIndex>> {
+        self.faces
+            .get_or_init(|| {
+                if !(self.store.ai_enabled && self.store.faces_enabled == Some(true)) {
+                    return None;
+                }
+                let files: Vec<crate::geo::FileStamp> = self.photos.iter().map(|p| (p.key.clone(), p.modified, p.bytes)).collect();
+                crate::faces::saved_index(&files, &crate::faces::constraints(&self.store)).map(std::sync::Arc::new)
+            })
+            .clone()
+    }
+
     fn store(&self) -> &Store {
         &self.store
     }
@@ -2370,6 +2480,31 @@ mod tests {
 
     fn call(h: &mut Headless, name: &str, args: Value) -> Result<Value, String> {
         run(h, name, &args)?.finish().map(|r| r.value)
+    }
+
+    #[test]
+    fn people_names_and_merges() {
+        let (dir, mut h, keys) = fixture("people");
+        h.rescan();
+        // a name typed on a picture, and two named groups of faces (faces were grouped earlier)
+        h.store.meta.entry(keys[0].clone()).or_default().people.push("Anna".into());
+        h.store.person_names.insert(3, "Anna".into());
+        h.store.person_names.insert(5, "Marc".into());
+        let people = call(&mut h, "list_people", json!({})).unwrap();
+        assert_eq!(people["people"][0]["name"], "Anna");
+        assert_eq!(people["people"][0]["named_on"], 1);
+        // another group named like one that exists: refused unless merging
+        assert!(call(&mut h, "name_person", json!({ "group": 5, "name": "anna" })).unwrap_err().contains("merge"));
+        assert!(call(&mut h, "name_person", json!({ "group": 77, "name": "Zoé" })).is_err(), "no such group");
+        assert_eq!(call(&mut h, "name_person", json!({ "group": 5, "name": "Marc D." })).unwrap()["name"], "Marc D.");
+        let merged = call(&mut h, "merge_people", json!({ "from": "Marc D.", "into": 3 })).unwrap();
+        assert_eq!((merged["group"].clone(), merged["name"].clone()), (json!(3), json!("Anna")));
+        assert_eq!(crate::faces::resolve(&h.store, 5), 3);
+        assert!(call(&mut h, "merge_people", json!({ "from": 5, "into": 3 })).is_err(), "one person already");
+        // searching a name finds the typed one (no faces without the Faces pack)
+        let found = call(&mut h, "search_photos", json!({ "person": "anna" })).unwrap();
+        assert_eq!(found["total"], 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

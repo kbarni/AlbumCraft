@@ -304,6 +304,13 @@ pub struct Store {
     /// (once, at a start; also in Settings › AI features). Off by default: face vectors are
     /// biometric data, even kept on this computer.
     pub faces_enabled: Option<bool>,
+    /// Names of the face groups (`face_groups::GroupId`, kept in the analysis folder). A name
+    /// is a person, like the names typed on pictures (`Meta.people`): both are one list.
+    pub person_names: std::collections::BTreeMap<u32, String>,
+    /// Face groups the user merged: group -> the group it was added to.
+    pub person_merged: std::collections::BTreeMap<u32, u32>,
+    /// Names proposed for a group and refused (group, name as `tags::key`).
+    pub refused_names: Vec<(u32, String)>,
     /// Last used web gallery theme, layout, picture size and captions.
     #[serde(deserialize_with = "or_default")]
     pub gallery: crate::gallery::GallerySettings,
@@ -385,6 +392,9 @@ impl Default for Store {
             ai_enabled: true,
             search_pack: String::new(),
             faces_enabled: None,
+            person_names: Default::default(),
+            person_merged: Default::default(),
+            refused_names: vec![],
             gallery: Default::default(),
             check_updates: true,
             xmp_embedded: true,
@@ -538,6 +548,63 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
         }
     }
     Some(out)
+}
+
+/// The side of a face cut out for the People view, in pixels.
+pub const FACE_DIM: u32 = 128;
+
+/// Faces cut out of a picture: from the cache, else from the picture (decoded once for all of
+/// them) with some room around the face, square.
+fn face_crops(key: &str, faces: &[(u16, [f32; 4])]) -> Vec<(u16, Option<RgbaImage>)> {
+    let mut picture: Option<Option<RgbaImage>> = None;
+    faces
+        .iter()
+        .map(|&(i, rect)| {
+            if let Some(img) = crate::thumbcache::get_face(key, rect, FACE_DIM) {
+                return (i, Some(img));
+            }
+            let pic = picture.get_or_insert_with(|| imaging::load_source(key, BIG_DIM));
+            let img = pic.as_ref().map(|p| crop_face(p, rect, FACE_DIM));
+            if let Some(img) = &img {
+                crate::thumbcache::put_face(key, rect, FACE_DIM, img);
+            }
+            (i, img)
+        })
+        .collect()
+}
+
+/// A square around the face's box, 1.4 times its larger side, scaled to `dim`; what lies outside
+/// the picture is left dark.
+pub fn crop_face(pic: &RgbaImage, rect: [f32; 4], dim: u32) -> RgbaImage {
+    let (w, h) = (pic.width() as f32, pic.height() as f32);
+    let side = ((rect[2] * w).max(rect[3] * h) * 1.4).max(1.0);
+    let (cx, cy) = ((rect[0] + rect[2] / 2.0) * w, (rect[1] + rect[3] / 2.0) * h);
+    let k = side / dim as f32;
+    let (x0, y0) = (cx - side / 2.0, cy - side / 2.0);
+    // nearest of a box filter: the face is small, a few source pixels per target pixel at most
+    let mut out = RgbaImage::from_pixel(dim, dim, image::Rgba([24, 24, 24, 255]));
+    for (x, y, o) in out.enumerate_pixels_mut() {
+        let (sx, sy) = (x0 + (x as f32 + 0.5) * k, y0 + (y as f32 + 0.5) * k);
+        if sx >= 0.0 && sy >= 0.0 && sx < w && sy < h {
+            // average the source pixels under this one
+            let (ax, ay) = ((sx - k / 2.0).max(0.0) as u32, (sy - k / 2.0).max(0.0) as u32);
+            let (bx, by) = (((sx + k / 2.0) as u32).clamp(ax + 1, pic.width()), ((sy + k / 2.0) as u32).clamp(ay + 1, pic.height()));
+            let (mut sum, mut n) = ([0u32; 3], 0u32);
+            for yy in ay..by {
+                for xx in ax..bx {
+                    let p = pic.get_pixel(xx, yy);
+                    for c in 0..3 {
+                        sum[c] += p[c] as u32;
+                    }
+                    n += 1;
+                }
+            }
+            if let (Some(r), Some(g), Some(b)) = (sum[0].checked_div(n), sum[1].checked_div(n), sum[2].checked_div(n)) {
+                *o = image::Rgba([r as u8, g as u8, b as u8, 255]);
+            }
+        }
+    }
+    out
 }
 
 /// Where the library file is: `library.json` in the app's data folder, or `LIBRARY_FILE` in the
@@ -1477,6 +1544,9 @@ pub enum Job {
     /// The shapes and dates taken of these pictures (from their headers), for the grid's layout
     /// and the order by date.
     Dims(Vec<(usize, String)>),
+    /// Faces cut out of one picture (boxes as fractions of the unedited, upright picture), as
+    /// squares of FACE_DIM pixels, for the People view.
+    FaceCrops { key: String, faces: Vec<(u16, [f32; 4])> },
     /// A step of the background analysis (see `analysis`). These wait in a queue of their own
     /// and run only while nothing else is waiting.
     Background(Box<dyn FnOnce() -> Done + Send>),
@@ -1507,6 +1577,7 @@ impl Job {
                 let d = crate::catalogue::read_details(&key);
                 (id, key, d)
             }).collect()),
+            Job::FaceCrops { key, faces } => Done::FaceCrops { crops: face_crops(&key, &faces), key },
             Job::Background(work) => work(),
         }
     }
@@ -1520,6 +1591,7 @@ impl Job {
             Job::File { key, dim } => Done::File { key: key.clone(), dim: *dim, img: None },
             Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), Default::default())).collect()),
             // the analysis catches its own failures; should one get through, nothing to tell
+            Job::FaceCrops { key, faces } => Done::FaceCrops { key: key.clone(), crops: faces.iter().map(|(i, _)| (*i, None)).collect() },
             Job::Background(_) => Done::Dropped(vec![]),
         }
     }
@@ -1775,6 +1847,8 @@ pub enum Done {
     CacheSizes { thumbs: u64, tiles: u64 },
     /// How far the background analysis of the library is.
     Analysis(crate::analysis::Progress),
+    /// Faces cut out of a picture (`Job::FaceCrops`): (place among its faces, the face).
+    FaceCrops { key: String, crops: Vec<(u16, Option<RgbaImage>)> },
     /// The library's faces and their groups (`faces::group`).
     Faces(std::sync::Arc<crate::faces::FaceIndex>),
     /// The pictures a smart search found, best first (`Library::looks_like`).

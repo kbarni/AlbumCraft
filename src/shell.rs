@@ -211,7 +211,7 @@ fn view_toggle(ui: &mut egui::Ui, tree: bool) -> Option<bool> {
 }
 
 /// One row of the sidebar.
-fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
+pub(crate) fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
     nav_row_with(ui, icon, label, None, count, selected)
 }
 
@@ -316,6 +316,8 @@ impl App {
             Source::Library => tr!("nav-all"),
             Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_default(),
             Source::Person(n) => n.clone(),
+            Source::Group(_) => tr!("people-unnamed"),
+            Source::People => tr!("nav-people"),
             Source::Picks => tr!("nav-picks"),
         }
     }
@@ -339,6 +341,9 @@ impl App {
                         ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate());
                         let sub = if self.scanning {
                             tr!("scanning")
+                        } else if self.source == Source::People {
+                            let n = self.people_count();
+                            tr!("count-people", n = n)
                         } else {
                             tr!("count-pictures", n = shown)
                         };
@@ -387,7 +392,7 @@ impl App {
                             (n, false) => format!("{}  {}", icons::STAR, tr!("filter-min", n = n)),
                             (n, true) => format!("{}  {}", icons::STAR, tr!("filter-min-no-rejects", n = n)),
                         };
-                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text(tr!("filter-hint"));
+                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects || f.people != crate::app::PeopleFilter::Any).on_hover_text(tr!("filter-hint"));
                         egui::Popup::menu(&resp).show(|ui| {
                             for n in 0..=crate::library::MAX_RATING {
                                 let text = if n == 0 { tr!("filter-any-rating") } else { tr!("filter-or-more", rating = crate::library_view::rating_label(n)) };
@@ -397,6 +402,7 @@ impl App {
                             }
                             ui.separator();
                             ui.checkbox(&mut self.filter.hide_rejects, tr!("bar-hide-rejects"));
+                            self.people_filter_menu(ui);
                             if ui.button(tr!("menu-trash-rejects")).clicked() {
                                 self.ask_trash_rejects();
                                 ui.close();
@@ -527,17 +533,7 @@ impl App {
                     }
 
                     caption(ui, &tr!("nav-people"));
-                    let people = &counts.people;
-                    if people.is_empty() {
-                        ui.label(RichText::new(tr!("people-hint")).size(12.0).color(t().text_weak));
-                    }
-                    for (name, n) in people {
-                        let sel = self.source == Source::Person(name.clone());
-                        if nav_row(ui, icons::PERSON, name, Some(*n), sel).clicked() {
-                            self.source = Source::Person(name.clone());
-                            self.pick_set(TraySet::Person(name.clone()));
-                        }
-                    }
+                    self.people_sidebar(ui, &counts.people);
 
                     self.folders_caption(ui);
                     let current_folder = match &self.list_pick {
@@ -829,6 +825,10 @@ impl App {
 
     fn grid(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().lightbox_bg)).show(ui, |ui| {
+            if self.source == Source::People {
+                self.people_page(ui);
+                return;
+            }
             let groups = self.groups();
             if groups.iter().all(|(_, v)| v.is_empty()) {
                 self.empty_state(ui);
@@ -1080,7 +1080,7 @@ impl App {
             } else {
                 match self.source {
                     Source::Album(_) => (icons::ALBUM, tr!("empty-album")),
-                    Source::Person(_) => (icons::PERSON, tr!("empty-person")),
+                    Source::Person(_) | Source::Group(_) | Source::People => (icons::PERSON, tr!("empty-person")),
                     Source::Picks => (icons::FLAG, tr!("empty-picks")),
                     Source::Library if !self.store.roots.is_empty() => {
                         (icons::FOLDER, tr!("empty-unreachable"))

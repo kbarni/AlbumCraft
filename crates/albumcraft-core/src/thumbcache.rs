@@ -32,13 +32,19 @@ fn fnv(bytes: &[u8]) -> u64 {
 
 /// Base path (no extension) for this picture's cached thumbnail, or None if it can't be cached.
 fn base(cache: &Path, key: &str, dim: u32) -> Option<PathBuf> {
+    base_with(cache, key, &dim.to_string())
+}
+
+/// The same for any cached picture made from this file, named by `what` (a thumbnail's size, a
+/// face's box…).
+fn base_with(cache: &Path, key: &str, what: &str) -> Option<PathBuf> {
     if key.starts_with(crate::imaging::SAMPLE_PREFIX) {
         return None;
     }
     let meta = std::fs::metadata(key).ok()?;
     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos();
     // bump VERSION when the way thumbnails are made changes (2: EXIF orientation applied; 3: colours turned into sRGB)
-    let id = format!("{VERSION}\0{key}\0{mtime}\0{}\0{dim}", meta.len());
+    let id = format!("{VERSION}\0{key}\0{mtime}\0{}\0{what}", meta.len());
     Some(cache.join(format!("{:016x}", fnv(id.as_bytes()))))
 }
 
@@ -73,7 +79,10 @@ pub fn prune() {
 }
 
 fn get_in(cache: &Path, key: &str, dim: u32) -> Option<RgbaImage> {
-    let base = base(cache, key, dim)?;
+    get_at(base(cache, key, dim)?)
+}
+
+fn get_at(base: PathBuf) -> Option<RgbaImage> {
     for ext in ["jpg", "png"] {
         let path = base.with_extension(ext);
         if let Ok(img) = image::open(&path) {
@@ -97,6 +106,28 @@ fn touch(path: &Path) {
 
 fn put_in(cache: &Path, key: &str, dim: u32, img: &RgbaImage) {
     let Some(base) = base(cache, key, dim) else { return };
+    put_at(cache, base, img);
+}
+
+/// The name of a face's picture in the cache: the face's box, to a thousandth.
+fn face_what(rect: [f32; 4], dim: u32) -> String {
+    let r = rect.map(|v| (v * 1000.0).round() as i32);
+    format!("face {dim} {} {} {} {}", r[0], r[1], r[2], r[3])
+}
+
+/// A face cut out of a picture (`library::Job::FaceCrops`), when made before.
+pub fn get_face(key: &str, rect: [f32; 4], dim: u32) -> Option<RgbaImage> {
+    get_at(base_with(&dir()?, key, &face_what(rect, dim))?)
+}
+
+pub fn put_face(key: &str, rect: [f32; 4], dim: u32, img: &RgbaImage) {
+    let Some(d) = dir() else { return };
+    if let Some(base) = base_with(&d, key, &face_what(rect, dim)) {
+        put_at(&d, base, img);
+    }
+}
+
+fn put_at(cache: &Path, base: PathBuf, img: &RgbaImage) {
     if std::fs::create_dir_all(cache).is_err() {
         return;
     }

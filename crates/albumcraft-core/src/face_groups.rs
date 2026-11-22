@@ -111,6 +111,22 @@ pub struct Constraints {
     pub left_out: HashSet<FaceId>,
     /// Pairs of groups the user said are two people (smaller id first).
     pub refused: HashSet<(GroupId, GroupId)>,
+    /// Groups the user merged: group -> the group it was added to (followed to the end).
+    pub merged: HashMap<GroupId, GroupId>,
+}
+
+impl Constraints {
+    /// The group `g` is now, after merges (a loop is cut where it closes).
+    pub fn resolve(&self, mut g: GroupId) -> GroupId {
+        let mut seen = HashSet::new();
+        while let Some(&n) = self.merged.get(&g) {
+            if !seen.insert(g) {
+                break;
+            }
+            g = n;
+        }
+        g
+    }
 }
 
 /// Which group each face is in.
@@ -223,8 +239,8 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
         if c.left_out.contains(&f.id) || f.vector.len() != dim {
             continue;
         }
-        let g = c.placed.get(&f.id).or_else(|| previous.of.get(&f.id)).copied();
-        of[i] = g.filter(|&g| c.placed.get(&f.id) == Some(&g) || allowed(i, g));
+        let g = c.placed.get(&f.id).or_else(|| previous.of.get(&f.id)).map(|&g| c.resolve(g));
+        of[i] = g.filter(|&g| c.placed.get(&f.id).map(|&p| c.resolve(p)) == Some(g) || allowed(i, g));
     }
     let mut next = previous.next.max(c.placed.values().max().map_or(0, |g| g + 1));
     // the groups as they are: the user's faces first, then good ones, in order
@@ -533,6 +549,7 @@ mod tests {
             not_in: HashMap::from([(not, vec![g0])]),
             left_out: HashSet::from([ignored]),
             refused: HashSet::new(),
+            merged: HashMap::new(),
         };
         let mut fresh = g.clone();
         fresh.of.remove(&not);
@@ -545,6 +562,25 @@ mod tests {
         assert_eq!(scratch.of[&moved], g1);
         assert!(!scratch.of.contains_key(&ignored));
         assert!(scratch.next > g1);
+    }
+
+    #[test]
+    fn merged_groups_stay_one() {
+        let p = Params::default();
+        let faces = people(&[0, 1], 5, 0.4);
+        let g = regroup(&faces, &Groups::default(), &Constraints::default(), &p);
+        let ids: Vec<GroupId> = {
+            let mut v: Vec<GroupId> = g.members().keys().copied().collect();
+            v.sort_unstable();
+            v
+        };
+        // the user says both are one (a chain of merges, and one that loops back)
+        let c = Constraints { merged: HashMap::from([(ids[1], ids[0]), (99, ids[1])]), ..Default::default() };
+        let after = regroup(&faces, &g, &c, &p);
+        assert_eq!(sizes(&after), vec![10]);
+        assert_eq!(c.resolve(99), ids[0]);
+        let looped = Constraints { merged: HashMap::from([(1, 2), (2, 1)]), ..Default::default() };
+        assert!([1, 2].contains(&looped.resolve(1)));
     }
 
     #[test]

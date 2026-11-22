@@ -430,6 +430,37 @@ folders-by-year = By year
 folders-as-on-disk = As on disk
 settings-folder-view = Folder list
 people-hint = Tag people from the selection bar.
+count-people = { $n ->
+    [one] 1 person
+   *[other] { $n } people
+}
+people-all = All people
+people-unnamed = Unnamed person
+people-more = { $n ->
+    [one] One more person…
+   *[other] { $n } more people…
+}
+people-page-off = Faces are found and grouped by person once face grouping is turned on (Settings, main menu: AI features).
+people-page-count = Named: { $named }. Not named yet: { $unnamed }. Type a name under a face; a name already given makes the two one person.
+people-page-analysing = The library is still being analysed: more faces and people will appear.
+people-add-name = Add a name
+people-pictures = { $n ->
+    [one] 1 picture
+   *[other] { $n } pictures
+}
+people-show-pictures = Show pictures
+people-merge-question = { $name } is someone already. The same person?
+people-merge-yes = Yes, add to { $name }
+people-is-it = Is it { $name }?
+people-yes = Yes
+people-no = No
+people-merged = Added to { $name }
+filter-people = People
+filter-people-any = With or without people
+filter-people-with = With people
+filter-people-portrait = One person
+filter-people-group = Three people or more
+filter-people-none = No people
 scanning = Looking for pictures…
 
 bar-import = Import

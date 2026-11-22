@@ -80,7 +80,10 @@ impl App {
         let metas: Vec<&crate::library::Meta> = self.photos.iter().filter_map(|p| self.store.meta.get(&p.key)).collect();
         let idx = Arc::new(SearchIndex {
             tags: counted(metas.iter().map(|m| m.tags.as_slice())),
-            people: counted(metas.iter().map(|m| m.people.as_slice())),
+            people: {
+                let all: Vec<Vec<String>> = (0..self.photos.len()).map(|id| self.people_of(id)).collect();
+                counted(all.iter().map(Vec::as_slice))
+            },
             places: counted(self.photos.iter().filter_map(|p| self.geo.place_terms.get(&p.key)).map(|(_, _, w)| w.as_slice())),
         });
         self.search_index = Some((key, idx.clone()));
