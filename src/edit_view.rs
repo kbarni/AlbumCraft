@@ -742,8 +742,13 @@ impl App {
         let id = self.edit.id;
         if self.edit.tool == Tool::None {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.edit.advanced, false, tr!("edit-basic"));
-                ui.selectable_value(&mut self.edit.advanced, true, tr!("edit-advanced"));
+                let basic = ui.selectable_value(&mut self.edit.advanced, false, tr!("edit-basic"));
+                let advanced = ui.selectable_value(&mut self.edit.advanced, true, tr!("edit-advanced"));
+                // the choice is kept: the editor opens on the mode last used (also in Settings › Editing)
+                if (basic.clicked() || advanced.clicked()) && self.store.edit_advanced != self.edit.advanced {
+                    self.store.edit_advanced = self.edit.advanced;
+                    self.dirty = true;
+                }
             });
             ui.add_space(4.0);
             if self.edit.advanced {
