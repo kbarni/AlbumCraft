@@ -975,14 +975,28 @@ pub fn export_job(host: &dyn Host, id: usize) -> ExportJob {
     let Some(p) = host.photos().get(id) else { return Default::default() };
     let store = host.store();
     let meta = store.meta.get(&p.key);
-    let notes = meta.map(|m| crate::xmp_sync::for_copy(m, &store.tag_parents)).unwrap_or_default();
+    let mut notes = meta.map(|m| crate::xmp_sync::for_copy(m, &store.tag_parents)).unwrap_or_default();
+    // the people: the names typed on the picture and the people recognised in it (names only)
+    let faces = host.faces();
+    let people = people_union(store, faces.as_deref(), &p.key);
+    notes.people = (!people.is_empty()).then_some(people);
     ExportJob { key: p.key.clone(), name: p.name.clone(), edits: edits_of(host, id), place: meta.and_then(|m| m.place.clone()), notes }
 }
 
+/// The people of a picture for its XMP (`Iptc4xmpExt:PersonInImage`): the names typed on it and
+/// the names of the people recognised in it (faces found, drawn or imported), each once. Names
+/// only: nothing about the faces themselves.
+pub fn people_union(store: &Store, faces: Option<&crate::faces::FaceIndex>, key: &str) -> Vec<String> {
+    let empty = crate::faces::FaceIndex::default();
+    let recognised = crate::faces::names_in(faces.unwrap_or(&empty), store, key);
+    crate::faces::people_of(store.meta.get(key), Some(&recognised))
+}
+
 /// The notes to write into a picture's XMP (`xmp_sync::to_write`).
-pub fn xmp_notes_of(store: &Store, key: &str) -> crate::xmp::XmpNotes {
+pub fn xmp_notes_of(store: &Store, faces: Option<&crate::faces::FaceIndex>, key: &str) -> crate::xmp::XmpNotes {
     let meta = store.meta.get(key).cloned().unwrap_or_default();
     let mut notes = crate::xmp_sync::to_write(&meta, &store.tag_parents);
+    notes.people = Some(people_union(store, faces, key));
     // back to the file's date: a date the XMP says (another than the file's) goes
     notes.date_removed = meta.taken.is_none() && store.xmp_seen.get(key).is_some_and(|s| s.notes.date.is_some());
     notes
@@ -1941,7 +1955,8 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let mut failed = vec![];
             for id in ids {
                 let Some(key) = host.photos().get(id).map(|p| p.key.clone()) else { continue };
-                let notes = xmp_notes_of(host.store(), &key);
+                let faces = host.faces();
+                let notes = xmp_notes_of(host.store(), faces.as_deref(), &key);
                 match crate::xmp_sync::write(&key, &notes, embedded_ok) {
                     Ok((w, seen)) => {
                         host.store_mut().xmp_seen.insert(key.clone(), seen);
@@ -2689,6 +2704,23 @@ mod tests {
         let Err(e) = run(&mut h, "semantic_search", &json!({ "text": "a dog" })) else { panic!("refused while off") };
         assert!(e.contains("turned off"), "{e}");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_people_of_a_picture_for_its_xmp_are_typed_and_recognised_names_once_each() {
+        let mut store = Store::default();
+        store.person_names.insert(5, "Anna".into());
+        let mut meta = library::Meta { people: vec!["marc".into(), "anna".into()], ..Default::default() };
+        crate::faces::add_face(&mut meta, [0.1, 0.1, 0.1, 0.1], 5);
+        store.meta.insert("p.jpg".into(), meta);
+        assert_eq!(people_union(&store, None, "p.jpg"), vec!["marc".to_string(), "anna".to_string()]);
+        let notes = xmp_notes_of(&store, None, "p.jpg");
+        assert_eq!(notes.people, Some(vec!["marc".to_string(), "anna".to_string()]));
+        // a picture with only a drawn face
+        let mut only = library::Meta::default();
+        crate::faces::add_face(&mut only, [0.1, 0.1, 0.1, 0.1], 5);
+        store.meta.insert("q.jpg".into(), only);
+        assert_eq!(people_union(&store, None, "q.jpg"), vec!["Anna".to_string()]);
     }
 
     #[test]

@@ -88,7 +88,7 @@ impl App {
             .iter()
             .filter_map(|&id| self.photos.get(id))
             .filter(|p| !p.is_sample())
-            .map(|p| (p.key.clone(), crate::commands::xmp_notes_of(&self.store, &p.key)))
+            .map(|p| (p.key.clone(), crate::commands::xmp_notes_of(&self.store, self.face_groups.index.as_deref(), &p.key)))
             .collect();
         if jobs.is_empty() {
             return;
