@@ -380,6 +380,38 @@ pub fn names_by_picture(index: &FaceIndex, store: &crate::library::Store) -> Has
     out
 }
 
+/// The first group number given to a person imported before the groups were known.
+const IMPORTED_FROM: GroupId = 1_000_000;
+
+/// A face somebody marked elsewhere (a `.picasa.ini`, an XMP region) on picture `key`, as a face
+/// of the person called `name` (`rect`: left, top, width, height in the picture as shown); the
+/// person is made when nobody has that name. What the user decided about a face there already
+/// wins: nothing is added over it. Whether a face was added.
+pub fn import_face(store: &mut crate::library::Store, index: &FaceIndex, key: &str, rect: [f32; 4], name: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() || rect[2] <= 0.0 || rect[3] <= 0.0 {
+        return false;
+    }
+    if store.meta.get(key).is_some_and(|m| m.faces.iter().any(|n| overlap(&n.r, &rect) >= NOTE_OVERLAP)) {
+        return false;
+    }
+    let g = match group_named(store, name, None) {
+        Some(g) => g,
+        None => {
+            let mut g = new_person_id(store, index);
+            if index.next == 0 && index.groups.is_empty() {
+                // the groups are not known yet (a first scan): the groups already saved use
+                // small numbers, which this person must not take
+                g = g.max(IMPORTED_FROM);
+            }
+            store.person_names.insert(g, name.to_string());
+            g
+        }
+    };
+    add_face(store.meta.entry(key.to_string()).or_default(), rect, g);
+    true
+}
+
 /// Draw a face by hand on a picture, of the person (group) `g`.
 pub fn add_face(meta: &mut crate::library::Meta, rect: [f32; 4], g: GroupId) {
     note_face(meta, rect, Some(FaceState::Added(g)));
@@ -745,6 +777,12 @@ pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], d: &Decided, 
     let refs_file = refs_path(dir, &spec.model);
     let old_refs = std::fs::read(&refs_file).map(|b| decode_refs(&b)).unwrap_or_default();
     restore_named(&r, &mut before, &old_refs, named, &p);
+    // a number a person made by hand has (a name, a face drawn or imported) is never given to a group
+    let used = named.iter().copied().chain(d.notes.iter().filter_map(|(_, n)| match n.s {
+        FaceState::Person(g) | FaceState::Added(g) => Some(g),
+        _ => None,
+    }));
+    before.next = before.next.max(used.map(|g| g + 1).max().unwrap_or(0));
     let mut groups = crate::face_groups::regroup(&r.faces, &before, c, &p);
     if !d.recheck.is_empty() {
         groups = crate::face_groups::recheck(&r.faces, &groups, c, &p, &d.recheck);
@@ -950,6 +988,23 @@ mod tests {
         // an unnamed group is named
         rename_person(&mut store, None, Some(9), "Eve").unwrap();
         assert_eq!(store.person_names[&9], "Eve");
+    }
+
+    #[test]
+    fn marked_faces_are_imported_as_named_people() {
+        let mut store = crate::library::Store::default();
+        let index = FaceIndex::default();
+        assert!(import_face(&mut store, &index, "a.jpg", [0.1, 0.1, 0.2, 0.2], "Anna"));
+        assert!(import_face(&mut store, &index, "b.jpg", [0.5, 0.2, 0.1, 0.1], " anna "), "the same person by name");
+        assert!(import_face(&mut store, &index, "b.jpg", [0.1, 0.6, 0.1, 0.1], "Marc"));
+        assert_eq!(store.person_names.len(), 2);
+        let g = group_named(&store, "Anna", None).unwrap();
+        assert!(matches!(store.meta["a.jpg"].faces[0].s, FaceState::Added(x) if x == g));
+        assert!(matches!(store.meta["b.jpg"].faces[0].s, FaceState::Added(x) if x == g));
+        // a face the user decided about is left alone, and nothing is added twice
+        assert!(!import_face(&mut store, &index, "a.jpg", [0.11, 0.1, 0.2, 0.2], "Marc"));
+        assert!(!import_face(&mut store, &index, "c.jpg", [0.1, 0.1, 0.2, 0.2], "  "));
+        assert_eq!(names_in(&index, &store, "b.jpg"), vec!["Anna".to_string(), "Marc".to_string()]);
     }
 
     #[test]

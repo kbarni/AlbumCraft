@@ -1177,6 +1177,22 @@ impl App {
                     }
                 }
             }
+            // faces marked there: named people with a box on the picture (the boxes are in the
+            // picture as shown, `read_picasa_ini`)
+            let mut faces_added = 0;
+            let known = self.face_groups.index.clone();
+            let empty = crate::faces::FaceIndex::default();
+            let index = known.as_deref().unwrap_or(&empty);
+            for (file, [l, t, r, b], contact) in &ini.upright_faces {
+                let (Some(&id), Some(name)) = (by_name.get(file), ini.contacts.get(contact)) else { continue };
+                let key = self.photos[id].key.clone();
+                if crate::faces::import_face(&mut self.store, index, &key, [*l, *t, r - l, b - t], name) {
+                    faces_added += 1;
+                }
+            }
+            if faces_added > 0 {
+                self.people_changed();
+            }
             for (file, token) in &ini.memberships {
                 let Some(&id) = by_name.get(file) else { continue };
                 let name = ini.albums.iter().find(|(t, _)| t == token).map(|(_, n)| n.clone()).unwrap_or_else(|| token.clone());

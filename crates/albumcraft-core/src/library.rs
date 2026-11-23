@@ -441,8 +441,23 @@ pub struct IniFolder {
     /// Faces someone marked: (lower-case file name, left / top / right / bottom as fractions,
     /// contact id). Not imported yet (people come with face grouping); read for its tests.
     pub faces: Vec<(String, [f32; 4], u64)>,
+    /// The same faces with the box turned the way the picture is shown (the file's EXIF
+    /// orientation; the boxes are written in the stored picture): left / top / right / bottom.
+    pub upright_faces: Vec<(String, [f32; 4], u64)>,
     /// Contact id -> the person's name.
     pub contacts: HashMap<u64, String>,
+}
+
+/// A box (left / top / right / bottom as fractions) written in the stored picture, in the
+/// picture as shown, for an EXIF orientation (3, 6, 8; others are left as they are).
+pub fn upright_box(r: [f32; 4], orientation: u8) -> [f32; 4] {
+    let [l, t, rr, b] = r;
+    match orientation {
+        3 => [1.0 - rr, 1.0 - b, 1.0 - l, 1.0 - t],
+        6 => [1.0 - b, l, 1.0 - t, rr],
+        8 => [t, 1.0 - rr, b, 1.0 - l],
+        _ => r,
+    }
 }
 
 /// rect64(hex): four 16-bit numbers (left, top, right, bottom) as fractions of 65535.
@@ -561,6 +576,15 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
     for (file, n) in rotate {
         if n.rem_euclid(4) != 0 {
             out.photos.entry(file).or_default().edits.push(EditOp::Rotate(n));
+        }
+    }
+    if !out.faces.is_empty() {
+        // the files as they are named on disk (the ini lower-cases them); only their headers are read
+        let on_disk: HashMap<String, PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| (e.file_name().to_string_lossy().to_lowercase(), e.path())).collect();
+        let mut turn: HashMap<&str, u8> = HashMap::new();
+        for (file, rect, id) in &out.faces {
+            let o = *turn.entry(file.as_str()).or_insert_with(|| on_disk.get(file).and_then(|p| imaging::jpeg_head(p.to_str()?)).map_or(1, |h| h.orientation));
+            out.upright_faces.push((file.clone(), upright_box(*rect, o), *id));
         }
     }
     Some(out)

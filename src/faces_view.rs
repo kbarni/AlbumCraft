@@ -189,7 +189,11 @@ impl App {
     /// every list made from them.
     pub fn people_changed(&mut self) {
         let fg = &mut self.face_groups;
-        fg.names = fg.index.as_ref().map(|i| crate::faces::names_by_picture(i, &self.store)).unwrap_or_default();
+        // faces drawn or imported by hand name their pictures' people with no analysis too
+        fg.names = match fg.index.as_ref() {
+            Some(i) => crate::faces::names_by_picture(i, &self.store),
+            None => crate::faces::names_by_picture(&Default::default(), &self.store),
+        };
         fg.suggestions = fg.index.as_ref().map(|i| crate::faces::suggestions(i, &self.store).into_iter().collect()).unwrap_or_default();
         self.list_rev += 1;
     }
