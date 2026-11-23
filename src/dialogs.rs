@@ -44,6 +44,7 @@ impl App {
             Dialog::Gallery { .. } => tr!("dialog-gallery"),
             Dialog::FolderNote { .. } => tr!("dialog-folder-texts"),
             Dialog::Person { .. } => tr!("dialog-person"),
+            Dialog::DeleteFaces => tr!("dialog-delete-faces"),
             Dialog::Rename { folder: true, .. } => tr!("dialog-rename-folder"),
             Dialog::Rename { .. } => tr!("dialog-rename-picture"),
             Dialog::MoveTo { .. } => tr!("dialog-move"),
@@ -332,6 +333,23 @@ impl App {
                         if ui.button(tr!("trash-move")).clicked() {
                             let keys = std::mem::take(keys);
                             self.trash_files(keys);
+                            close = true;
+                        }
+                        if ui.button(tr!("button-cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::DeleteFaces => {
+                    ui.label(tr!("delete-faces-question"));
+                    ui.add_space(8.0);
+                    // no Enter here: this one deletes
+                    ui.horizontal(|ui| {
+                        if ui.button(tr!("delete-faces-yes")).clicked() {
+                            match self.delete_all_face_data() {
+                                Ok(()) => self.toast(tr!("delete-faces-done")),
+                                Err(e) => self.error(tr!("faces-failed", error = e)),
+                            }
                             close = true;
                         }
                         if ui.button(tr!("button-cancel")).clicked() {

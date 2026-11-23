@@ -53,6 +53,11 @@ pub trait Host {
     fn analysis(&self) -> Option<crate::analysis::Progress> {
         None
     }
+    /// Remove every face found, the groups, the reference faces and the face crops from this
+    /// computer (the window also clears what it shows).
+    fn delete_face_data(&mut self) -> Result<(), String> {
+        crate::faces::delete_face_files()
+    }
 }
 
 /// The position to use for a picture: the place set by the user, else the file's GPS.
@@ -719,6 +724,13 @@ Call `rescan` afterwards to see the new pictures in the library.",
             name: "download_model_pack",
             description: "Download a pack of networks for the AI features (see ai_status for the packs and their sizes) from AlbumCraft's own releases; continues a download that was cut. Nothing about the user or the pictures is sent. Ask the user first: packs are 10 to 400 MB.",
             schema: || json!({ "type": "object", "properties": { "pack": { "type": "string", "description": "The pack's id, from ai_status" } }, "required": ["pack"] }),
+        },
+        Spec {
+            name: "delete_face_data",
+            description: "Delete everything computed about faces on this computer: the faces found, their vectors, the groups and the face crops. Names, corrections and typed people stay in the library; face search is turned off (the user can turn it on again in Settings). Ask the user first, then call with confirm: true.",
+            schema: || json!({ "type": "object", "properties": {
+                "confirm": { "type": "boolean", "description": "Must be true: the user agreed to delete the face data" }
+            }, "required": ["confirm"] }),
         },
         Spec {
             name: "remove_model_pack",
@@ -1631,6 +1643,14 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 let report = crate::analysis::download_pack(&id, &|_, _| true);
                 if report.ok { Ok(Reply::json(json!({ "downloaded": id, "message": report.text }))) } else { Err(report.text) }
             })))
+        }
+        "delete_face_data" => {
+            if opt_bool(args, "confirm")? != Some(true) {
+                return Err("`confirm` must be true, once the user agreed: the faces found and the groups are deleted (names and corrections stay)".into());
+            }
+            host.delete_face_data()?;
+            host.store_mut().faces_enabled = Some(false);
+            now(json!({ "deleted": true, "faces_enabled": false }))
         }
         "remove_model_pack" => {
             let id = str_arg(args, "pack")?;
@@ -2706,6 +2726,9 @@ mod tests {
             ("download_model_pack", json!({})),
             ("download_model_pack", json!({ "pack": "../../no-such-pack" })),
             ("remove_model_pack", json!({ "pack": "no-such-pack" })),
+            ("delete_face_data", json!({})),
+            ("delete_face_data", json!({ "confirm": "yes" })),
+            ("delete_face_data", json!({ "confirm": false })),
             ("pause_analysis", json!({})),
             ("pause_analysis", json!({ "paused": "yes" })),
             ("semantic_search", json!({})),

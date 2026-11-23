@@ -76,6 +76,9 @@ pub fn prune() {
     if let Some(d) = dir() {
         prune_in(&d, MAX_BYTES);
     }
+    if let Some(d) = faces_dir() {
+        prune_in(&d, MAX_BYTES / 10);
+    }
 }
 
 fn get_in(cache: &Path, key: &str, dim: u32) -> Option<RgbaImage> {
@@ -115,15 +118,28 @@ fn face_what(rect: [f32; 4], dim: u32) -> String {
     format!("face {dim} {} {} {} {}", r[0], r[1], r[2], r[3])
 }
 
+/// Face crops are kept in a folder of their own, so that "Delete all face data" can remove them.
+fn faces_dir() -> Option<PathBuf> {
+    Some(dir()?.join("faces"))
+}
+
 /// A face cut out of a picture (`library::Job::FaceCrops`), when made before.
 pub fn get_face(key: &str, rect: [f32; 4], dim: u32) -> Option<RgbaImage> {
-    get_at(base_with(&dir()?, key, &face_what(rect, dim))?)
+    get_at(base_with(&faces_dir()?, key, &face_what(rect, dim))?)
 }
 
 pub fn put_face(key: &str, rect: [f32; 4], dim: u32, img: &RgbaImage) {
-    let Some(d) = dir() else { return };
+    let Some(d) = faces_dir() else { return };
     if let Some(base) = base_with(&d, key, &face_what(rect, dim)) {
         put_at(&d, base, img);
+    }
+}
+
+/// Remove every cached face crop.
+pub fn clear_faces() -> Result<(), String> {
+    match faces_dir() {
+        Some(d) if d.exists() => std::fs::remove_dir_all(&d).map_err(|e| format!("{}: {e}", d.display())),
+        _ => Ok(()),
     }
 }
 

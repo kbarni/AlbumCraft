@@ -153,6 +153,9 @@ pub trait Library {
     /// Look for faces in the library's pictures (`on`), with vectors when the Faces pack is
     /// downloaded, or stop looking (`faces::use_faces`).
     fn use_faces(&self, on: bool);
+    /// Remove the faces found, the groups, the reference faces and the face crops (names and
+    /// corrections stay in the library).
+    fn delete_face_data(&self) -> Result<(), String>;
     /// Group the faces found so far, off the window's thread (`faces::group`); the answer is
     /// `Done::Faces`. Asked again while a grouping runs, it runs once more after it.
     fn group_faces(&self, decided: crate::faces::Decided, named: std::collections::HashSet<u32>);
@@ -658,6 +661,10 @@ impl Library for LocalLibrary {
         if let Err(e) = crate::smart_search::use_pack(&self.analysis, pack) {
             self.sender()(Done::Report(Report::failed(tr!("search-pack-failed", error = e))));
         }
+    }
+
+    fn delete_face_data(&self) -> Result<(), String> {
+        crate::faces::delete_face_data(&self.analysis)
     }
 
     fn use_faces(&self, on: bool) {

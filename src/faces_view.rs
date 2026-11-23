@@ -170,6 +170,21 @@ impl App {
         index.pictures.get(&p.key).is_some_and(|f| f.iter().any(|f| f.group.is_some_and(|x| crate::faces::resolve(&self.store, x) == g)))
     }
 
+    /// "Delete all face data": what was computed about faces goes (names and corrections stay),
+    /// and faces are turned off, or the analysis would make them again.
+    pub fn delete_all_face_data(&mut self) -> Result<(), String> {
+        self.lib.delete_face_data()?;
+        self.store.faces_enabled = Some(false);
+        self.dirty = true;
+        self.face_groups = FaceGroups::default();
+        self.smart.recheck();
+        self.people_changed();
+        if matches!(self.source, Source::Faces(_) | Source::Group(_) | Source::People) {
+            self.source = Source::Library;
+        }
+        Ok(())
+    }
+
     /// The groups or their names changed: the people of each picture, the proposed names and
     /// every list made from them.
     pub fn people_changed(&mut self) {

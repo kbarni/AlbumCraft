@@ -796,14 +796,27 @@ pub fn saved_index(files: &[crate::geo::FileStamp], d: &Decided) -> Option<FaceI
     Some(index_of(&r, &groups, vec![], files, &p, &states))
 }
 
-/// Remove every face found, the groups and the reference faces from this computer (the names
-/// and the user's decisions stay in `library.json`).
+/// Remove every face found, the groups, the reference faces and the cached face crops from this
+/// computer (the names and the user's decisions stay in `library.json`).
 pub fn delete_face_data(analysis: &Analysis) -> Result<(), String> {
     for spec in tables() {
         analysis.remove(&spec);
     }
     analysers().clear();
     let dir = analysis.dir().ok_or_else(crate::smart_search::no_folder)?;
+    remove_face_files(dir)
+}
+
+/// The face files of the analysis folder and the face crops, removed without the running
+/// analysis' help (for a program with no window: nothing is analysing then).
+pub fn delete_face_files() -> Result<(), String> {
+    match crate::ai::store::analysis_dir() {
+        Some(dir) => remove_face_files(&dir),
+        None => crate::thumbcache::clear_faces(),
+    }
+}
+
+fn remove_face_files(dir: &std::path::Path) -> Result<(), String> {
     crate::ai::store::remove_kind(dir, "faces")?;
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
@@ -811,7 +824,7 @@ pub fn delete_face_data(analysis: &Analysis) -> Result<(), String> {
             std::fs::remove_file(e.path()).map_err(|e| e.to_string())?;
         }
     }
-    Ok(())
+    crate::thumbcache::clear_faces()
 }
 
 #[cfg(test)]

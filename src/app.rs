@@ -298,6 +298,8 @@ pub enum Dialog {
     FolderNote { path: String, caption: String, text: String },
     /// A person's name, caption and description: `old` the name as it is (typed or a group's),
     /// `group` the group of faces; `error` says why the last try failed.
+    /// Ask before deleting everything computed about faces.
+    DeleteFaces,
     Person { old: Option<String>, group: Option<u32>, name: String, caption: String, text: String, error: String },
     /// Rename a picture file (`folder` false, by key) or a folder (by path) on disk; `error`
     /// says why the last try failed.
@@ -2824,6 +2826,9 @@ impl crate::commands::Host for App {
     }
     fn analysis(&self) -> Option<crate::analysis::Progress> {
         Some(self.analysis)
+    }
+    fn delete_face_data(&mut self) -> Result<(), String> {
+        self.delete_all_face_data()
     }
 }
 

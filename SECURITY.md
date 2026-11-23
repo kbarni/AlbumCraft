@@ -39,7 +39,7 @@ Don't attach a harmful or non-redistributable file to a public issue. First give
 - the MCP server (`albumcraft --mcp`) and the window's control connection (token, localhost binding, request limits, tool parameter validation);
 - raw-file preview extraction, the web gallery output (escaping of titles and captions), movie export through `ffmpeg` (arguments, output path), slideshow music decoding;
 - locations: EXIF GPS parsing, the GPS cache (`AlbumCraft/gps.json` in the cache folder), the built-in map and city data, and the online maps (`src/online.rs`: HTTPS only, through rustls with built-in root certificates; tile downloads limited to 4 MB and decoded as PNG; search answers limited to 2 MB and parsed as JSON; the tile cache under `AlbumCraft/tiles` with paths built only from tile numbers);
-- later: face-recognition models;
+- face recognition: the face detector and recogniser (ONNX networks, run on pictures read from the library), the face data kept in `AlbumCraft/analysis` (vectors never in the library file, sidecars, exports or tool answers), the face crops cache, and the deletion of all of it (`delete_face_data`);
 - dependencies and release artifacts.
 
 General bugs without a security impact go through normal issues.

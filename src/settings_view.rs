@@ -567,7 +567,7 @@ impl App {
             }
         }
         let downloading = |id: &str, tasks: &[RunningTask]| tasks.iter().any(|t| t.label == download_label(id));
-        let (mut download, mut remove, mut turn_faces_on) = (None, None, false);
+        let (mut download, mut remove, mut turn_faces_on, mut delete_faces) = (None, None, false, false);
         // smart search: one network, picked from the list (Multilingual unless another is chosen)
         let search: Vec<&crate::analysis::PackState> = self.packs.iter().filter(|p| p.pack.search.is_some()).collect();
         let chosen = crate::smart_search::chosen(&self.store.search_pack).map(|p| p.id.clone()).unwrap_or_default();
@@ -656,6 +656,9 @@ impl App {
             if on && !p.installed {
                 note(ui, &tr!("settings-faces-without-pack"));
             }
+            if ui.button(tr!("settings-faces-delete")).on_hover_text(tr!("settings-faces-delete-hint")).clicked() {
+                delete_faces = true;
+            }
             if let Some(index) = self.face_groups.index.as_ref().filter(|_| on) {
                 let (found, grouped) = index.counts();
                 let groups = index.groups.iter().filter(|g| g.faces.len() >= crate::faces::MIN_GROUP).count();
@@ -687,6 +690,9 @@ impl App {
                 note(ui, &pack.about);
             }
             ui.add_space(6.0);
+        }
+        if delete_faces {
+            self.dialog = Some(crate::app::Dialog::DeleteFaces);
         }
         if turn_faces_on {
             self.turn_faces_on();
