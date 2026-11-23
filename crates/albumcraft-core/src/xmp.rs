@@ -55,6 +55,11 @@ pub struct XmpNotes {
     pub tags: Option<Vec<Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub people: Option<Vec<String>>,
+    /// Named face regions (MWG, as `craft_metadata` reads them): the name and the box (left,
+    /// top, width, height as fractions of the picture as shown). Read only, and not kept with
+    /// what was last seen: the window turns them into faces when it reads the file.
+    #[serde(skip)]
+    pub regions: Vec<(String, [f32; 4])>,
     /// Latitude, longitude.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gps: Option<[f64; 2]>,
@@ -148,6 +153,18 @@ fn notes_of(data: &craft_metadata::XmpData) -> XmpNotes {
         .iter()
         .filter(|r| matches!(&r.kind, craft_metadata::RegionKind::Face) || matches!(&r.kind, craft_metadata::RegionKind::Other(t) if t.trim().is_empty()))
         .filter_map(|r| r.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(limit))
+        .collect();
+    out.regions = data
+        .metadata
+        .regions
+        .iter()
+        .filter(|r| matches!(&r.kind, craft_metadata::RegionKind::Face) || matches!(&r.kind, craft_metadata::RegionKind::Other(t) if t.trim().is_empty()))
+        .filter_map(|r| {
+            let name = r.name.as_deref().map(str::trim).filter(|n| !n.is_empty())?;
+            let (x0, y0, x1, y1) = (r.rect.x0.clamp(0.0, 1.0) as f32, r.rect.y0.clamp(0.0, 1.0) as f32, r.rect.x1.clamp(0.0, 1.0) as f32, r.rect.y1.clamp(0.0, 1.0) as f32);
+            (x1 > x0 && y1 > y0).then(|| (limit(name), [x0, y0, x1 - x0, y1 - y0]))
+        })
+        .take(1000)
         .collect();
     if has("Iptc4xmpExt:PersonInImage") || !faces.is_empty() {
         let mut people: Vec<String> = props.get("Iptc4xmpExt:PersonInImage").into_iter().flatten().map(|p| limit(p.trim())).filter(|p| !p.is_empty()).collect();

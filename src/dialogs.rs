@@ -43,12 +43,15 @@ impl App {
             Dialog::Tag { .. } => tr!("dialog-tags"),
             Dialog::Gallery { .. } => tr!("dialog-gallery"),
             Dialog::FolderNote { .. } => tr!("dialog-folder-texts"),
+            Dialog::Person { .. } => tr!("dialog-person"),
+            Dialog::DeleteFaces => tr!("dialog-delete-faces"),
             Dialog::Rename { folder: true, .. } => tr!("dialog-rename-folder"),
             Dialog::Rename { .. } => tr!("dialog-rename-picture"),
             Dialog::MoveTo { .. } => tr!("dialog-move"),
             Dialog::Movie { .. } => tr!("dialog-movie"),
             Dialog::About => tr!("dialog-about"),
             Dialog::OnlineMaps => tr!("dialog-online-maps"),
+            Dialog::Faces => tr!("dialog-faces"),
             Dialog::PrintReview { .. } => tr!("dialog-print-review"),
             Dialog::Trash { .. } | Dialog::TrashFolder { .. } => tr!("dialog-trash"),
             Dialog::DeleteForever { .. } => tr!("dialog-delete-forever"),
@@ -242,6 +245,30 @@ impl App {
                         }
                     });
                 }
+                Dialog::Person { old, group, name, caption, text, error } => {
+                    ui.label(tr!("person-name-label"));
+                    ui.add(egui::TextEdit::singleline(name).desired_width(f32::INFINITY));
+                    ui.add_space(4.0);
+                    ui.label(tr!("folder-caption-label"));
+                    ui.add(egui::TextEdit::singleline(caption).desired_width(f32::INFINITY));
+                    ui.add_space(4.0);
+                    ui.label(tr!("folder-description-label"));
+                    ui.add(egui::TextEdit::multiline(text).desired_width(f32::INFINITY));
+                    if !error.is_empty() {
+                        ui.label(egui::RichText::new(error.as_str()).color(egui::Color32::from_rgb(200, 70, 70)));
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(tr!("button-save")).clicked() {
+                            match self.save_person(old.as_deref(), *group, name, caption, text) {
+                                Ok(()) => close = true,
+                                Err(e) => *error = e,
+                            }
+                        }
+                        if ui.button(tr!("button-cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                }
                 Dialog::Rename { path, folder, name, error } => {
                     let path = path.clone();
                     close = self.rename_dialog(ui, &path, *folder, name, error, enter);
@@ -306,6 +333,23 @@ impl App {
                         if ui.button(tr!("trash-move")).clicked() {
                             let keys = std::mem::take(keys);
                             self.trash_files(keys);
+                            close = true;
+                        }
+                        if ui.button(tr!("button-cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::DeleteFaces => {
+                    ui.label(tr!("delete-faces-question"));
+                    ui.add_space(8.0);
+                    // no Enter here: this one deletes
+                    ui.horizontal(|ui| {
+                        if ui.button(tr!("delete-faces-yes")).clicked() {
+                            match self.delete_all_face_data() {
+                                Ok(()) => self.toast(tr!("delete-faces-done")),
+                                Err(e) => self.error(tr!("faces-failed", error = e)),
+                            }
                             close = true;
                         }
                         if ui.button(tr!("button-cancel")).clicked() {
@@ -421,6 +465,30 @@ impl App {
                         }
                         if ui.button(tr!("online-maps-builtin")).clicked() {
                             self.store.online_maps = Some(false);
+                            self.dirty = true;
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::Faces => {
+                    ui.label(egui::RichText::new(tr!("faces-question")).strong().size(15.0));
+                    ui.add_space(4.0);
+                    ui.label(tr!("faces-what"));
+                    ui.add_space(4.0);
+                    ui.label(tr!("faces-privacy"));
+                    ui.add_space(4.0);
+                    let size = crate::faces::pack().map(|p| crate::library::fmt_bytes(p.bytes())).unwrap_or_default();
+                    ui.label(tr!("faces-download", size = size));
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new(tr!("faces-later")).size(12.0).weak());
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.add(egui::Button::new(egui::RichText::new(tr!("faces-yes")).color(Color32::WHITE).strong()).fill(t().accent)).clicked() {
+                            self.turn_faces_on();
+                            close = true;
+                        }
+                        if ui.button(tr!("faces-not-now")).clicked() {
+                            self.store.faces_enabled = Some(false);
                             self.dirty = true;
                             close = true;
                         }

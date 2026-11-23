@@ -77,6 +77,10 @@ pub struct Meta {
     /// A video's in and out points and the frame its thumbnail shows, when the user set them.
     #[serde(skip_serializing_if = "crate::video::VideoMeta::is_empty")]
     pub video: crate::video::VideoMeta,
+    /// What the user decided about faces of this picture (moved, "not this person", ignored,
+    /// not a face), by the face's box: no vectors here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub faces: Vec<crate::faces::FaceNote>,
 }
 
 fn is_zero(v: &u8) -> bool {
@@ -99,6 +103,7 @@ impl Meta {
             && self.place.is_none()
             && self.taken.is_none()
             && self.video.is_empty()
+            && self.faces.is_empty()
     }
 
     /// Turn an old yes/no star into a pick, keep the rating in range and drop a damaged place.
@@ -111,6 +116,7 @@ impl Meta {
             self.place = None;
         }
         self.video.sanitize();
+        self.faces.retain(|f| f.r.iter().all(|v| v.is_finite()) && f.r[2] > 0.0 && f.r[3] > 0.0);
     }
 }
 
@@ -300,6 +306,24 @@ pub struct Store {
     pub analysis_paused: bool,
     /// The search pack the user chose (a pack id); empty: Multilingual (`smart_search::DEFAULT_PACK`).
     pub search_pack: String,
+    /// Faces are found and grouped by person (AI features): None until the user has been asked
+    /// (once, at a start; also in Settings › AI features). Off by default: face vectors are
+    /// biometric data, even kept on this computer.
+    pub faces_enabled: Option<bool>,
+    /// Names of the face groups (`face_groups::GroupId`, kept in the analysis folder). A name
+    /// is a person, like the names typed on pictures (`Meta.people`): both are one list.
+    pub person_names: std::collections::BTreeMap<u32, String>,
+    /// A person's caption and description (like a folder's), by the name's `tags::key`; they
+    /// follow the person when it is renamed.
+    pub person_texts: std::collections::BTreeMap<String, (String, String)>,
+    /// Face groups the user merged: group -> the group it was added to.
+    pub person_merged: std::collections::BTreeMap<u32, u32>,
+    /// Names proposed for a group and refused (group, name as `tags::key`).
+    pub refused_names: Vec<(u32, String)>,
+    /// "Same person?" answered No: pairs of groups (smaller number first).
+    pub refused_merges: Vec<(u32, u32)>,
+    /// Groups of faces kept out of the way (strangers): not listed with the people.
+    pub hidden_groups: std::collections::BTreeSet<u32>,
     /// Last used web gallery theme, layout, picture size and captions.
     #[serde(deserialize_with = "or_default")]
     pub gallery: crate::gallery::GallerySettings,
@@ -380,6 +404,13 @@ impl Default for Store {
             analysis_paused: false,
             ai_enabled: true,
             search_pack: String::new(),
+            faces_enabled: None,
+            person_names: Default::default(),
+            person_texts: Default::default(),
+            person_merged: Default::default(),
+            refused_names: vec![],
+            refused_merges: vec![],
+            hidden_groups: Default::default(),
             gallery: Default::default(),
             check_updates: true,
             xmp_embedded: true,
@@ -393,6 +424,8 @@ impl Default for Store {
 //   [Picasa]  name= description= location= category= date=
 //   [.album:<token>]  name= token= date= ...
 //   [<file name>]  star=yes  caption=  keywords=a,b  rotate=rotate(n)  crop=rect64(hex)
+//                  faces=rect64(hex),<contact id>;rect64(hex),<contact id>;...
+//   [Contacts] / [Contacts2]  <contact id>=<name>[;...]
 //                  filters=name=1,args;name=1,args;  albums=token1,token2
 
 #[derive(Default, Debug)]
@@ -405,6 +438,26 @@ pub struct IniFolder {
     pub albums: Vec<(String, String)>,
     /// (lower-case file name, album token)
     pub memberships: Vec<(String, String)>,
+    /// Faces someone marked: (lower-case file name, left / top / right / bottom as fractions,
+    /// contact id). Not imported yet (people come with face grouping); read for its tests.
+    pub faces: Vec<(String, [f32; 4], u64)>,
+    /// The same faces with the box turned the way the picture is shown (the file's EXIF
+    /// orientation; the boxes are written in the stored picture): left / top / right / bottom.
+    pub upright_faces: Vec<(String, [f32; 4], u64)>,
+    /// Contact id -> the person's name.
+    pub contacts: HashMap<u64, String>,
+}
+
+/// A box (left / top / right / bottom as fractions) written in the stored picture, in the
+/// picture as shown, for an EXIF orientation (3, 6, 8; others are left as they are).
+pub fn upright_box(r: [f32; 4], orientation: u8) -> [f32; 4] {
+    let [l, t, rr, b] = r;
+    match orientation {
+        3 => [1.0 - rr, 1.0 - b, 1.0 - l, 1.0 - t],
+        6 => [1.0 - b, l, 1.0 - t, rr],
+        8 => [t, 1.0 - rr, b, 1.0 - l],
+        _ => r,
+    }
 }
 
 /// rect64(hex): four 16-bit numbers (left, top, right, bottom) as fractions of 65535.
@@ -470,6 +523,13 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
                 "description" if !v.is_empty() => out.description = Some(v.to_string()),
                 _ => {}
             }
+        } else if section.eq_ignore_ascii_case("Contacts") || section.eq_ignore_ascii_case("Contacts2") {
+            let name = v.split(';').next().unwrap_or("").trim();
+            // older files keep a reference to the contact ("account,a long hex number"), not a name
+            let reference = name.rsplit_once(',').is_some_and(|(_, h)| (12..=16).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_hexdigit()));
+            if let (Ok(id), false, false) = (u64::from_str_radix(k, 16), name.is_empty(), reference) {
+                out.contacts.insert(id, name.to_string());
+            }
         } else if let Some(token) = section.strip_prefix(".album:") {
             if k == "name" {
                 out.albums.push((token.to_string(), v.to_string()));
@@ -493,6 +553,18 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
                     }
                 }
                 "filters" => parse_filters(v, &mut m.edits),
+                "faces" => {
+                    for part in v.split(';') {
+                        let Some((r, id)) = part.trim().split_once(',') else { continue };
+                        let rect = r.strip_prefix("rect64(").and_then(|s| s.strip_suffix(')')).and_then(parse_rect64);
+                        // "ffffffffffffffff": a face marked as nobody
+                        if let (Some(rect), Ok(id)) = (rect, u64::from_str_radix(id.trim(), 16))
+                            && id != u64::MAX
+                        {
+                            out.faces.push((file.clone(), rect, id));
+                        }
+                    }
+                }
                 "albums" => {
                     for t in v.split(',').map(|t| t.trim()).filter(|t| !t.is_empty()) {
                         out.memberships.push((file.clone(), t.to_string()));
@@ -508,7 +580,73 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
             out.photos.entry(file).or_default().edits.push(EditOp::Rotate(n));
         }
     }
+    if !out.faces.is_empty() {
+        // the files as they are named on disk (the ini lower-cases them); only their headers are read
+        let on_disk: HashMap<String, PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| (e.file_name().to_string_lossy().to_lowercase(), e.path())).collect();
+        let mut turn: HashMap<&str, u8> = HashMap::new();
+        for (file, rect, id) in &out.faces {
+            let o = *turn.entry(file.as_str()).or_insert_with(|| on_disk.get(file).and_then(|p| imaging::jpeg_head(p.to_str()?)).map_or(1, |h| h.orientation));
+            out.upright_faces.push((file.clone(), upright_box(*rect, o), *id));
+        }
+    }
     Some(out)
+}
+
+/// The side of a face cut out for the People view, in pixels.
+pub const FACE_DIM: u32 = 128;
+
+/// Faces cut out of a picture: from the cache, else from the picture (decoded once for all of
+/// them) with some room around the face, square.
+fn face_crops(key: &str, faces: &[(u16, [f32; 4])]) -> Vec<(u16, Option<RgbaImage>)> {
+    let mut picture: Option<Option<RgbaImage>> = None;
+    faces
+        .iter()
+        .map(|&(i, rect)| {
+            if let Some(img) = crate::thumbcache::get_face(key, rect, FACE_DIM) {
+                return (i, Some(img));
+            }
+            let pic = picture.get_or_insert_with(|| imaging::load_source(key, BIG_DIM));
+            let img = pic.as_ref().map(|p| crop_face(p, rect, FACE_DIM));
+            if let Some(img) = &img {
+                crate::thumbcache::put_face(key, rect, FACE_DIM, img);
+            }
+            (i, img)
+        })
+        .collect()
+}
+
+/// A square around the face's box, 1.4 times its larger side, scaled to `dim`; what lies outside
+/// the picture is left dark.
+pub fn crop_face(pic: &RgbaImage, rect: [f32; 4], dim: u32) -> RgbaImage {
+    let (w, h) = (pic.width() as f32, pic.height() as f32);
+    let side = ((rect[2] * w).max(rect[3] * h) * 1.4).max(1.0);
+    let (cx, cy) = ((rect[0] + rect[2] / 2.0) * w, (rect[1] + rect[3] / 2.0) * h);
+    let k = side / dim as f32;
+    let (x0, y0) = (cx - side / 2.0, cy - side / 2.0);
+    // nearest of a box filter: the face is small, a few source pixels per target pixel at most
+    let mut out = RgbaImage::from_pixel(dim, dim, image::Rgba([24, 24, 24, 255]));
+    for (x, y, o) in out.enumerate_pixels_mut() {
+        let (sx, sy) = (x0 + (x as f32 + 0.5) * k, y0 + (y as f32 + 0.5) * k);
+        if sx >= 0.0 && sy >= 0.0 && sx < w && sy < h {
+            // average the source pixels under this one
+            let (ax, ay) = ((sx - k / 2.0).max(0.0) as u32, (sy - k / 2.0).max(0.0) as u32);
+            let (bx, by) = (((sx + k / 2.0) as u32).clamp(ax + 1, pic.width()), ((sy + k / 2.0) as u32).clamp(ay + 1, pic.height()));
+            let (mut sum, mut n) = ([0u32; 3], 0u32);
+            for yy in ay..by {
+                for xx in ax..bx {
+                    let p = pic.get_pixel(xx, yy);
+                    for c in 0..3 {
+                        sum[c] += p[c] as u32;
+                    }
+                    n += 1;
+                }
+            }
+            if let (Some(r), Some(g), Some(b)) = (sum[0].checked_div(n), sum[1].checked_div(n), sum[2].checked_div(n)) {
+                *o = image::Rgba([r as u8, g as u8, b as u8, 255]);
+            }
+        }
+    }
+    out
 }
 
 /// Where the library file is: `library.json` in the app's data folder, or `LIBRARY_FILE` in the
@@ -1331,6 +1469,31 @@ mod ini_tests {
         assert_eq!(ini.albums, vec![("abc123".to_string(), "Best".to_string())]);
         assert_eq!(ini.memberships, vec![("img_1.jpg".to_string(), "abc123".to_string())]);
     }
+
+    #[test]
+    fn reads_marked_faces_and_their_names() {
+        let dir = std::env::temp_dir().join(format!("albumcraft-ini-faces-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(".picasa.ini"),
+            "[Contacts]\r\nbbbaa90a106b852=Anna;anna@example.org;\r\n0d4e181fb616026e=Marc\r\n\
+             [IMG_2.JPG]\r\nfaces=rect64(94713f35b3287032),bbbaa90a106b852;rect64(200030004000),d4e181fb616026e;rect64(1000200030004000),ffffffffffffffff\r\n",
+        )
+        .unwrap();
+        let ini = read_picasa_ini(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(ini.contacts.len(), 2);
+        assert_eq!(ini.contacts[&0xbbbaa90a106b852], "Anna");
+        // leading zeros dropped in one place and not the other: the same contact
+        assert_eq!(ini.contacts[&0xd4e181fb616026e], "Marc");
+        assert_eq!(ini.faces.len(), 2, "a face marked as nobody is left out");
+        let (file, r, id) = &ini.faces[0];
+        assert_eq!((file.as_str(), *id), ("img_2.jpg", 0xbbbaa90a106b852));
+        assert!((r[0] - 0x9471 as f32 / 65535.0).abs() < 1e-6 && (r[3] - 0x7032 as f32 / 65535.0).abs() < 1e-6);
+        // a short hex number is the same number with its leading zeros dropped
+        assert!(ini.faces[1].1[0] < 0.001);
+        assert!(!ini.photos.contains_key("contacts"), "the contacts are not a picture");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1423,6 +1586,9 @@ pub enum Job {
     /// The shapes and dates taken of these pictures (from their headers), for the grid's layout
     /// and the order by date.
     Dims(Vec<(usize, String)>),
+    /// Faces cut out of one picture (boxes as fractions of the unedited, upright picture), as
+    /// squares of FACE_DIM pixels, for the People view.
+    FaceCrops { key: String, faces: Vec<(u16, [f32; 4])> },
     /// A step of the background analysis (see `analysis`). These wait in a queue of their own
     /// and run only while nothing else is waiting.
     Background(Box<dyn FnOnce() -> Done + Send>),
@@ -1453,6 +1619,7 @@ impl Job {
                 let d = crate::catalogue::read_details(&key);
                 (id, key, d)
             }).collect()),
+            Job::FaceCrops { key, faces } => Done::FaceCrops { crops: face_crops(&key, &faces), key },
             Job::Background(work) => work(),
         }
     }
@@ -1466,6 +1633,7 @@ impl Job {
             Job::File { key, dim } => Done::File { key: key.clone(), dim: *dim, img: None },
             Job::Dims(batch) => Done::Dims(batch.iter().map(|(id, key)| (*id, key.clone(), Default::default())).collect()),
             // the analysis catches its own failures; should one get through, nothing to tell
+            Job::FaceCrops { key, faces } => Done::FaceCrops { key: key.clone(), crops: faces.iter().map(|(i, _)| (*i, None)).collect() },
             Job::Background(_) => Done::Dropped(vec![]),
         }
     }
@@ -1721,6 +1889,10 @@ pub enum Done {
     CacheSizes { thumbs: u64, tiles: u64 },
     /// How far the background analysis of the library is.
     Analysis(crate::analysis::Progress),
+    /// Faces cut out of a picture (`Job::FaceCrops`): (place among its faces, the face).
+    FaceCrops { key: String, crops: Vec<(u16, Option<RgbaImage>)> },
+    /// The library's faces and their groups (`faces::group`).
+    Faces(std::sync::Arc<crate::faces::FaceIndex>),
     /// The pictures a smart search found, best first (`Library::looks_like`).
     LooksLike(crate::smart_search::Query, Result<Vec<crate::smart_search::Hit>, String>),
     /// Tags proposed for some pictures (`Library::propose_tags`; the number it was asked with).

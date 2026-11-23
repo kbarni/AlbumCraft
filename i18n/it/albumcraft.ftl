@@ -50,6 +50,7 @@ dialog-gallery = Galleria web
 dialog-movie = Filmato
 dialog-about = Informazioni su AlbumCraft
 dialog-online-maps = Mappe
+dialog-faces = Volti
 dialog-print-review = Verifica
 dialog-trash = Sposta nel cestino
 
@@ -188,6 +189,13 @@ online-maps-offline = Senza le mappe online, AlbumCraft usa la sua mappa del mon
 online-maps-later = Potrai cambiarlo più tardi sulla mappa o in Impostazioni (menu principale): Mappe.
 online-maps-use = Usa le mappe online
 online-maps-builtin = Solo la mappa integrata
+faces-question = Trovare le persone nelle tue foto?
+faces-what = AlbumCraft può trovare i volti nelle tue foto e raggrupparli per persona, così devi solo dare un nome a ogni gruppo.
+faces-privacy = Avviene solo su questo computer: nessuna foto né alcun volto viene inviato, e ciò che descrive i volti non finisce né nel file della libreria né nelle copie esportate.
+faces-download = Serve un download di { $size } (il riconoscitore di volti); poi la libreria viene analizzata in background.
+faces-later = Potrai cambiarlo più tardi in Impostazioni (menu principale): Funzioni IA.
+faces-yes = Trova i volti
+faces-not-now = Non ora
 
 ## Notices at the bottom of the window
 
@@ -328,6 +336,11 @@ settings-ai-progress-paused = { $n ->
 settings-ai-all-analysed = Tutte le foto sono analizzate.
 settings-ai-nothing = Niente da analizzare: nessuna rete è scaricata.
 settings-ai-pause = Metti in pausa l'analisi
+settings-faces-enable = Trova i volti e raggruppali per persona
+settings-faces-enable-hint = I volti vengono trovati dall'analisi in background; la rete Volti li raggruppa per persona
+settings-faces-privacy = I dati dei volti restano su questo computer, fuori dal file della libreria, dai file collaterali e dalle copie esportate.
+settings-faces-without-pack = Senza la rete Volti, i volti vengono trovati ma non raggruppati per persona.
+settings-faces-count = Volti trovati: { $faces }. In un gruppo: { $grouped }. Gruppi di almeno tre volti: { $groups }.
 
 export-size-original = Dimensione originale
 export-size-very-large = Molto grande (2560 pixel)
@@ -413,6 +426,79 @@ folders-by-year = Per anno
 folders-as-on-disk = Come sul disco
 settings-folder-view = Elenco delle cartelle
 people-hint = Indica le persone dalla barra di selezione.
+count-people = { $n ->
+    [one] 1 persona
+   *[other] { $n } persone
+}
+people-all = Tutte le persone
+people-unnamed = Persona senza nome
+people-more = { $n ->
+    [one] Un'altra persona…
+   *[other] Altre { $n } persone…
+}
+people-page-off = I volti vengono trovati e raggruppati per persona quando il raggruppamento dei volti è attivo (Impostazioni, menu principale: Funzioni IA).
+people-page-count = Con nome: { $named }. Ancora senza nome: { $unnamed }. Scrivi un nome sotto un volto; un nome già dato rende i due una sola persona.
+people-page-analysing = La libreria è ancora in analisi: compariranno altri volti e persone.
+people-add-name = Aggiungi un nome
+people-pictures = { $n ->
+    [one] 1 foto
+   *[other] { $n } foto
+}
+people-show-pictures = Mostra le foto
+people-merge-question = { $name } esiste già. È la stessa persona?
+people-merge-yes = Sì, aggiungi a { $name }
+people-is-it = È { $name }?
+people-yes = Sì
+people-no = No
+people-merged = Aggiunto a { $name }
+filter-people = Persone
+filter-people-any = Con o senza persone
+filter-people-with = Con persone
+filter-people-portrait = Una persona
+filter-people-group = Tre persone o più
+filter-people-none = Senza persone
+faces-page-title = Volti di { $name }
+count-faces = { $n ->
+    [one] 1 volto
+   *[other] { $n } volti
+}
+faces-check = Controlla i volti
+faces-check-hint = Tutti i volti di questa persona, per correggere quelli che non sono suoi
+faces-hide = Nascondi
+faces-unhide = Mostra di nuovo
+faces-hide-hint = Sconosciuti, passanti: fuori dall'elenco delle persone (i loro volti restano raggruppati)
+faces-show-hidden = Mostra i gruppi nascosti ({ $n })
+faces-same-person = La stessa persona di { $name }?
+faces-same-person-unnamed = La stessa persona di questa?
+faces-merge = Sì, una sola persona
+faces-move-to = Sposta in…
+faces-new-person = Una nuova persona
+faces-unnamed-n = Persona senza nome ({ $n } foto)
+faces-not-this-person = { $n ->
+    [one] Non è questa persona
+   *[other] Non è questa persona (questi { $n } volti)
+}
+faces-ignore = { $n ->
+    [one] Ignora questo volto
+   *[other] Ignora questi { $n } volti
+}
+faces-ignore-hint = Uno sconosciuto, un manifesto, una statua: fuori dai gruppi
+faces-not-a-face = { $n ->
+    [one] Non è un volto
+   *[other] Non sono volti ({ $n })
+}
+faces-corrected = { $n ->
+    [one] 1 volto corretto
+   *[other] { $n } volti corretti
+}
+faces-selected = { $n ->
+    [one] 1 volto selezionato
+   *[other] { $n } volti selezionati
+}
+faces-select-all = Seleziona tutto
+faces-clear = Deseleziona
+faces-back = Persone
+faces-hint = Fai clic sui volti per selezionarli, clic destro per correggerne uno.
 scanning = Ricerca delle foto…
 
 bar-import = Importa
@@ -1000,6 +1086,7 @@ search-failed-because = La ricerca intelligente non è riuscita: { $error }
 search-failed = la ricerca si è interrotta in modo imprevisto
 search-no-folder = AlbumCraft non ha una cartella per i suoi dati
 search-pack-failed = La ricerca intelligente non è potuta partire: { $error }
+faces-failed = Impossibile cercare i volti: { $error }
 search-not-analysed = Questa foto non è ancora analizzata.
 music-dialog-title = Musica per la presentazione
 file-dialog-failed = Impossibile mostrare la finestra di selezione dei file: { $error }
@@ -1977,3 +2064,31 @@ geotag-done = { $n ->
 geotag-map-title = Collocate dalla traccia
 geotag-gpx-too-large = { $name } è troppo grande per essere una traccia GPS
 geotag-no-points = la traccia non ha punti con l'ora
+
+info-persons = People
+persons-show-boxes = Show faces on the picture
+persons-no-faces = No faces found in this picture.
+persons-unnamed = Unnamed person
+persons-add-face = Add a face
+persons-add-face-hint = Draw a box around a face the program missed
+persons-remove-face = Remove this face
+face-added = Face added
+
+ctx-not-person = Not { $name }
+ctx-not-this-person = Not this person
+ctx-not-person-hint = These pictures are not of this person: the faces are taken out of the group and the name typed on them is removed
+ctx-split-person = Make a new person of these
+ctx-split-person-hint = For a group of two look-alikes: the faces of the selected pictures become a person of their own, and the other faces that match them follow
+persons-use-name = Put this face with this person
+dialog-person = Person
+person-name-label = Name
+person-name-empty = Type a name.
+person-name-taken = Another person is already called { $name }. To make them one person, drag one onto the other in the sidebar.
+person-edit = Edit person…
+person-edit-hint = Name, caption and description of this person
+dialog-delete-faces = Delete all face data
+delete-faces-question = Delete every face found in your pictures, the groups and the saved face pictures from this computer? The names you gave, your corrections and the names typed on pictures stay. Finding faces is turned off; you can turn it on again in Settings, and the pictures will be looked at again.
+delete-faces-yes = Delete face data
+delete-faces-done = Face data deleted
+settings-faces-delete = Delete all face data…
+settings-faces-delete-hint = Removes the faces found, their groups and the saved face pictures from this computer; names and corrections stay

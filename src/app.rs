@@ -70,7 +70,14 @@ pub enum SearchTerm {
 pub enum Source {
     Library,
     Album(usize),
+    /// A person by name: typed on the pictures, or a named group of faces.
     Person(String),
+    /// A group of faces nobody has named yet.
+    Group(u32),
+    /// The People page: every group of faces, to check and name them.
+    People,
+    /// The faces of one person (a group), to correct them.
+    Faces(u32),
     Picks,
 }
 
@@ -83,6 +90,36 @@ pub struct Filter {
     pub min_rating: u8,
     /// Leave rejected pictures out.
     pub hide_rejects: bool,
+    /// Pictures by the faces found in them.
+    pub people: PeopleFilter,
+}
+
+/// Pictures by the faces found in them (only pictures looked at for faces count).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PeopleFilter {
+    #[default]
+    Any,
+    /// One face or more.
+    WithPeople,
+    /// One face.
+    Portrait,
+    /// Three faces or more.
+    Group,
+    /// No face.
+    NoPeople,
+}
+
+impl PeopleFilter {
+    pub fn matches(self, faces: Option<usize>) -> bool {
+        match (self, faces) {
+            (PeopleFilter::Any, _) => true,
+            (_, None) => false,
+            (PeopleFilter::WithPeople, Some(n)) => n >= 1,
+            (PeopleFilter::Portrait, Some(n)) => n == 1,
+            (PeopleFilter::Group, Some(n)) => n >= 3,
+            (PeopleFilter::NoPeople, Some(n)) => n == 0,
+        }
+    }
 }
 
 impl Filter {
@@ -143,6 +180,10 @@ pub enum Undo {
     Dates(Vec<(String, Option<crate::taken::DateTime>)>),
     /// Locations set from a GPS track (`geotag_view`): each picture's place as it was (by key).
     Places(Vec<(String, Option<crate::geo::Place>)>),
+    /// What was decided about faces of these pictures, as it was (by key; `faces_view`).
+    Faces(Vec<(String, Vec<crate::faces::FaceNote>)>),
+    /// Names of face groups and merges as they were (`faces_view`).
+    People { names: std::collections::BTreeMap<u32, String>, merged: std::collections::BTreeMap<u32, u32>, refused: Vec<(u32, String)> },
 }
 
 /// Background work the user watches: see `App::start_task`.
@@ -167,6 +208,8 @@ pub enum TraySet {
     Folder(usize),
     Album(usize),
     Person(String),
+    /// A group of faces nobody has named yet.
+    Group(u32),
     Picks,
 }
 
@@ -199,6 +242,8 @@ pub enum Tool {
     None,
     Crop,
     Redeye,
+    /// Draw a box where a face is, by hand.
+    AddFace,
     Straighten,
     /// Click something that should be gray to set the white balance.
     PickNeutral,
@@ -251,6 +296,11 @@ pub enum Dialog {
     Gallery { title: String },
     /// A folder's caption (one line) and description.
     FolderNote { path: String, caption: String, text: String },
+    /// A person's name, caption and description: `old` the name as it is (typed or a group's),
+    /// `group` the group of faces; `error` says why the last try failed.
+    /// Ask before deleting everything computed about faces.
+    DeleteFaces,
+    Person { old: Option<String>, group: Option<u32>, name: String, caption: String, text: String, error: String },
     /// Rename a picture file (`folder` false, by key) or a folder (by path) on disk; `error`
     /// says why the last try failed.
     Rename { path: String, folder: bool, name: String, error: String },
@@ -270,6 +320,8 @@ pub enum Dialog {
     PrintReview { grades: Vec<(usize, String, f32, u8)>, before_print: bool },
     /// Asked once: may maps and place search use the internet?
     OnlineMaps,
+    /// The question whether to find faces (asked once, like the online maps).
+    Faces,
     /// The chosen folder for the library holds one already (`path`): open it instead?
     LibraryThere { folder: Option<PathBuf>, path: String },
     /// The tag manager (`tags_view`).
@@ -321,6 +373,8 @@ pub struct EditState {
     pub crop_grip: Option<(crate::steps::Grip, [f32; 4], egui::Pos2)>,
     pub tag_buf: String,
     pub person_buf: String,
+    /// Face boxes with names drawn over the picture.
+    pub face_boxes: bool,
     /// "A", "A|B" or "A|A" view: the three buttons at the top of the editor.
     pub compare: CompareMode,
     /// One picture above the other instead of side by side.
@@ -439,6 +493,11 @@ pub struct App {
     pub unsaved: bool,
     pub last_save: f64,
     pub persist: bool,
+    /// The question about faces was shown in this session (closed without an answer, it comes
+    /// back at the next start).
+    pub faces_asked: bool,
+    /// The library's faces and their groups (faces_view.rs).
+    pub face_groups: crate::faces_view::FaceGroups,
     /// The last error saving the library (shown once, not every retry).
     pub save_error: Option<String>,
     /// Places: GPS index, map view and "Set location" state (map_view.rs).
@@ -684,6 +743,8 @@ impl App {
             unsaved: false,
             last_save: 0.0,
             persist,
+            faces_asked: false,
+            face_groups: Default::default(),
             save_error: None,
             geo: Default::default(),
             xmp_index: None,
@@ -795,6 +856,7 @@ impl App {
                 other: None,
                 tag_buf: String::new(),
                 person_buf: String::new(),
+                face_boxes: false,
             },
             slide: None,
             cache_sizes: None,
@@ -847,6 +909,20 @@ impl App {
         } else if persist && app.store.online_maps.is_none() {
             // asked once (and again at the next start if something more urgent was shown instead)
             app.dialog = Some(Dialog::OnlineMaps);
+        }
+        // face boxes shown at once in the editor (for screenshots)
+        if std::env::var_os("ALBUMCRAFT_FACE_BOXES").is_some() {
+            app.edit.face_boxes = true;
+        }
+        // for looking at the People page of a real library (`--screenshot` shows samples only)
+        match std::env::var("ALBUMCRAFT_OPEN").ok().as_deref() {
+            Some("people") => app.source = Source::People,
+            Some(v) if v.starts_with("faces:") => {
+                if let Ok(g) = v["faces:".len()..].parse() {
+                    app.source = Source::Faces(g);
+                }
+            }
+            _ => {}
         }
         library::trace_since("App::new", t_new, 0);
         app
@@ -1101,6 +1177,22 @@ impl App {
                     }
                 }
             }
+            // faces marked there: named people with a box on the picture (the boxes are in the
+            // picture as shown, `read_picasa_ini`)
+            let mut faces_added = 0;
+            let known = self.face_groups.index.clone();
+            let empty = crate::faces::FaceIndex::default();
+            let index = known.as_deref().unwrap_or(&empty);
+            for (file, [l, t, r, b], contact) in &ini.upright_faces {
+                let (Some(&id), Some(name)) = (by_name.get(file), ini.contacts.get(contact)) else { continue };
+                let key = self.photos[id].key.clone();
+                if crate::faces::import_face(&mut self.store, index, &key, [*l, *t, r - l, b - t], name) {
+                    faces_added += 1;
+                }
+            }
+            if faces_added > 0 {
+                self.people_changed();
+            }
             for (file, token) in &ini.memberships {
                 let Some(&id) = by_name.get(file) else { continue };
                 let name = ini.albums.iter().find(|(t, _)| t == token).map(|(_, n)| n.clone()).unwrap_or_else(|| token.clone());
@@ -1161,6 +1253,12 @@ impl App {
         if (f.picks && flag != Flag::Pick) || rating < f.min_rating || (f.hide_rejects && flag == Flag::Reject) {
             return false;
         }
+        if f.people != PeopleFilter::Any {
+            let n = self.photos.get(id).and_then(|p| self.face_groups.index.as_ref()?.people_count(&p.key));
+            if !f.people.matches(n) {
+                return false;
+            }
+        }
         if !self.search_terms.is_empty() {
             let m = self.meta(id);
             let Some(p) = self.photos.get(id) else { return false };
@@ -1172,7 +1270,7 @@ impl App {
                         Some(f) => m.tags.iter().any(|x| f.contains(&crate::tags::key(x))),
                         None => m.tags.iter().any(|x| x.eq_ignore_ascii_case(t)),
                     }),
-                    SearchTerm::Person(t) => m.is_some_and(|m| m.people.iter().any(|x| x.eq_ignore_ascii_case(t))),
+                    SearchTerm::Person(t) => self.people_of(id).iter().any(|x| crate::tags::key(x) == crate::tags::key(t)),
                     SearchTerm::Place(t) => places.iter().any(|x| x.eq_ignore_ascii_case(t)),
                     // the ranking chooses those (looks_like.rs)
                     SearchTerm::Like(_) => true,
@@ -1207,6 +1305,10 @@ impl App {
                         text.push(' ');
                         text.push_str(t);
                     }
+                }
+                for n in self.face_groups.names.get(&p.key).into_iter().flatten() {
+                    text.push(' ');
+                    text.push_str(n);
                 }
                 if let Some((_, _, words)) = self.geo.place_terms.get(&p.key) {
                     for w in words {
@@ -1289,7 +1391,9 @@ impl App {
             Source::Library => id < self.photos.len(),
             // few pictures are asked about (the ranked ones), an album is short
             Source::Album(i) => self.photos.get(id).is_some_and(|p| self.store.albums.get(*i).is_some_and(|a| a.keys.contains(&p.key))),
-            Source::Person(name) => self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name)),
+            Source::Person(name) => self.people_of(id).iter().any(|p| crate::tags::key(p) == crate::tags::key(name)),
+            Source::Group(g) => self.in_group(id, *g),
+            Source::People | Source::Faces(_) => false,
             Source::Picks => self.is_picked(id),
         }
     }
@@ -1351,16 +1455,15 @@ impl App {
     }
 
     pub fn people(&self) -> Vec<(String, usize)> {
-        let mut counts: HashMap<String, usize> = HashMap::new();
-        for p in &self.photos {
-            if let Some(m) = self.store.meta.get(&p.key) {
-                for n in &m.people {
-                    *counts.entry(n.clone()).or_default() += 1;
-                }
+        // each name once (as first written), with its pictures: typed on them or recognised
+        let mut counts: HashMap<String, (String, usize)> = HashMap::new();
+        for id in 0..self.photos.len() {
+            for n in self.people_of(id) {
+                counts.entry(crate::tags::key(&n)).or_insert((n, 0)).1 += 1;
             }
         }
-        let mut v: Vec<_> = counts.into_iter().collect();
-        v.sort();
+        let mut v: Vec<(String, usize)> = counts.into_values().collect();
+        v.sort_by_key(|(n, _)| crate::tags::key(n));
         v
     }
 
@@ -1383,9 +1486,8 @@ impl App {
                 .get(*i)
                 .map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).collect())
                 .unwrap_or_default(),
-            TraySet::Person(name) => {
-                (0..self.photos.len()).filter(|&id| self.meta(id).is_some_and(|m| m.people.iter().any(|p| p == name))).collect()
-            }
+            TraySet::Person(name) => (0..self.photos.len()).filter(|&id| self.people_of(id).iter().any(|p| crate::tags::key(p) == crate::tags::key(name))).collect(),
+            TraySet::Group(g) => (0..self.photos.len()).filter(|&id| self.in_group(id, *g)).collect(),
             TraySet::Picks => (0..self.photos.len()).filter(|&id| self.is_picked(id)).collect(),
         }
     }
@@ -1420,6 +1522,9 @@ impl App {
                 }
             };
             return selection_text(&[(p.name.clone(), p.modified, p.bytes)], Some(&date), dims);
+        }
+        if tray.is_empty() {
+            return crate::i18n::tr!("selection-none");
         }
         // several pictures: only their dates and sizes count (no copies of their names)
         let of = |id: &usize| self.photos.get(*id).map(|p| (p.modified, p.bytes));
@@ -2048,6 +2153,20 @@ impl App {
             Undo::Moved(done) => self.move_back(done),
             Undo::Dates(before) => self.undo_dates(before),
             Undo::Places(before) => self.undo_places(before),
+            Undo::Faces(before) => {
+                // the groups follow in `faces_tick`
+                for (key, notes) in before {
+                    self.store.meta.entry(key).or_default().faces = notes;
+                }
+                self.dirty = true;
+            }
+            Undo::People { names, merged, refused } => {
+                // the lists follow in `faces_tick`
+                self.store.person_names = names;
+                self.store.person_merged = merged;
+                self.store.refused_names = refused;
+                self.dirty = true;
+            }
             Undo::Tags { meta, parents } => {
                 for (key, tags, not_tags) in meta {
                     let m = self.store.meta.entry(key).or_default();
@@ -2387,6 +2506,11 @@ impl App {
                     self.dirty = true;
                 }
                 Done::Analysis(progress) => self.analysis = progress,
+                Done::Faces(index) => {
+                    self.face_groups.index = Some(index);
+                    self.people_changed();
+                }
+                Done::FaceCrops { key, crops } => self.face_crops_arrived(key, crops),
                 Done::LooksLike(query, found) => self.on_looks_like(query, found),
                 Done::TagProposals(n, found) => self.on_tag_proposals(n, found),
                 Done::Geotag(n, read) => self.on_geotag(n, read),
@@ -2577,6 +2701,8 @@ impl eframe::App for App {
         self.handle_screenshot(ctx);
         let now = ctx.input(|i| i.time);
         self.smart_search_tick(ctx, now);
+        self.ask_about_faces();
+        self.faces_tick(now);
         let closing = ctx.input(|i| i.viewport().close_requested());
         // every change to the library's notes sets `dirty`: rebuild the cached lists once after
         // it (not on every frame until the save), and remember that there is something to save
@@ -2711,8 +2837,14 @@ impl crate::commands::Host for App {
     fn file_gps(&mut self) -> &std::collections::HashMap<String, Option<crate::geo::LatLon>> {
         &self.geo.file_gps
     }
+    fn faces(&self) -> Option<std::sync::Arc<crate::faces::FaceIndex>> {
+        self.face_groups.index.clone()
+    }
     fn analysis(&self) -> Option<crate::analysis::Progress> {
         Some(self.analysis)
+    }
+    fn delete_face_data(&mut self) -> Result<(), String> {
+        self.delete_all_face_data()
     }
 }
 

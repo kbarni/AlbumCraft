@@ -337,6 +337,7 @@ pub fn to_write(meta: &Meta, tag_parents: &BTreeMap<String, String>) -> XmpNotes
         // written earlier)
         date: meta.taken,
         date_removed: false,
+        regions: vec![],
     }
 }
 

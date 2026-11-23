@@ -4,12 +4,14 @@
 //! - `models`: the packs of networks the app can use, listed in a manifest built into it;
 //! - `download`: fetching a pack, only when the user asked for it;
 //! - `store`: what the networks found in each picture, in files that are only ever added to;
-//! - `search`: smart search, pictures and sentences as vectors of one space.
+//! - `search`: smart search, pictures and sentences as vectors of one space;
+//! - `faces`: faces found and described, to be grouped by person.
 //!
 //! Everything is computed on this computer. The only connection made is the download of a pack
 //! from the project's own releases, and no picture, face or search text is ever sent.
 
 pub mod download;
+pub mod faces;
 pub mod models;
 pub mod runtime;
 pub mod search;
@@ -29,4 +31,10 @@ pub trait Analyser: Send + Sync {
     /// found (one vector for the whole picture, one record per face…), each `table().record_len`
     /// bytes long. No record means "looked at, nothing there".
     fn analyse(&self, picture: &image::RgbaImage) -> Result<Vec<Vec<u8>>, String>;
+    /// The same, for an analyser that may need more detail than `input_dim` gives (a small
+    /// face): `full` decodes the picture at its full size, only when called.
+    fn analyse_full(&self, picture: &image::RgbaImage, full: &dyn Fn() -> Option<image::RgbaImage>) -> Result<Vec<Vec<u8>>, String> {
+        let _ = full;
+        self.analyse(picture)
+    }
 }

@@ -150,6 +150,15 @@ pub trait Library {
     /// Smart search uses this pack from now on (None: none is downloaded): the background
     /// analysis makes the library's vectors with it. Called when the active pack changes.
     fn use_search_pack(&self, pack: Option<String>);
+    /// Look for faces in the library's pictures (`on`), with vectors when the Faces pack is
+    /// downloaded, or stop looking (`faces::use_faces`).
+    fn use_faces(&self, on: bool);
+    /// Remove the faces found, the groups, the reference faces and the face crops (names and
+    /// corrections stay in the library).
+    fn delete_face_data(&self) -> Result<(), String>;
+    /// Group the faces found so far, off the window's thread (`faces::group`); the answer is
+    /// `Done::Faces`. Asked again while a grouping runs, it runs once more after it.
+    fn group_faces(&self, decided: crate::faces::Decided, named: std::collections::HashSet<u32>);
     /// Rank the library's pictures for a smart search with `pack`, off the window's thread;
     /// the answer is `Done::LooksLike` (the query with it, to tell stale answers apart).
     fn looks_like(&self, pack: String, query: crate::smart_search::Query);
@@ -161,12 +170,22 @@ pub trait Library {
     fn read_geotag(&self, asked: u64, gpx: Vec<PathBuf>, photos: Vec<(String, Option<crate::taken::DateTime>, Option<crate::geo::Place>)>);
 }
 
+/// `LocalLibrary::grouping`: no grouping, one running, one running and asked for again.
+const IDLE: u8 = 1;
+const RUNNING: u8 = 0;
+const AGAIN: u8 = 2;
+
 /// The pictures in folders on this computer, notes in `library.json` (`library::store_path`).
 pub struct LocalLibrary {
     pool: Pool,
     tx: Sender<Done>,
     wake: Wake,
     analysis: crate::analysis::Analysis,
+    /// A grouping of the faces is running (0), or running and asked again (2), or not (1).
+    grouping: Arc<std::sync::atomic::AtomicU8>,
+    /// The newest request for a grouping, taken by the round that runs it (a round asked for
+    /// while another runs must not use the decisions of the first).
+    next_grouping: Arc<std::sync::Mutex<Option<(crate::faces::Decided, std::collections::HashSet<u32>)>>>,
     saving: Option<JoinHandle<Result<(), String>>>,
     /// A save that finished (or failed) before it could go to another thread.
     saved: Option<Result<(), String>>,
@@ -187,7 +206,7 @@ impl LocalLibrary {
         // No analyser yet: each feature adds its own when its pack of networks is there (the
         // window tells which search pack to use, `use_search_pack`).
         let analysis = crate::analysis::Analysis::new(pool.clone(), send, crate::ai::store::analysis_dir());
-        LocalLibrary { pool, tx, wake, analysis, saving: None, saved: None }
+        LocalLibrary { pool, tx, wake, analysis, grouping: Arc::new(std::sync::atomic::AtomicU8::new(IDLE)), next_grouping: Default::default(), saving: None, saved: None }
     }
 
     /// Sends an answer to the window and wakes it; for use on any thread.
@@ -642,6 +661,52 @@ impl Library for LocalLibrary {
         if let Err(e) = crate::smart_search::use_pack(&self.analysis, pack) {
             self.sender()(Done::Report(Report::failed(tr!("search-pack-failed", error = e))));
         }
+    }
+
+    fn delete_face_data(&self) -> Result<(), String> {
+        crate::faces::delete_face_data(&self.analysis)
+    }
+
+    fn use_faces(&self, on: bool) {
+        if let Err(e) = crate::faces::use_faces(&self.analysis, on) {
+            self.sender()(Done::Report(Report::failed(tr!("faces-failed", error = e))));
+        }
+    }
+
+    fn group_faces(&self, decided: crate::faces::Decided, named: std::collections::HashSet<u32>) {
+        use std::sync::atomic::Ordering;
+        {
+            // faces to look at again are not forgotten when a newer request replaces theirs
+            let mut next = self.next_grouping.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut decided = decided;
+            if let Some((old, _)) = next.take() {
+                decided.recheck.extend(old.recheck);
+            }
+            *next = Some((decided, named));
+        }
+        // running: ask for one more round after it
+        if self.grouping.compare_exchange(IDLE, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            let _ = self.grouping.compare_exchange(RUNNING, AGAIN, Ordering::AcqRel, Ordering::Acquire);
+            return;
+        }
+        let (analysis, state, send, next) = (self.analysis.clone(), self.grouping.clone(), self.sender(), self.next_grouping.clone());
+        std::thread::spawn(move || {
+            loop {
+                let Some((decided, named)) = next.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() else { break };
+                let files = analysis.files();
+                let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::faces::group(&analysis, &files, &decided, &named)));
+                match found {
+                    Ok(Ok(Some(index))) => send(Done::Faces(Arc::new(index))),
+                    Ok(Ok(None)) => {}
+                    Ok(Err(e)) => send(Done::Report(Report::failed(tr!("faces-failed", error = e)))),
+                    Err(_) => send(Done::Report(Report::failed(tr!("faces-failed", error = "unexpected error")))),
+                }
+                if state.compare_exchange(AGAIN, RUNNING, Ordering::AcqRel, Ordering::Acquire).is_err() {
+                    state.store(IDLE, Ordering::Release);
+                    break;
+                }
+            }
+        });
     }
 
     fn looks_like(&self, pack: String, query: crate::smart_search::Query) {

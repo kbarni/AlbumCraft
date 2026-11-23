@@ -490,6 +490,7 @@ impl App {
             Some(TraySet::Folder(fi)) => tr!("selected-set", name = self.folders.get(*fi).map(|f| f.name.clone()).unwrap_or_else(|| tr!("fallback-folder")), pictures = pictures),
             Some(TraySet::Album(i)) => tr!("selected-set", name = self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_else(|| tr!("fallback-album")), pictures = pictures),
             Some(TraySet::Person(name)) => tr!("selected-set", name = name.as_str(), pictures = pictures),
+            Some(TraySet::Group(_)) => tr!("selected-set", name = tr!("people-unnamed"), pictures = pictures),
             Some(TraySet::Picks) => tr!("selected-set", name = tr!("nav-picks"), pictures = pictures),
             None => tr!("selected-all", n = n, pictures = pictures),
         }
@@ -773,6 +774,7 @@ impl App {
                     self.selection.clear();
                     ui.close();
                 }
+            self.person_menu(ui, &tray);
             if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::TAG, tr!("ctx-tags")), 13.5))).clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                 ui.close();

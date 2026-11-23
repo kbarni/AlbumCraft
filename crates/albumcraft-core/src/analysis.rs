@@ -294,12 +294,18 @@ enum Found {
     Failed(String),
 }
 
+/// The longest side of the full-size picture an analyser may ask for.
+const FULL_DIM: u32 = 4096;
+
 fn look_at(analyser: &dyn Analyser, key: &str) -> Found {
     let dim = analyser.input_dim().max(1);
     // small inputs come from the thumbnail cache, nearly free
     let picture = if dim <= library::THUMB_DIM { library::cached_thumbnail(key, library::THUMB_DIM) } else { imaging::load_source(key, dim) };
     let Some(picture) = picture else { return Found::Records(vec![]) };
-    match analyser.analyse(&picture) {
+    // a small face is cut from the full-size picture (decoded only then); 4096 px is enough
+    // for a face and keeps a panorama from taking all the memory
+    let full = || imaging::load_source(key, FULL_DIM);
+    match analyser.analyse_full(&picture, &full) {
         Ok(records) => Found::Records(records),
         Err(e) => Found::Failed(e),
     }

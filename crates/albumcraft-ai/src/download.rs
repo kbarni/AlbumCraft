@@ -229,6 +229,7 @@ mod tests {
             version: 1,
             release: "models-1".into(),
             search: None,
+            faces: None,
             files: vec![ModelFile { name: "file.onnx".into(), size: content.len() as u64, sha256 }],
         }
     }

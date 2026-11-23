@@ -567,7 +567,7 @@ impl App {
             }
         }
         let downloading = |id: &str, tasks: &[RunningTask]| tasks.iter().any(|t| t.label == download_label(id));
-        let (mut download, mut remove) = (None, None);
+        let (mut download, mut remove, mut turn_faces_on, mut delete_faces) = (None, None, false, false);
         // smart search: one network, picked from the list (Multilingual unless another is chosen)
         let search: Vec<&crate::analysis::PackState> = self.packs.iter().filter(|p| p.pack.search.is_some()).collect();
         let chosen = crate::smart_search::chosen(&self.store.search_pack).map(|p| p.id.clone()).unwrap_or_default();
@@ -619,8 +619,55 @@ impl App {
             }
             ui.add_space(6.0);
         }
-        // other packs (none yet besides search; faces will come)
-        for p in self.packs.iter().filter(|p| p.pack.search.is_none()) {
+        // faces: asked once, changed here; the Faces pack gives the vectors that group them
+        if let Some(p) = self.packs.iter().find(|p| p.pack.faces.is_some()) {
+            let pack = &p.pack;
+            let mut on = self.store.faces_enabled == Some(true);
+            if ui.checkbox(&mut on, RichText::new(tr!("settings-faces-enable")).strong()).on_hover_text(tr!("settings-faces-enable-hint")).changed() {
+                if on {
+                    turn_faces_on = true;
+                } else {
+                    self.store.faces_enabled = Some(false);
+                    self.dirty = true;
+                    self.smart.recheck();
+                }
+            }
+            note(ui, &tr!("settings-faces-privacy"));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(&pack.title).strong());
+                ui.label(RichText::new(tr!("settings-ai-pack-size", size = fmt_bytes(pack.bytes()), licence = pack.licence.as_str())).size(12.0).weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if p.installed {
+                        if ui.button(tr!("settings-ai-remove")).on_hover_text(tr!("settings-ai-remove-hint")).clicked() {
+                            remove = Some(pack.id.clone());
+                        }
+                        ui.label(RichText::new(format!("{} {}", icons::CHECK, tr!("settings-ai-downloaded"))).size(12.0).color(t().good));
+                    } else if downloading(&pack.id, &self.tasks) {
+                        ui.spinner();
+                        ui.label(RichText::new(tr!("settings-ai-downloading")).size(12.0).weak());
+                    } else if ui.add_enabled(crate::ai::runtime::available(), egui::Button::new(tr!("settings-ai-download"))).clicked() {
+                        download = Some(pack.id.clone());
+                    }
+                });
+            });
+            if !pack.about.is_empty() {
+                note(ui, &pack.about);
+            }
+            if on && !p.installed {
+                note(ui, &tr!("settings-faces-without-pack"));
+            }
+            if ui.button(tr!("settings-faces-delete")).on_hover_text(tr!("settings-faces-delete-hint")).clicked() {
+                delete_faces = true;
+            }
+            if let Some(index) = self.face_groups.index.as_ref().filter(|_| on) {
+                let (found, grouped) = index.counts();
+                let groups = index.groups.iter().filter(|g| g.faces.len() >= crate::faces::MIN_GROUP).count();
+                note(ui, &tr!("settings-faces-count", faces = fmt_count(found), grouped = fmt_count(grouped), groups = fmt_count(groups)));
+            }
+            ui.add_space(6.0);
+        }
+        // other packs (none yet besides search and faces)
+        for p in self.packs.iter().filter(|p| p.pack.search.is_none() && p.pack.faces.is_none()) {
             let pack = &p.pack;
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&pack.title).strong());
@@ -643,6 +690,12 @@ impl App {
                 note(ui, &pack.about);
             }
             ui.add_space(6.0);
+        }
+        if delete_faces {
+            self.dialog = Some(crate::app::Dialog::DeleteFaces);
+        }
+        if turn_faces_on {
+            self.turn_faces_on();
         }
         if let Some(id) = download {
             self.download_pack(&id);
@@ -669,6 +722,11 @@ impl App {
         if ui.checkbox(&mut self.store.analysis_paused, tr!("settings-ai-pause")).changed() {
             self.dirty = true;
         }
+    }
+
+    /// A pack's download is running.
+    pub fn downloading_pack(&self, id: &str) -> bool {
+        self.tasks.iter().any(|t| t.label == download_label(id))
     }
 
     /// Download a pack of networks, as a task in the status bar.

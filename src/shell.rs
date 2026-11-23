@@ -211,15 +211,24 @@ fn view_toggle(ui: &mut egui::Ui, tree: bool) -> Option<bool> {
 }
 
 /// One row of the sidebar.
-fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
+pub(crate) fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
     nav_row_with(ui, icon, label, None, count, selected)
+}
+
+/// A sidebar row that can also be dragged (a person, onto another).
+pub(crate) fn nav_row_drag(ui: &mut egui::Ui, icon: &str, label: &str, count: Option<usize>, selected: bool) -> egui::Response {
+    nav_row_sensed(ui, icon, label, None, count, selected, Sense::click_and_drag())
 }
 
 /// A row of the sidebar, with a dimmed second line under the label when `sub` is given (a
 /// folder's caption).
 fn nav_row_with(ui: &mut egui::Ui, icon: &str, label: &str, sub: Option<&str>, count: Option<usize>, selected: bool) -> egui::Response {
+    nav_row_sensed(ui, icon, label, sub, count, selected, Sense::click())
+}
+
+fn nav_row_sensed(ui: &mut egui::Ui, icon: &str, label: &str, sub: Option<&str>, count: Option<usize>, selected: bool, sense: Sense) -> egui::Response {
     let h = if sub.is_some() { 44.0 } else { 32.0 };
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), sense);
     if !ui.is_rect_visible(rect) {
         return resp;
     }
@@ -316,6 +325,9 @@ impl App {
             Source::Library => tr!("nav-all"),
             Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_default(),
             Source::Person(n) => n.clone(),
+            Source::Group(_) => tr!("people-unnamed"),
+            Source::People => tr!("nav-people"),
+            Source::Faces(g) => tr!("faces-page-title", name = crate::faces::name_of(&self.store, *g).map(str::to_string).unwrap_or_else(|| tr!("people-unnamed"))),
             Source::Picks => tr!("nav-picks"),
         }
     }
@@ -334,16 +346,38 @@ impl App {
                 let title_w = (wide * 0.2).clamp(110.0, 240.0);
                 ui.horizontal_centered(|ui| {
                     let shown = self.visible_count();
+                    let person = self.shown_person();
+                    let texts = person.as_ref().and_then(|(_, n)| n.as_deref()).map(|n| self.person_texts(n)).unwrap_or_default();
                     ui.allocate_ui_with_layout(egui::vec2(title_w, 44.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate());
+                        let mut title = ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate().sense(Sense::click()));
+                        if person.is_some() {
+                            // a double-click on a person's name changes it; the description is the tip
+                            if !texts.1.is_empty() {
+                                title = title.on_hover_text(texts.1.clone());
+                            }
+                            if title.double_clicked() {
+                                self.edit_shown_person();
+                            }
+                        }
                         let sub = if self.scanning {
                             tr!("scanning")
-                        } else {
+                        } else if self.source == Source::People {
+                            let n = self.people_count();
+                            tr!("count-people", n = n)
+                        } else if let Source::Faces(g) = self.source {
+                            let n = self.faces_of(g).len();
+                            tr!("count-faces", n = n)
+                        } else if texts.0.is_empty() {
                             tr!("count-pictures", n = shown)
+                        } else {
+                            format!("{} · {}", texts.0, tr!("count-pictures", n = shown))
                         };
                         ui.add(egui::Label::new(RichText::new(sub).size(12.0).color(t().text_weak)).truncate());
                     });
+                    if person.is_some() && icon_btn(ui, icons::EDIT, &tr!("person-edit-hint")).clicked() {
+                        self.edit_shown_person();
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         if pill(ui, &format!("{}  {}", icons::DRIVE, tr!("bar-import")), true)
@@ -387,7 +421,7 @@ impl App {
                             (n, false) => format!("{}  {}", icons::STAR, tr!("filter-min", n = n)),
                             (n, true) => format!("{}  {}", icons::STAR, tr!("filter-min-no-rejects", n = n)),
                         };
-                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects).on_hover_text(tr!("filter-hint"));
+                        let resp = chip(ui, &label, f.min_rating > 0 || f.hide_rejects || f.people != crate::app::PeopleFilter::Any).on_hover_text(tr!("filter-hint"));
                         egui::Popup::menu(&resp).show(|ui| {
                             for n in 0..=crate::library::MAX_RATING {
                                 let text = if n == 0 { tr!("filter-any-rating") } else { tr!("filter-or-more", rating = crate::library_view::rating_label(n)) };
@@ -397,6 +431,7 @@ impl App {
                             }
                             ui.separator();
                             ui.checkbox(&mut self.filter.hide_rejects, tr!("bar-hide-rejects"));
+                            self.people_filter_menu(ui);
                             if ui.button(tr!("menu-trash-rejects")).clicked() {
                                 self.ask_trash_rejects();
                                 ui.close();
@@ -527,17 +562,7 @@ impl App {
                     }
 
                     caption(ui, &tr!("nav-people"));
-                    let people = &counts.people;
-                    if people.is_empty() {
-                        ui.label(RichText::new(tr!("people-hint")).size(12.0).color(t().text_weak));
-                    }
-                    for (name, n) in people {
-                        let sel = self.source == Source::Person(name.clone());
-                        if nav_row(ui, icons::PERSON, name, Some(*n), sel).clicked() {
-                            self.source = Source::Person(name.clone());
-                            self.pick_set(TraySet::Person(name.clone()));
-                        }
-                    }
+                    self.people_sidebar(ui, &counts.people);
 
                     self.folders_caption(ui);
                     let current_folder = match &self.list_pick {
@@ -829,6 +854,14 @@ impl App {
 
     fn grid(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().lightbox_bg)).show(ui, |ui| {
+            if self.source == Source::People {
+                self.people_page(ui);
+                return;
+            }
+            if let Source::Faces(g) = self.source {
+                self.faces_page(ui, g);
+                return;
+            }
             let groups = self.groups();
             if groups.iter().all(|(_, v)| v.is_empty()) {
                 self.empty_state(ui);
@@ -1080,7 +1113,7 @@ impl App {
             } else {
                 match self.source {
                     Source::Album(_) => (icons::ALBUM, tr!("empty-album")),
-                    Source::Person(_) => (icons::PERSON, tr!("empty-person")),
+                    Source::Person(_) | Source::Group(_) | Source::People | Source::Faces(_) => (icons::PERSON, tr!("empty-person")),
                     Source::Picks => (icons::FLAG, tr!("empty-picks")),
                     Source::Library if !self.store.roots.is_empty() => {
                         (icons::FOLDER, tr!("empty-unreachable"))

@@ -6,7 +6,7 @@
 //! The edit pipeline is `albumcraft-edit`; its modules are re-exported here, and `imaging` adds
 //! reading pictures from files to it.
 
-pub use albumcraft_edit::{auto, decor, develop, looks, steps};
+pub use albumcraft_edit::{auto, decor, develop, geometry, looks, steps};
 
 pub use albumcraft_ai as ai;
 
@@ -16,6 +16,10 @@ pub mod cms;
 pub mod commands;
 pub mod control;
 pub mod exifinfo;
+pub mod face_groups;
+#[cfg(test)]
+mod face_tuning;
+pub mod faces;
 pub mod export;
 pub mod filemeta;
 pub mod files;
