@@ -545,6 +545,10 @@ pub struct App {
     /// (points per second) once let go.
     pub grid_pan: bool,
     pub grid_vel: f32,
+    /// Speed mode of the scroll bar: the speed asked for by the handle (points per second,
+    /// positive = towards the top) and how far the handle is from the middle (points).
+    pub grid_rate: f32,
+    pub grid_handle: f32,
     /// The folder / album / person whose pictures fill the tray (when nothing is picked one by one).
     pub tray_set: Option<TraySet>,
     /// The folder / album / person clicked last in the list (for its highlight).
@@ -745,6 +749,8 @@ impl App {
             scroll_to_photo: None,
             grid_pan: false,
             grid_vel: 0.0,
+            grid_rate: 0.0,
+            grid_handle: 0.0,
             tray_set: None,
             list_pick: None,
             real_dims: HashMap::new(),
