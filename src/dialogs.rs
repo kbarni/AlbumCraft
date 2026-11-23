@@ -43,6 +43,7 @@ impl App {
             Dialog::Tag { .. } => tr!("dialog-tags"),
             Dialog::Gallery { .. } => tr!("dialog-gallery"),
             Dialog::FolderNote { .. } => tr!("dialog-folder-texts"),
+            Dialog::Person { .. } => tr!("dialog-person"),
             Dialog::Rename { folder: true, .. } => tr!("dialog-rename-folder"),
             Dialog::Rename { .. } => tr!("dialog-rename-picture"),
             Dialog::MoveTo { .. } => tr!("dialog-move"),
@@ -237,6 +238,30 @@ impl App {
                             self.dirty = true;
                             self.list_rev += 1;
                             close = true;
+                        }
+                        if ui.button(tr!("button-cancel")).clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Dialog::Person { old, group, name, caption, text, error } => {
+                    ui.label(tr!("person-name-label"));
+                    ui.add(egui::TextEdit::singleline(name).desired_width(f32::INFINITY));
+                    ui.add_space(4.0);
+                    ui.label(tr!("folder-caption-label"));
+                    ui.add(egui::TextEdit::singleline(caption).desired_width(f32::INFINITY));
+                    ui.add_space(4.0);
+                    ui.label(tr!("folder-description-label"));
+                    ui.add(egui::TextEdit::multiline(text).desired_width(f32::INFINITY));
+                    if !error.is_empty() {
+                        ui.label(egui::RichText::new(error.as_str()).color(egui::Color32::from_rgb(200, 70, 70)));
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(tr!("button-save")).clicked() {
+                            match self.save_person(old.as_deref(), *group, name, caption, text) {
+                                Ok(()) => close = true,
+                                Err(e) => *error = e,
+                            }
                         }
                         if ui.button(tr!("button-cancel")).clicked() {
                             close = true;

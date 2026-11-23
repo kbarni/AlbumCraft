@@ -343,6 +343,57 @@ pub fn regroup(faces: &[Face], previous: &Groups, c: &Constraints, p: &Params) -
     Groups { of: faces.iter().zip(of).filter_map(|(f, g)| Some((f.id, g?))).collect(), next }
 }
 
+/// After the user took faces out of the groups `from` and put them in groups of their own
+/// (their placed faces), look again at the other faces of `from`: those that match the placed
+/// faces of another group (`join`) and match what is left of their own group clearly less go
+/// with them. This is how a group of two look-alikes (a person and a brother) is split by
+/// moving a few faces. Faces the user placed or left out never move; one person is in a
+/// picture once.
+pub fn recheck(faces: &[Face], groups: &Groups, c: &Constraints, p: &Params, from: &HashSet<GroupId>) -> Groups {
+    let mut out = groups.clone();
+    let from: std::collections::BTreeSet<GroupId> = from.iter().map(|&g| c.resolve(g)).collect();
+    let index: HashMap<FaceId, usize> = faces.iter().enumerate().map(|(i, f)| (f.id, i)).collect();
+    let mut anchors: std::collections::BTreeMap<GroupId, Vec<usize>> = Default::default();
+    for (id, g) in &c.placed {
+        if let Some(&i) = index.get(id) {
+            anchors.entry(c.resolve(*g)).or_default().push(i);
+        }
+    }
+    let top = |v: &[f32], set: &[usize]| -> f32 {
+        let mut s: Vec<f32> = set.iter().map(|&e| dot(&faces[e].vector, v)).collect();
+        s.sort_by(|a, b| b.total_cmp(a));
+        s.truncate(p.top.max(1));
+        if s.is_empty() { f32::NEG_INFINITY } else { s.iter().sum::<f32>() / s.len() as f32 }
+    };
+    let members = groups.members();
+    for a in from {
+        let Some(mem) = members.get(&a) else { continue };
+        let mut mine: Vec<usize> = mem.iter().filter_map(|id| index.get(id).copied()).filter(|&i| faces[i].vector.len() == faces[0].vector.len()).collect();
+        for (&t, anc) in anchors.iter().filter(|(t, _)| **t != a) {
+            let in_t: HashSet<u128> = out.of.iter().filter(|(_, g)| **g == t).map(|(f, _)| f.0).collect();
+            let free = |i: usize| !c.placed.contains_key(&faces[i].id) && !c.left_out.contains(&faces[i].id) && !c.not_in.get(&faces[i].id).is_some_and(|n| n.contains(&t));
+            let mut moved: Vec<(usize, f32)> = mine.iter().copied().filter(|&i| free(i) && !in_t.contains(&faces[i].id.0)).map(|i| (i, top(&faces[i].vector, anc))).filter(|(_, s)| *s >= p.join).collect();
+            if moved.is_empty() {
+                continue;
+            }
+            // what is left of the group once they have gone: the faces must match the placed
+            // ones clearly better than that
+            let gone: HashSet<usize> = moved.iter().map(|m| m.0).collect();
+            let rest: Vec<usize> = mine.iter().copied().filter(|i| !gone.contains(i)).collect();
+            moved.retain(|&(i, s)| s > top(&faces[i].vector, &rest) + 0.03);
+            let mut pictures = in_t;
+            for (i, _) in moved {
+                // one person is in a picture once
+                if pictures.insert(faces[i].id.0) {
+                    out.of.insert(faces[i].id, t);
+                    mine.retain(|&m| m != i);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Pairs of groups that may be one person (smaller group first), closest first: the exemplars
 /// of one score at least `Params::propose` in the other, typically (the median). Pairs the user refused are left out.
 pub fn proposals(faces: &[Face], groups: &Groups, c: &Constraints, p: &Params, min_faces: usize) -> Vec<(GroupId, GroupId, f32)> {
@@ -527,6 +578,40 @@ mod tests {
         }
         assert!(g.members().values().any(|m| m.iter().filter(|f| f.0 < 500).count() == 8));
         assert!(g.members().values().any(|m| m.iter().filter(|f| f.0 >= 1000).count() == 8));
+    }
+
+    #[test]
+    fn a_group_of_two_look_alikes_is_split_by_moving_a_few_faces() {
+        // person A and a brother B who looks a little like A (cosine 0.35), all in one group
+        let mut a = vec![0.0; 16];
+        a[0] = 1.0;
+        let mut b = vec![0.0; 16];
+        b[0] = 0.35;
+        b[1] = (1.0f32 - 0.35 * 0.35).sqrt();
+        let around = |base: &Vec<f32>, k: u32| {
+            let mut x = base.clone();
+            x[4 + (k as usize % 10)] += 0.25;
+            crate::ai::search::normalise(&mut x);
+            x
+        };
+        let mut faces = vec![];
+        for k in 0..8u32 {
+            faces.push(Face { id: (k as u128, 0), vector: around(&a, k), good: true });
+            faces.push(Face { id: (100 + k as u128, 0), vector: around(&b, k), good: true });
+        }
+        let all_in_one = Groups { of: faces.iter().map(|f| (f.id, 0)).collect(), next: 1 };
+        // the user moved two of B's faces to a group of their own
+        let c = Constraints { placed: HashMap::from([((100, 0), 5), ((101, 0), 5)]), ..Default::default() };
+        let mut start = all_in_one.clone();
+        start.of.insert((100, 0), 5);
+        start.of.insert((101, 0), 5);
+        let after = recheck(&faces, &start, &c, &Params::default(), &HashSet::from([0]));
+        for k in 0..8u128 {
+            assert_eq!(after.of[&(k, 0)], 0, "A's face {k} stays");
+            assert_eq!(after.of[&(100 + k, 0)], 5, "B's face {k} follows");
+        }
+        // nothing happens for a group not asked about
+        assert_eq!(recheck(&faces, &start, &c, &Params::default(), &HashSet::new()), start);
     }
 
     #[test]

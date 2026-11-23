@@ -774,6 +774,7 @@ impl App {
                     self.selection.clear();
                     ui.close();
                 }
+            self.person_menu(ui, &tray);
             if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::TAG, tr!("ctx-tags")), 13.5))).clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                 ui.close();

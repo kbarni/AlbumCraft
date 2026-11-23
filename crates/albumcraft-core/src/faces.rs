@@ -202,6 +202,9 @@ pub struct Decided {
     pub merged: HashMap<GroupId, GroupId>,
     pub refused: HashSet<(GroupId, GroupId)>,
     pub notes: Vec<(String, FaceNote)>,
+    /// Groups the user took faces out of just now: their other faces are looked at again
+    /// (`face_groups::recheck`). Not kept: asked once, with the correction.
+    pub recheck: HashSet<GroupId>,
 }
 
 pub fn decided(store: &crate::library::Store) -> Decided {
@@ -209,6 +212,7 @@ pub fn decided(store: &crate::library::Store) -> Decided {
         merged: store.person_merged.iter().map(|(a, b)| (*a, *b)).collect(),
         refused: store.refused_merges.iter().map(|&(a, b)| (a.min(b), a.max(b))).collect(),
         notes: store.meta.iter().flat_map(|(k, m)| m.faces.iter().map(move |n| (k.clone(), n.clone()))).collect(),
+        recheck: HashSet::new(),
     }
 }
 
@@ -379,6 +383,45 @@ pub fn names_by_picture(index: &FaceIndex, store: &crate::library::Store) -> Has
 /// Draw a face by hand on a picture, of the person (group) `g`.
 pub fn add_face(meta: &mut crate::library::Meta, rect: [f32; 4], g: GroupId) {
     note_face(meta, rect, Some(FaceState::Added(g)));
+}
+
+/// Why a person can't be renamed.
+#[derive(Debug, PartialEq)]
+pub enum RenameError {
+    Empty,
+    /// Another group of faces has that name (they would be one person: merge them).
+    Taken(GroupId),
+}
+
+/// Rename a person: the group of faces (`group`, or the one named `old`) and the name typed on
+/// pictures (`old`), with its caption and description.
+pub fn rename_person(store: &mut crate::library::Store, old: Option<&str>, group: Option<GroupId>, new: &str) -> Result<(), RenameError> {
+    let new = new.trim();
+    if new.is_empty() {
+        return Err(RenameError::Empty);
+    }
+    let group = group.map(|g| resolve(store, g)).or_else(|| old.and_then(|o| group_named(store, o, None)));
+    if let Some(g) = group {
+        set_name(store, g, new, false).map_err(RenameError::Taken)?;
+    }
+    if let Some(old) = old {
+        let (ko, kn) = (crate::tags::key(old), crate::tags::key(new));
+        for m in store.meta.values_mut() {
+            if m.people.iter().any(|n| crate::tags::key(n) == ko) {
+                for n in m.people.iter_mut().filter(|n| crate::tags::key(n) == ko) {
+                    *n = new.to_string();
+                }
+                let mut seen = HashSet::new();
+                m.people.retain(|n| seen.insert(crate::tags::key(n)));
+            }
+        }
+        if ko != kn
+            && let Some(t) = store.person_texts.remove(&ko)
+        {
+            store.person_texts.entry(kn).or_insert(t);
+        }
+    }
+    Ok(())
 }
 
 /// The names of the people recognised in one picture.
@@ -703,6 +746,9 @@ pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], d: &Decided, 
     let old_refs = std::fs::read(&refs_file).map(|b| decode_refs(&b)).unwrap_or_default();
     restore_named(&r, &mut before, &old_refs, named, &p);
     let mut groups = crate::face_groups::regroup(&r.faces, &before, c, &p);
+    if !d.recheck.is_empty() {
+        groups = crate::face_groups::recheck(&r.faces, &groups, c, &p, &d.recheck);
+    }
     // faces the user placed that are not grouped by themselves (too small, an unsure detection)
     for (id, g) in &c.placed {
         if r.records.contains_key(id) {
@@ -868,6 +914,29 @@ mod tests {
         let mut before = Groups::default();
         restore_named(&r, &mut before, &refs, &HashSet::new(), &p);
         assert!(before.of.is_empty());
+    }
+
+    #[test]
+    fn a_person_is_renamed_everywhere() {
+        let mut store = crate::library::Store::default();
+        store.person_names.insert(3, "Jon".into());
+        store.person_names.insert(4, "Anna".into());
+        store.person_texts.insert("jon".into(), ("my brother".into(), "notes".into()));
+        for (k, names) in [("a.jpg", vec!["jon", "Marc"]), ("b.jpg", vec!["Jon", "John"])] {
+            store.meta.insert(k.into(), crate::library::Meta { people: names.into_iter().map(String::from).collect(), ..Default::default() });
+        }
+        assert_eq!(rename_person(&mut store, Some("Jon"), None, "  "), Err(RenameError::Empty));
+        assert_eq!(rename_person(&mut store, Some("Jon"), None, "anna"), Err(RenameError::Taken(4)));
+        rename_person(&mut store, Some("Jon"), None, "John").unwrap();
+        assert_eq!(store.person_names[&3], "John");
+        assert_eq!(store.meta["a.jpg"].people, vec!["John".to_string(), "Marc".to_string()]);
+        // a picture with both spellings keeps one
+        assert_eq!(store.meta["b.jpg"].people, vec!["John".to_string()]);
+        assert_eq!(store.person_texts.get("john"), Some(&("my brother".to_string(), "notes".to_string())));
+        assert!(!store.person_texts.contains_key("jon"));
+        // an unnamed group is named
+        rename_person(&mut store, None, Some(9), "Eve").unwrap();
+        assert_eq!(store.person_names[&9], "Eve");
     }
 
     #[test]

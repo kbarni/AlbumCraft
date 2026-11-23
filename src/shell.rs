@@ -346,9 +346,20 @@ impl App {
                 let title_w = (wide * 0.2).clamp(110.0, 240.0);
                 ui.horizontal_centered(|ui| {
                     let shown = self.visible_count();
+                    let person = self.shown_person();
+                    let texts = person.as_ref().and_then(|(_, n)| n.as_deref()).map(|n| self.person_texts(n)).unwrap_or_default();
                     ui.allocate_ui_with_layout(egui::vec2(title_w, 44.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate());
+                        let mut title = ui.add(egui::Label::new(RichText::new(self.source_title()).size(20.0).strong().color(t().text_strong)).truncate().sense(Sense::click()));
+                        if person.is_some() {
+                            // a double-click on a person's name changes it; the description is the tip
+                            if !texts.1.is_empty() {
+                                title = title.on_hover_text(texts.1.clone());
+                            }
+                            if title.double_clicked() {
+                                self.edit_shown_person();
+                            }
+                        }
                         let sub = if self.scanning {
                             tr!("scanning")
                         } else if self.source == Source::People {
@@ -357,11 +368,16 @@ impl App {
                         } else if let Source::Faces(g) = self.source {
                             let n = self.faces_of(g).len();
                             tr!("count-faces", n = n)
-                        } else {
+                        } else if texts.0.is_empty() {
                             tr!("count-pictures", n = shown)
+                        } else {
+                            format!("{} · {}", texts.0, tr!("count-pictures", n = shown))
                         };
                         ui.add(egui::Label::new(RichText::new(sub).size(12.0).color(t().text_weak)).truncate());
                     });
+                    if person.is_some() && icon_btn(ui, icons::EDIT, &tr!("person-edit-hint")).clicked() {
+                        self.edit_shown_person();
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         if pill(ui, &format!("{}  {}", icons::DRIVE, tr!("bar-import")), true)

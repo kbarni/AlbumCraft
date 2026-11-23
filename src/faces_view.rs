@@ -51,6 +51,8 @@ pub struct FaceGroups {
     editing: HashMap<GroupId, String>,
     /// A name typed for a group that is another group's: (group, the other, the name).
     merge_question: Option<(GroupId, GroupId, String)>,
+    /// Groups the user took faces out of: their other faces are looked at again with the next grouping.
+    recheck: HashSet<GroupId>,
 }
 
 /// A person dragged in the sidebar (onto another: one person).
@@ -150,7 +152,9 @@ impl App {
     /// Group the faces again now, with what the user decided.
     pub fn regroup_faces(&mut self) {
         let named = self.store.person_names.keys().copied().filter(|g| !self.store.person_merged.contains_key(g)).collect();
-        self.lib.group_faces(crate::faces::decided(&self.store), named);
+        let mut decided = crate::faces::decided(&self.store);
+        decided.recheck = std::mem::take(&mut self.face_groups.recheck);
+        self.lib.group_faces(decided, named);
     }
 
     /// The people of a picture: names typed on it and people recognised in it.
@@ -277,6 +281,12 @@ impl App {
             if let Some(g) = group {
                 self.person_drag(ui, &resp, g);
             }
+            resp.context_menu(|ui| {
+                if ui.button(tr!("person-edit")).clicked() {
+                    self.edit_person(Some(name.clone()), group);
+                    ui.close();
+                }
+            });
         }
         if faces_on {
             let unnamed: Vec<Person> = self.people_list().into_iter().filter(|p| p.name.is_none()).collect();
@@ -288,6 +298,12 @@ impl App {
                     self.pick_set(TraySet::Group(p.id));
                 }
                 self.person_drag(ui, &resp, p.id);
+                resp.context_menu(|ui| {
+                    if ui.button(tr!("person-edit")).clicked() {
+                        self.edit_person(None, Some(p.id));
+                        ui.close();
+                    }
+                });
             }
             if unnamed.len() > SIDEBAR_UNNAMED {
                 let more = unnamed.len() - SIDEBAR_UNNAMED;
@@ -297,6 +313,123 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The person whose pictures are shown: the group of faces (after merges) and the name
+    /// (the group's, or the one typed on pictures).
+    pub(crate) fn shown_person(&self) -> Option<(Option<GroupId>, Option<String>)> {
+        match &self.source {
+            Source::Person(name) => Some((crate::faces::group_named(&self.store, name, None), Some(name.clone()))),
+            Source::Group(g) => Some((Some(crate::faces::resolve(&self.store, *g)), None)),
+            Source::Faces(g) => {
+                let g = crate::faces::resolve(&self.store, *g);
+                Some((Some(g), crate::faces::name_of(&self.store, g).map(str::to_string)))
+            }
+            _ => None,
+        }
+    }
+
+    /// The faces of group `g` in these pictures (picture, place among its faces).
+    fn faces_in(&self, ids: &[usize], g: GroupId) -> Vec<(String, u16)> {
+        let Some(index) = &self.face_groups.index else { return vec![] };
+        let g = crate::faces::resolve(&self.store, g);
+        let mut out = vec![];
+        for &id in ids {
+            let Some(p) = self.photos.get(id) else { continue };
+            for f in index.pictures.get(&p.key).into_iter().flatten() {
+                if f.group.map(|x| crate::faces::resolve(&self.store, x)) == Some(g) {
+                    out.push((p.key.clone(), f.index));
+                }
+            }
+        }
+        out
+    }
+
+    /// In a person's pictures, the right-click entries: "Not John" (these pictures are not
+    /// of that person: the faces are told apart from them, and a name typed on them goes) and
+    /// "Make a new person of these" (the person is two look-alikes: the faces of the selected
+    /// pictures become a person of their own, and the others that match them follow).
+    pub fn person_menu(&mut self, ui: &mut egui::Ui, tray: &[usize]) {
+        let Some((group, name)) = self.shown_person() else { return };
+        let label = match &name {
+            Some(n) => tr!("ctx-not-person", name = n.clone()),
+            None => tr!("ctx-not-this-person"),
+        };
+        if ui.button(label).on_hover_text(tr!("ctx-not-person-hint")).clicked() {
+            let key = name.as_deref().map(crate::tags::key);
+            if let Some(k) = key {
+                let keys: Vec<String> = tray.iter().filter_map(|&t| self.photos.get(t).map(|p| p.key.clone())).collect();
+                for key in keys {
+                    if let Some(m) = self.store.meta.get_mut(&key) {
+                        m.people.retain(|n| crate::tags::key(n) != k);
+                    }
+                }
+                self.dirty = true;
+            }
+            if let Some(g) = group {
+                let faces = self.faces_in(tray, g);
+                self.correct(&faces, Correction::NotThisPerson(g));
+            }
+            self.people_changed();
+            self.selection.clear();
+            ui.close();
+        }
+        if let Some(g) = group {
+            let faces = self.faces_in(tray, g);
+            if !faces.is_empty() && ui.button(tr!("ctx-split-person")).on_hover_text(tr!("ctx-split-person-hint")).clicked() {
+                self.correct(&faces, Correction::NewPerson);
+                self.selection.clear();
+                ui.close();
+            }
+        }
+    }
+
+    /// Open the dialog for a person's name, caption and description.
+    pub fn edit_person(&mut self, old: Option<String>, group: Option<GroupId>) {
+        let (caption, text) = old.as_deref().and_then(|n| self.store.person_texts.get(&crate::tags::key(n)).cloned()).unwrap_or_default();
+        self.dialog = Some(crate::app::Dialog::Person { name: old.clone().unwrap_or_default(), old, group, caption, text, error: String::new() });
+    }
+
+    /// Edit the person shown (the title line's pencil).
+    pub fn edit_shown_person(&mut self) {
+        if let Some((group, name)) = self.shown_person() {
+            self.edit_person(name, group);
+        }
+    }
+
+    /// The Person dialog's Save: rename (all the pictures, the group), keep the texts.
+    pub fn save_person(&mut self, old: Option<&str>, group: Option<GroupId>, name: &str, caption: &str, text: &str) -> Result<(), String> {
+        let name = name.trim();
+        let renamed = old != Some(name) && !(old.is_none() && name.is_empty());
+        if renamed {
+            match crate::faces::rename_person(&mut self.store, old, group, name) {
+                Ok(()) => {}
+                Err(crate::faces::RenameError::Empty) => return Err(tr!("person-name-empty")),
+                Err(crate::faces::RenameError::Taken(_)) => return Err(tr!("person-name-taken", name = name)),
+            }
+            if let Source::Person(n) = &self.source
+                && Some(n.as_str()) == old
+            {
+                self.source = Source::Person(name.to_string());
+            }
+        }
+        if !name.is_empty() {
+            let key = crate::tags::key(name);
+            if caption.trim().is_empty() && text.trim().is_empty() {
+                self.store.person_texts.remove(&key);
+            } else {
+                self.store.person_texts.insert(key, (caption.trim().to_string(), text.trim().to_string()));
+            }
+        }
+        self.dirty = true;
+        self.list_rev += 1;
+        self.people_changed();
+        Ok(())
+    }
+
+    /// A person's caption and description.
+    pub fn person_texts(&self, name: &str) -> (String, String) {
+        self.store.person_texts.get(&crate::tags::key(name)).cloned().unwrap_or_default()
     }
 
     /// A person's sidebar row can be dragged onto another: they are one person (with Undo).
@@ -573,9 +706,14 @@ impl App {
                 before.push((key.clone(), self.store.meta.get(key).map(|m| m.faces.clone()).unwrap_or_default()));
             }
         }
+        // the groups the faces leave: their other faces are looked at again
+        let from: Vec<GroupId> = faces.iter().filter_map(|(k, i)| index.face(k, *i)?.group).map(|g| crate::faces::resolve(&self.store, g)).collect();
         let done = crate::faces::correct(&mut self.store, &index, faces, c);
         if done == 0 {
             return;
+        }
+        if matches!(c, Correction::MoveTo(_) | Correction::NewPerson) {
+            self.face_groups.recheck.extend(from);
         }
         self.face_groups.selected.clear();
         self.dirty = true;

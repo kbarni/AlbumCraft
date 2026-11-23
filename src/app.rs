@@ -296,6 +296,9 @@ pub enum Dialog {
     Gallery { title: String },
     /// A folder's caption (one line) and description.
     FolderNote { path: String, caption: String, text: String },
+    /// A person's name, caption and description: `old` the name as it is (typed or a group's),
+    /// `group` the group of faces; `error` says why the last try failed.
+    Person { old: Option<String>, group: Option<u32>, name: String, caption: String, text: String, error: String },
     /// Rename a picture file (`folder` false, by key) or a folder (by path) on disk; `error`
     /// says why the last try failed.
     Rename { path: String, folder: bool, name: String, error: String },

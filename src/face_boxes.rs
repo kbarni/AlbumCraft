@@ -148,33 +148,64 @@ impl App {
             }
             let mut rename: Option<(EditorFace, String)> = None;
             let mut remove: Option<[f32; 4]> = None;
+            // the library's names, for the drop-down under a name being typed
+            let known: Vec<String> = self.sidebar_counts().people.iter().map(|(n, _)| n.clone()).collect();
             for (n, f) in list.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::hover());
-                    match f.index {
-                        Some(i) => self.paint_face(ui, rect, &(key.clone(), i), 4.0),
-                        None => {
-                            ui.painter().rect_filled(rect, 4, t().surface_hover);
-                            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icons::PERSON, egui::FontId::proportional(16.0), t().text_weak);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(Vec2::splat(36.0), egui::Sense::hover());
+                        match f.index {
+                            Some(i) => self.paint_face(ui, rect, &(key.clone(), i), 4.0),
+                            None => {
+                                ui.painter().rect_filled(rect, 4, t().surface_hover);
+                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icons::PERSON, egui::FontId::proportional(16.0), t().text_weak);
+                            }
                         }
-                    }
-                    let slot = ui.scope_id().with(("face-name", n, f.index));
-                    let current = f.name.clone().unwrap_or_default();
-                    let mut text: String = ui.data_mut(|d| d.get_temp(slot)).unwrap_or_else(|| current.clone());
-                    let w = (ui.available_width() - if f.index.is_none() { 30.0 } else { 0.0 }).max(60.0);
-                    let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(tr!("persons-unnamed")).desired_width(w));
-                    if r.has_focus() || text != current {
-                        ui.data_mut(|d| d.insert_temp(slot, text.clone()));
-                    }
-                    if r.lost_focus() {
-                        if text.trim() != current && !text.trim().is_empty() {
-                            rename = Some((f.clone(), text.trim().to_string()));
+                        let slot = ui.scope_id().with(("face-name", n, f.index));
+                        let current = f.name.clone().unwrap_or_default();
+                        let mut text: String = ui.data_mut(|d| d.get_temp(slot)).unwrap_or_else(|| current.clone());
+                        let w = (ui.available_width() - if f.index.is_none() { 30.0 } else { 0.0 }).max(60.0);
+                        let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(tr!("persons-unnamed")).desired_width(w));
+                        // where the drop-down was last frame: a click on it takes the focus off the
+                        // field first, and must not count as the end of typing
+                        let list_at: Option<Rect> = ui.data(|d| d.get_temp(slot.with("list")));
+                        let on_list = list_at.is_some_and(|l| ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| l.contains(p)));
+                        if r.has_focus() || text != current {
+                            ui.data_mut(|d| d.insert_temp(slot, text.clone()));
                         }
-                        ui.data_mut(|d| d.remove::<String>(slot));
-                    }
-                    if f.index.is_none() && ui.small_button(icons::CLOSE).on_hover_text(tr!("persons-remove-face")).clicked() {
-                        remove = Some(f.rect);
-                    }
+                        if r.lost_focus() && !on_list {
+                            if text.trim() != current && !text.trim().is_empty() {
+                                rename = Some((f.clone(), text.trim().to_string()));
+                            }
+                            ui.data_mut(|d| d.remove::<String>(slot));
+                        }
+                        if f.index.is_none() && ui.small_button(icons::CLOSE).on_hover_text(tr!("persons-remove-face")).clicked() {
+                            remove = Some(f.rect);
+                        }
+                        // existing names that fit what is typed: a click gives the face to that person
+                        let typed = crate::tags::key(&text);
+                        let matches: Vec<&String> = if r.has_focus() || on_list {
+                            known.iter().filter(|k| crate::tags::key(k) != crate::tags::key(&current) && crate::tags::key(k).contains(&typed)).take(6).collect()
+                        } else {
+                            vec![]
+                        };
+                        if matches.is_empty() {
+                            ui.data_mut(|d| d.remove::<Rect>(slot.with("list")));
+                        } else {
+                            let at = egui::Area::new(slot.with("area")).order(egui::Order::Foreground).fixed_pos(r.rect.left_bottom() + egui::vec2(0.0, 2.0)).show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.set_min_width(r.rect.width());
+                                    for name in &matches {
+                                        if ui.add(egui::Button::new(format!("{} {name}", icons::PERSON)).frame(false).min_size(egui::vec2(r.rect.width() - 16.0, 0.0))).on_hover_text(tr!("persons-use-name")).clicked() {
+                                            rename = Some((f.clone(), (*name).clone()));
+                                            ui.data_mut(|d| d.remove::<String>(slot));
+                                        }
+                                    }
+                                });
+                            });
+                            ui.data_mut(|d| d.insert_temp(slot.with("list"), at.response.rect));
+                        }
+                    });
                 });
             }
             if let Some((f, name)) = rename {

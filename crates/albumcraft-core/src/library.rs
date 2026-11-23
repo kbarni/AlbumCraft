@@ -313,6 +313,9 @@ pub struct Store {
     /// Names of the face groups (`face_groups::GroupId`, kept in the analysis folder). A name
     /// is a person, like the names typed on pictures (`Meta.people`): both are one list.
     pub person_names: std::collections::BTreeMap<u32, String>,
+    /// A person's caption and description (like a folder's), by the name's `tags::key`; they
+    /// follow the person when it is renamed.
+    pub person_texts: std::collections::BTreeMap<String, (String, String)>,
     /// Face groups the user merged: group -> the group it was added to.
     pub person_merged: std::collections::BTreeMap<u32, u32>,
     /// Names proposed for a group and refused (group, name as `tags::key`).
@@ -403,6 +406,7 @@ impl Default for Store {
             search_pack: String::new(),
             faces_enabled: None,
             person_names: Default::default(),
+            person_texts: Default::default(),
             person_merged: Default::default(),
             refused_names: vec![],
             refused_merges: vec![],
