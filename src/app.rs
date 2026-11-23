@@ -242,6 +242,8 @@ pub enum Tool {
     None,
     Crop,
     Redeye,
+    /// Draw a box where a face is, by hand.
+    AddFace,
     Straighten,
     /// Click something that should be gray to set the white balance.
     PickNeutral,
@@ -366,6 +368,8 @@ pub struct EditState {
     pub crop_grip: Option<(crate::steps::Grip, [f32; 4], egui::Pos2)>,
     pub tag_buf: String,
     pub person_buf: String,
+    /// Face boxes with names drawn over the picture.
+    pub face_boxes: bool,
     /// "A", "A|B" or "A|A" view: the three buttons at the top of the editor.
     pub compare: CompareMode,
     /// One picture above the other instead of side by side.
@@ -847,6 +851,7 @@ impl App {
                 other: None,
                 tag_buf: String::new(),
                 person_buf: String::new(),
+                face_boxes: false,
             },
             slide: None,
             cache_sizes: None,

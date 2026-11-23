@@ -805,6 +805,14 @@ impl App {
                     }
                 });
             }
+            Tool::AddFace => {
+                ui.label(RichText::new(tr!("persons-add-face")).strong().size(15.0));
+                ui.label(tr!("persons-add-face-hint"));
+                if ui.button(tr!("button-cancel")).clicked() {
+                    self.edit.tool = Tool::None;
+                    self.edit.sel = None;
+                }
+            }
             Tool::Redeye => {
                 ui.label(RichText::new(tr!("op-redeye")).strong().size(15.0));
                 ui.label(tr!("edit-redeye-help"));
@@ -1035,7 +1043,7 @@ impl App {
                 self.edit.tool = Tool::None;
                 self.edit.angle = 0.0;
             }
-            Tool::PickNeutral | Tool::None => {}
+            Tool::PickNeutral | Tool::None | Tool::AddFace => {}
         }
     }
 
@@ -1396,25 +1404,6 @@ impl App {
                             self.edit.zoom_anim = Some(ZoomAnim { from: z_now, to: None, t0: now, pan_from: self.edit.pan, focus: None });
                         }
                     });
-                });
-                // people chips (tags are in the info panel)
-                ui.horizontal_wrapped(|ui| {
-                    let people = self.meta(id).map(|m| m.people.clone()).unwrap_or_default();
-                    ui.label(RichText::new(tr!("edit-people")).size(12.0));
-                    for t in &people {
-                        if ui.small_button(format!("{} {t} {}", icons::PERSON, icons::CLOSE)).on_hover_text(tr!("edit-person-remove")).clicked() {
-                            self.meta_mut(id).people.retain(|x| x != t);
-                        }
-                    }
-                    let r = ui.add(egui::TextEdit::singleline(&mut self.edit.person_buf).hint_text(tr!("edit-person-add")).desired_width(90.0));
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !self.edit.person_buf.trim().is_empty() {
-                        let t = self.edit.person_buf.trim().to_string();
-                        self.edit.person_buf.clear();
-                        let m = self.meta_mut(id);
-                        if !m.people.contains(&t) {
-                            m.people.push(t);
-                        }
-                    }
                 });
                 // filmstrip
                 // the list is lent out while the strip is drawn (no copy of it per frame)
@@ -1804,10 +1793,13 @@ impl App {
             if self.edit.tool == Tool::None && ui.input(|i| i.time) < self.edit.grid_until {
                 paint_grid(p, img_rect);
             }
+            if !original && self.edit.tool != Tool::Crop {
+                self.paint_face_boxes(ui.painter(), img_rect, id);
+            }
 
             match self.edit.tool {
                 Tool::Straighten => paint_grid(p, img_rect),
-                Tool::Crop | Tool::Redeye => {
+                Tool::Crop | Tool::Redeye | Tool::AddFace => {
                     use crate::steps::{self, Grip};
                     let raw = |pos: Pos2| Pos2::new((pos.x - img_rect.left()) / img_rect.width(), (pos.y - img_rect.top()) / img_rect.height());
                     let to_norm = |pos: Pos2| {
@@ -1853,6 +1845,11 @@ impl App {
                     }
                     if resp.drag_stopped() {
                         self.edit.crop_grip = None;
+                        if self.edit.tool == Tool::AddFace
+                            && let Some(s) = self.edit.sel.take()
+                        {
+                            self.add_drawn_face(id, s);
+                        }
                     }
                     let shown_grip = self.edit.crop_grip.map(|(g, _, _)| g).or_else(|| grip_under(self.edit.sel, resp.hover_pos()));
                     match shown_grip {

@@ -9,6 +9,7 @@
 pub mod auto;
 pub mod decor;
 pub mod develop;
+pub mod geometry;
 pub mod imaging;
 pub mod looks;
 pub mod steps;

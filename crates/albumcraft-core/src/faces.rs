@@ -113,6 +113,10 @@ pub enum FaceState {
     Ignored,
     /// Not a face at all: left out, and not counted as a person.
     NotFace,
+    /// A face the user drew where none was found, of this person. Shown in the editor and
+    /// counted as a person; if a face is found there later it is placed in the group like
+    /// `Person`.
+    Added(GroupId),
 }
 
 /// The box overlap at which a note is a face's.
@@ -305,7 +309,7 @@ pub fn new_person_id(store: &crate::library::Store, index: &FaceIndex) -> GroupI
     n = n.max(index.groups.iter().map(|g| g.id + 1).max().unwrap_or(0));
     for m in store.meta.values() {
         for f in &m.faces {
-            if let FaceState::Person(g) = f.s {
+            if let FaceState::Person(g) | FaceState::Added(g) = f.s {
                 n = n.max(g + 1);
             }
         }
@@ -355,12 +359,38 @@ pub fn names_by_picture(index: &FaceIndex, store: &crate::library::Store) -> Has
             out.insert(key.clone(), names);
         }
     }
+    // faces drawn by hand have no vector: they are in the notes only
+    for (key, m) in &store.meta {
+        for f in &m.faces {
+            if let FaceState::Added(g) = f.s
+                && let Some(n) = name_of(store, g)
+            {
+                let names = out.entry(key.clone()).or_default();
+                if !names.iter().any(|x| x == n) {
+                    names.push(n.to_string());
+                    names.sort();
+                }
+            }
+        }
+    }
     out
+}
+
+/// Draw a face by hand on a picture, of the person (group) `g`.
+pub fn add_face(meta: &mut crate::library::Meta, rect: [f32; 4], g: GroupId) {
+    note_face(meta, rect, Some(FaceState::Added(g)));
 }
 
 /// The names of the people recognised in one picture.
 pub fn names_in(index: &FaceIndex, store: &crate::library::Store, key: &str) -> Vec<String> {
     let mut names: Vec<String> = index.pictures.get(key).into_iter().flatten().filter_map(|f| name_of(store, f.group?)).map(str::to_string).collect();
+    for f in store.meta.get(key).into_iter().flat_map(|m| &m.faces) {
+        if let FaceState::Added(g) = f.s
+            && let Some(n) = name_of(store, g)
+        {
+            names.push(n.to_string());
+        }
+    }
     names.sort();
     names.dedup();
     names
@@ -559,7 +589,7 @@ fn apply(d: &Decided, r: &Read) -> (Constraints, HashMap<FaceId, FaceState>) {
         let Some(i) = by_pic.get(&pic).and_then(|f| note_target(&note.r, f.iter().copied())) else { continue };
         let id = (pic, i);
         match &note.s {
-            FaceState::Person(g) => {
+            FaceState::Person(g) | FaceState::Added(g) => {
                 let g = c.resolve(*g);
                 c.placed.insert(id, g);
             }
@@ -838,6 +868,25 @@ mod tests {
         let mut before = Groups::default();
         restore_named(&r, &mut before, &refs, &HashSet::new(), &p);
         assert!(before.of.is_empty());
+    }
+
+    #[test]
+    fn a_face_drawn_by_hand_is_a_person_of_the_picture() {
+        let mut store = crate::library::Store::default();
+        store.person_names.insert(5, "Anna".into());
+        let mut meta = crate::library::Meta::default();
+        add_face(&mut meta, [0.4, 0.3, 0.1, 0.1], 5);
+        store.meta.insert("p.jpg".into(), meta);
+        let index = FaceIndex::default();
+        assert_eq!(names_in(&index, &store, "p.jpg"), vec!["Anna".to_string()]);
+        assert_eq!(names_by_picture(&index, &store).get("p.jpg"), Some(&vec!["Anna".to_string()]));
+        // its group number is never given to somebody else
+        assert!(new_person_id(&store, &index) > 5);
+        // saved with its person, read back
+        let json = serde_json::to_string(&store.meta["p.jpg"].faces).unwrap();
+        assert!(json.contains("\"added\":5"), "{json}");
+        let back: Vec<FaceNote> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, store.meta["p.jpg"].faces);
     }
 
     #[test]

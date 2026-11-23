@@ -202,7 +202,7 @@ impl App {
     }
 
     /// Draw a face in `rect` (a grey square with a person until it is there).
-    fn paint_face(&mut self, ui: &egui::Ui, rect: Rect, face: &(String, u16), round: f32) {
+    pub(crate) fn paint_face(&mut self, ui: &egui::Ui, rect: Rect, face: &(String, u16), round: f32) {
         if !ui.is_rect_visible(rect) {
             return;
         }

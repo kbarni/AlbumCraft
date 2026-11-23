@@ -2064,3 +2064,12 @@ geotag-done = { $n ->
 geotag-map-title = Situadas desde la ruta
 geotag-gpx-too-large = { $name } es demasiado grande para ser una ruta GPS
 geotag-no-points = la ruta no tiene puntos con hora
+
+info-persons = People
+persons-show-boxes = Show faces on the picture
+persons-no-faces = No faces found in this picture.
+persons-unnamed = Unnamed person
+persons-add-face = Add a face
+persons-add-face-hint = Draw a box around a face the program missed
+persons-remove-face = Remove this face
+face-added = Face added

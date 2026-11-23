@@ -10,6 +10,7 @@ mod date_view;
 mod display;
 mod edit_view;
 mod export_view;
+mod face_boxes;
 mod faces_view;
 mod file_actions;
 mod file_dialogs;
@@ -46,7 +47,7 @@ mod xmp_view;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{ai, analysis, auto, catalogue, collage, commands, control, decor, develop, exifinfo, export, face_groups, faces, files, gallery, geo, geotag, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, taken, steps, thumbcache, video, xmp, xmp_sync};
+pub use albumcraft_core::{ai, analysis, auto, catalogue, collage, commands, control, decor, develop, exifinfo, export, face_groups, faces, files, gallery, geometry, geo, geotag, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, taken, steps, thumbcache, video, xmp, xmp_sync};
 
 use std::path::PathBuf;
 

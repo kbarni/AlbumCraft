@@ -2064,3 +2064,12 @@ geotag-done = { $n ->
 geotag-map-title = Aus dem Track platziert
 geotag-gpx-too-large = { $name } ist zu groß für einen GPS-Track
 geotag-no-points = der Track hat keine Punkte mit Zeit
+
+info-persons = People
+persons-show-boxes = Show faces on the picture
+persons-no-faces = No faces found in this picture.
+persons-unnamed = Unnamed person
+persons-add-face = Add a face
+persons-add-face-hint = Draw a box around a face the program missed
+persons-remove-face = Remove this face
+face-added = Face added

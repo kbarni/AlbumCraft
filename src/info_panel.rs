@@ -56,7 +56,7 @@ fn orientation_text(o: u32) -> Option<String> {
 
 impl App {
     /// The section header: a chevron and the title. Returns whether the section is open.
-    fn info_section(&mut self, ui: &mut egui::Ui, key: &str, title: &str, default_open: bool) -> bool {
+    pub(crate) fn info_section(&mut self, ui: &mut egui::Ui, key: &str, title: &str, default_open: bool) -> bool {
         let open = self.store.info_sections.get(key).copied().unwrap_or(default_open);
         ui.add_space(6.0);
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), Sense::click());
@@ -120,6 +120,7 @@ impl App {
                     self.info_exif(ui, id);
                     self.info_location(ui, id);
                     self.info_tags(ui, id);
+                    self.info_persons(ui, id);
                     ui.add_space(12.0);
                 });
                 outer.advance_cursor_after_rect(r);

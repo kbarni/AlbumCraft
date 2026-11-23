@@ -2070,3 +2070,12 @@ geotag-done = { $n ->
 geotag-map-title = Placed from the track
 geotag-gpx-too-large = { $name } is too large to be a track log
 geotag-no-points = the track log has no timed points
+
+info-persons = People
+persons-show-boxes = Show faces on the picture
+persons-no-faces = No faces found in this picture.
+persons-unnamed = Unnamed person
+persons-add-face = Add a face
+persons-add-face-hint = Draw a box around a face the program missed
+persons-remove-face = Remove this face
+face-added = Face added
