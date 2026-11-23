@@ -905,6 +905,10 @@ impl App {
             // asked once (and again at the next start if something more urgent was shown instead)
             app.dialog = Some(Dialog::OnlineMaps);
         }
+        // face boxes shown at once in the editor (for screenshots)
+        if std::env::var_os("ALBUMCRAFT_FACE_BOXES").is_some() {
+            app.edit.face_boxes = true;
+        }
         // for looking at the People page of a real library (`--screenshot` shows samples only)
         match std::env::var("ALBUMCRAFT_OPEN").ok().as_deref() {
             Some("people") => app.source = Source::People,
