@@ -5,7 +5,7 @@
 use crate::app::*;
 use crate::i18n::{self, tr};
 use crate::icons;
-use crate::library::{BarStyle, Cache, fmt_bytes};
+use crate::library::{BarStyle, Cache, ScrollMode, fmt_bytes};
 use crate::theme::{Mode, t};
 use eframe::egui::{self, RichText};
 
@@ -187,6 +187,12 @@ impl App {
         let mut changed = ui.radio_value(b, BarStyle::Compact, tr!("settings-bar-compact")).changed();
         changed |= ui.radio_value(b, BarStyle::Tray, tr!("settings-bar-tray")).changed();
         note(ui, &tr!("settings-bar-note"));
+
+        group(ui, &tr!("settings-scroll"));
+        let m = &mut self.store.scroll_mode;
+        changed |= ui.radio_value(m, ScrollMode::Position, tr!("settings-scroll-position")).changed();
+        changed |= ui.radio_value(m, ScrollMode::Speed, tr!("settings-scroll-speed")).changed();
+        note(ui, &tr!("settings-scroll-note"));
 
         group(ui, &tr!("settings-thumb-size"));
         changed |= ui.add(egui::Slider::new(&mut self.store.thumb_size, 64.0..=256.0).show_value(false)).changed();

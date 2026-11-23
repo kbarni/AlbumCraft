@@ -156,6 +156,18 @@ pub enum BarStyle {
     Tray,
 }
 
+/// How the scroll bar of the library's grid works.
+#[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ScrollMode {
+    /// The handle's position is the position in the library.
+    Position,
+    /// The handle rests in the middle of the track; dragging it up or down scrolls, faster the
+    /// farther it is dragged, and it springs back when let go.
+    #[default]
+    Speed,
+}
+
 /// A cache on disk that the settings can empty.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cache {
@@ -285,6 +297,9 @@ pub struct Store {
     /// The bar at the bottom of the library: compact or the tray.
     #[serde(deserialize_with = "or_default")]
     pub bar_style: BarStyle,
+    /// How the library's scroll bar works: the handle's position or its distance from the middle.
+    #[serde(deserialize_with = "or_default")]
+    pub scroll_mode: ScrollMode,
     /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
     pub edit_advanced: bool,
     /// The editor's histogram shows the red, green and blue curves rather than luminance.
@@ -394,6 +409,7 @@ impl Default for Store {
             contact_sheet: Default::default(),
             sort: Sort::Name,
             bar_style: BarStyle::Compact,
+            scroll_mode: ScrollMode::Speed,
             edit_advanced: false,
             hist_rgb: false,
             steps_h: 0.0,

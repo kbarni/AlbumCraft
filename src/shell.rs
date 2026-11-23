@@ -8,7 +8,7 @@
 use crate::icons;
 use crate::app::*;
 use crate::i18n::tr;
-use crate::library::{Flag, MAX_RATING};
+use crate::library::{Flag, MAX_RATING, ScrollMode};
 use crate::library_view::{paint_flag, paint_rating, paint_reject, paint_star};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 use std::collections::HashMap;
@@ -113,6 +113,9 @@ const PAD: i8 = 24;
 /// How much faster than egui's default the wheel scrolls the grid, and the drag (middle button
 /// or finger) compared with the pointer; how fast the drag's momentum dies away (per second).
 const WHEEL_GAIN: f32 = 3.0;
+/// The grid's scroll bar: wide and tall enough to grab with the mouse.
+const BAR_W: f32 = 16.0;
+const HANDLE_MIN: f32 = 72.0;
 const PAN_GAIN: f32 = 1.6;
 const PAN_FRICTION: f32 = 3.0;
 
@@ -852,6 +855,42 @@ impl App {
         }
     }
 
+    /// The scroll bar's Speed mode: a handle that rests in the middle of the track at the right
+    /// edge; how far it is dragged up or down sets how fast the grid scrolls (`grid_rate`, used
+    /// by the scroll area on the next frame), and it springs back when let go.
+    fn speed_handle(&mut self, ui: &mut egui::Ui, panel: Rect) {
+        let track = Rect::from_min_max(Pos2::new(panel.right() - BAR_W, panel.top()), panel.max);
+        let half = (track.height() / 2.0 - HANDLE_MIN / 2.0).max(1.0);
+        let r = ui.interact(track, egui::Id::new("grid_speed_handle"), Sense::drag());
+        if r.dragged()
+            && let Some(p) = ui.ctx().pointer_latest_pos()
+        {
+            self.grid_handle = (p.y - track.center().y).clamp(-half, half);
+        } else {
+            self.grid_handle = 0.0;
+        }
+        // squared, so that small drags are fine and the far end is fast
+        let x = self.grid_handle / half;
+        self.grid_rate = -x.signum() * x * x * track.height() * 5.0;
+        let hovered = r.hovered() || r.dragged();
+        let handle = Rect::from_center_size(Pos2::new(track.center().x, track.center().y + self.grid_handle), egui::vec2(BAR_W, HANDLE_MIN));
+        let p = ui.painter();
+        p.rect_filled(track, 0, t().accent.gamma_multiply(if hovered { 0.12 } else { 0.06 }));
+        let mid = track.center();
+        p.line_segment([Pos2::new(mid.x, track.top() + 4.0), Pos2::new(mid.x, track.bottom() - 4.0)], Stroke::new(1.0, t().accent.gamma_multiply(0.3)));
+        p.rect_filled(handle.shrink2(egui::vec2(2.0, 0.0)), 5, t().accent.gamma_multiply(if hovered { 0.9 } else { 0.65 }));
+        for dy in [-4.0, 0.0, 4.0] {
+            let y = handle.center().y + dy;
+            p.line_segment([Pos2::new(handle.center().x - 3.0, y), Pos2::new(handle.center().x + 3.0, y)], Stroke::new(1.0, Color32::WHITE.gamma_multiply(0.8)));
+        }
+        if hovered {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        if r.dragged() || self.grid_rate != 0.0 {
+            ui.ctx().request_repaint();
+        }
+    }
+
     fn grid(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(t().lightbox_bg)).show(ui, |ui| {
             if self.source == Source::People {
@@ -874,7 +913,24 @@ impl App {
             let mut background_click = false;
             let mut flat: Rc<Vec<usize>> = Rc::new(vec![]);
 
-            egui::ScrollArea::vertical().auto_shrink([false, false]).wheel_scroll_multiplier(egui::vec2(1.0, WHEEL_GAIN)).show(ui, |ui| {
+            let panel = ui.max_rect();
+            let speed = self.store.scroll_mode == ScrollMode::Speed;
+            {
+                let sc = &mut ui.spacing_mut().scroll;
+                *sc = egui::style::ScrollStyle::solid();
+                sc.bar_width = BAR_W;
+                sc.handle_min_length = HANDLE_MIN;
+            }
+            let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]).wheel_scroll_multiplier(egui::vec2(1.0, WHEEL_GAIN));
+            if speed {
+                area = area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+            }
+            area.show(ui, |ui| {
+                if speed && self.grid_rate != 0.0 {
+                    let dt = ui.input(|i| i.stable_dt).min(0.1);
+                    ui.scroll_with_delta(egui::vec2(0.0, self.grid_rate * dt));
+                    ui.ctx().request_repaint();
+                }
                 egui::Frame::new().inner_margin(egui::Margin { left: PAD, right: PAD, top: 8, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                     let width = ui.available_width();
@@ -1059,6 +1115,9 @@ impl App {
                     }
                 });
             });
+            if speed {
+                self.speed_handle(ui, panel);
+            }
 
             if let Some((id, m)) = clicked {
                 if m.shift {
