@@ -155,10 +155,10 @@ pub enum BarStyle {
 #[serde(rename_all = "lowercase")]
 pub enum ScrollMode {
     /// The handle's position is the position in the library.
-    #[default]
     Position,
     /// The handle rests in the middle of the track; dragging it up or down scrolls, faster the
     /// farther it is dragged, and it springs back when let go.
+    #[default]
     Speed,
 }
 
@@ -385,7 +385,7 @@ impl Default for Store {
             contact_sheet: Default::default(),
             sort: Sort::Name,
             bar_style: BarStyle::Compact,
-            scroll_mode: ScrollMode::Position,
+            scroll_mode: ScrollMode::Speed,
             edit_advanced: false,
             hist_rgb: false,
             steps_h: 0.0,
