@@ -30,6 +30,7 @@ impl App {
     /// of them, only filling in, the first time).
     pub fn on_xmp(&mut self, batch: Vec<xmp_sync::Read>) {
         let mut changed = 0;
+        let mut regions_added = false;
         for read in batch {
             let Some(&id) = self.key_index.get(&read.key) else { continue };
             let notes = read.notes.unwrap_or_default();
@@ -37,6 +38,18 @@ impl App {
             let meta = self.store.meta.entry(read.key.clone()).or_default();
             let edits_before = meta.edits.clone();
             let touched = xmp_sync::apply(meta, &notes, old.as_ref());
+            // named face regions: faces of those people (what the user decided about a face wins)
+            if !notes.regions.is_empty() {
+                let known = self.face_groups.index.clone();
+                let empty = crate::faces::FaceIndex::default();
+                let index = known.as_deref().unwrap_or(&empty);
+                let mut added = false;
+                for (name, rect) in &notes.regions {
+                    added |= crate::faces::import_face(&mut self.store, index, &read.key, *rect, name);
+                }
+                regions_added |= added;
+            }
+            let meta = self.store.meta.entry(read.key.clone()).or_default();
             let edits_changed = meta.edits != edits_before;
             if meta.is_empty() {
                 self.store.meta.remove(&read.key);
@@ -58,6 +71,10 @@ impl App {
             }
             self.store.xmp_seen.insert(read.key, Seen { file: read.file, sidecar: read.sidecar, notes });
             self.dirty = true;
+        }
+        if regions_added {
+            self.dirty = true;
+            self.people_changed();
         }
         if changed > 0 {
             self.geo.place_rev += 1;

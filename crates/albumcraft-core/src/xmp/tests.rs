@@ -133,6 +133,12 @@ fn reads_face_regions_and_slash_tags() {
     assert_eq!(n.people, Some(s(&["Alice", "Bob", "Carol"])));
     assert_eq!(n.tags, Some(vec![s(&["Family", "Cousins"]), s(&["Holidays"])]));
     assert_eq!(n.rating, None);
+    // the boxes of the named faces (centre and size in the file: left, top, width, height here)
+    assert_eq!(n.regions.len(), 2, "{:?}", n.regions);
+    let (name, r) = &n.regions[0];
+    assert_eq!(name, "Alice");
+    assert!((r[0] - 0.45).abs() < 1e-5 && (r[1] - 0.45).abs() < 1e-5 && (r[2] - 0.1).abs() < 1e-5 && (r[3] - 0.1).abs() < 1e-5, "{r:?}");
+    assert_eq!(n.regions[1].0, "Bob");
 }
 
 #[test]
