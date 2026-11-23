@@ -1303,6 +1303,7 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
         }
         "list_people" => {
             let index = host.faces();
+            let empty = crate::faces::FaceIndex::default();
             let s = host.store();
             // each name once, with the pictures it is typed on or recognised in
             let mut by_name: std::collections::BTreeMap<String, (String, HashSet<usize>, HashSet<usize>)> = Default::default();
@@ -1310,10 +1311,9 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 for n in s.meta.get(&p.key).map(|m| m.people.as_slice()).unwrap_or_default() {
                     by_name.entry(crate::tags::key(n)).or_insert_with(|| (n.clone(), HashSet::new(), HashSet::new())).1.insert(id);
                 }
-                if let Some(i) = &index {
-                    for n in crate::faces::names_in(i, s, &p.key) {
-                        by_name.entry(crate::tags::key(&n)).or_insert_with(|| (n.clone(), HashSet::new(), HashSet::new())).2.insert(id);
-                    }
+                // faces drawn or imported by hand name people with no analysis too
+                for n in crate::faces::names_in(index.as_deref().unwrap_or(&empty), s, &p.key) {
+                    by_name.entry(crate::tags::key(&n)).or_insert_with(|| (n.clone(), HashSet::new(), HashSet::new())).2.insert(id);
                 }
             }
             let people: Vec<Value> = by_name

@@ -525,7 +525,9 @@ pub fn read_picasa_ini(dir: &Path) -> Option<IniFolder> {
             }
         } else if section.eq_ignore_ascii_case("Contacts") || section.eq_ignore_ascii_case("Contacts2") {
             let name = v.split(';').next().unwrap_or("").trim();
-            if let (Ok(id), false) = (u64::from_str_radix(k, 16), name.is_empty()) {
+            // older files keep a reference to the contact ("account,a long hex number"), not a name
+            let reference = name.rsplit_once(',').is_some_and(|(_, h)| (12..=16).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_hexdigit()));
+            if let (Ok(id), false, false) = (u64::from_str_radix(k, 16), name.is_empty(), reference) {
                 out.contacts.insert(id, name.to_string());
             }
         } else if let Some(token) = section.strip_prefix(".album:") {
