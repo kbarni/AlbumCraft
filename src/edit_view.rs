@@ -1659,6 +1659,10 @@ impl App {
         if ui.input(|i| i.time) < self.edit.grid_until {
             paint_grid(&p, img.intersect(canvas));
         }
+        if !self.edit.show_original {
+            // the boxes follow the picture, whatever the zoom; the painter clips them to the canvas
+            self.paint_face_boxes(&p, img, id);
+        }
         if resp.double_clicked() && self.edit.zoom_anim.is_none() {
             self.start_zoom_anim(ui.ctx(), None);
         }
