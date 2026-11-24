@@ -1,6 +1,6 @@
 # The FFmpeg libraries
 
-AlbumCraft plays videos through a playback-only build of FFmpeg (decoders and file readers
+AlbumCraft plays videos through a build of FFmpeg for playback and movie export (decoders, file readers, the MPEG-4 and AAC encoders
 for camera and phone videos, nothing else) plus dav1d for AV1. `build.sh` builds them, from
 checksum-pinned sources, as shared libraries:
 

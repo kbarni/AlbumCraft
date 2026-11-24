@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the FFmpeg libraries AlbumCraft plays videos with: a playback-only build (decoders and
-# file readers for camera and phone videos, nothing else), plus dav1d for AV1.
+# Build the FFmpeg libraries AlbumCraft plays videos with: decoders and file readers for camera
+# and phone videos, the MPEG-4 and AAC encoders for movie export, nothing else, plus dav1d for AV1.
 #
 #   .tools/ffmpeg/<os>-<arch>/          include/, lib/ (libraries or, on Windows, import libraries
 #                                       for GNU ld and MSVC, and pkg-config files), bin/ (Windows: the DLLs),
@@ -139,9 +139,13 @@ DECODERS+=,aac,aac_latm,ac3,eac3,mp3,mp3float,mp2,mp2float,opus,vorbis,flac,alac
 DECODERS+=,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw
 DECODERS+=,adpcm_ima_qt,adpcm_ima_wav,pcm_dvd,pcm_bluray
 DEMUXERS=mov,matroska,avi,mpegts,mpegps,dv,flv,ogg
+# music files for movies (MP3, WAV, FLAC, raw AAC; M4A is mov, Ogg is above)
+DEMUXERS+=,mp3,wav,flac,aac
 PARSERS=h264,hevc,av1,vp8,vp9,mjpeg,mpeg4video,mpegvideo,h263,dvbsub,aac,aac_latm,ac3,mpegaudio,opus,vorbis,flac
 # copies cut between the in and out points, without decoding (MP4/MOV, Matroska)
 MUXERS=mov,mp4,matroska
+# movie export (movie.rs): MPEG-4 video and AAC sound written to MP4, both built into FFmpeg (LGPL)
+ENCODERS=mpeg4,aac
 BSFS=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,extract_extradata
 
 echo "==> FFmpeg $FFMPEG_VERSION"
@@ -157,7 +161,7 @@ echo "==> FFmpeg $FFMPEG_VERSION"
     --enable-protocol=file \
     --enable-libdav1d \
     --enable-decoder="$DECODERS" --enable-demuxer="$DEMUXERS" --enable-parser="$PARSERS" \
-    --enable-muxer="$MUXERS" --enable-bsf="$BSFS" \
+    --enable-encoder="$ENCODERS" --enable-muxer="$MUXERS" --enable-bsf="$BSFS" \
     --enable-swscale --enable-swresample \
     ${CONFIGURE_EXTRA[@]+"${CONFIGURE_EXTRA[@]}"} \
     --extra-ldflags="$RPATH_FLAGS" --extra-libs="$EXTRA_LIBS" >"$WORK/configure.log" \

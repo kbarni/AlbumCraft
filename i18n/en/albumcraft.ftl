@@ -164,8 +164,7 @@ movie-length = About { $seconds } s long. Change the timing and effects in the s
 movie-music = Music
 movie-other-music = Other music…
 movie-add-music = Add music…
-movie-no-ffmpeg = Making movies needs the free FFmpeg program, which wasn't found.
-movie-install-ffmpeg = Install it from ffmpeg.org (or your system's package manager), then open this window again.
+movie-no-ffmpeg = This version of AlbumCraft was built without video support, so it can't make movies.
 movie-make = Choose file and make…
 movie-preview = Preview as slideshow
 
@@ -430,6 +429,7 @@ nav-places-hint = Your pictures on a map
 nav-albums = Albums
 nav-people = People
 nav-folders = Folders
+nav-tags = Tags
 folders-by-year = By year
 folders-as-on-disk = As on disk
 settings-folder-view = Folder list
@@ -1561,12 +1561,6 @@ export-unreadable = the picture could not be read
 gallery-too-many = too many galleries with this name here
 gallery-none-read = none of the pictures could be read
 movie-no-pictures = no pictures
-movie-ffmpeg-start = FFmpeg could not be started: { $error }
-movie-ffmpeg-input = FFmpeg has no input
-movie-ffmpeg-stopped = FFmpeg stopped ({ $error })
-movie-ffmpeg-failed =
-    FFmpeg failed:
-    { $tail }
 root-already = That folder is already in the library.
 root-inside = That folder is already in the library, as part of { $outer }.
 root-excluded = That folder is inside { $folder }, which is left out of the library.
@@ -2104,3 +2098,4 @@ delete-faces-yes = Delete face data
 delete-faces-done = Face data deleted
 settings-faces-delete = Delete all face data…
 settings-faces-delete-hint = Removes the faces found, their groups and the saved face pictures from this computer; names and corrections stay
+movie-encode-failed = The movie could not be made: { $error }

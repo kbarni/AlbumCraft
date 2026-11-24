@@ -57,7 +57,7 @@ Every edit is non-destructive: it is stored in the library and applied when a pi
 - **Slideshow**: full screen, with crossfades, slow pan and zoom, music and video clips. The editor also has a full-screen viewer (F11).
 - **Email**: small copies attached to a new message in your mail program (Thunderbird, Evolution, KMail, Outlook, Apple Mail).
 - **Web gallery**: a self-contained folder with an `index.html`, ready to open or upload anywhere. Choose from eight themes and a grid, column or justified layout. The animated lightbox supports swipe and zoom.
-- **Slideshow movie**: an MP4 at 720p or 1080p, with music. This one feature uses the [FFmpeg](https://ffmpeg.org/download.html) program, so it must be installed for it.
+- **Slideshow movie**: an MP4 at 720p or 1080p, with looping music, made inside AlbumCraft with the bundled FFmpeg libraries, so nothing else needs to be installed.
 
 ## Use it from an AI agent (MCP)
 
@@ -90,7 +90,7 @@ Download the build for your system from the [releases](https://github.com/kbarni
   - the `.tar.gz` (unpack and run `albumcraft`; keep the libraries beside it).
 - **macOS** (Apple Silicon, macOS 13.4 or newer): open the `.dmg` and drag `AlbumCraft.app` to Applications.
 
-Everything the app needs comes with it. Video decoding uses *FFmpeg*, which is included.
+Everything the app needs comes with it. Video playback and movie export use *FFmpeg*, which is included.
 
 The builds are not signed. On macOS, right-click the app and choose *Open* the first time. On Windows, choose *More info* → *Run anyway*.
 
@@ -113,7 +113,7 @@ sudo apt install pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-d
   libxcursor-dev libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev libasound2-dev
 ```
 
-Video support links a playback-only build of the FFmpeg libraries. Build it once with `packaging/ffmpeg/build.sh` (see `packaging/ffmpeg/README.md`), or build without videos: `cargo build --release --no-default-features --features onnx,heif,avif`.
+Video support links a build of the FFmpeg libraries for playback and movie export (MPEG-4 and AAC encoders). Build it once with `packaging/ffmpeg/build.sh` (see `packaging/ffmpeg/README.md`), or build without videos: `cargo build --release --no-default-features --features onnx,heif,avif`.
 
 `cargo test` runs the tests. `CLAUDE.md` and `AGENTS.md` describe the code and the rules for contributors (human or AI). `new_features.md` is the plan and its status.
 

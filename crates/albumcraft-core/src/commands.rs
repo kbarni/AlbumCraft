@@ -2087,8 +2087,8 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
             let size = if opt_bool(args, "hd")?.unwrap_or(false) { (1920, 1080) } else { (1280, 720) };
             let pictures: Vec<(String, Vec<EditOp>)> = ids.iter().map(|&id| (host.photos()[id].key.clone(), edits_of(host, id))).collect();
             Ok(Outcome::Later(Box::new(move || {
-                if !crate::movie::ffmpeg_available() {
-                    return Err("making movies needs the FFmpeg program, which wasn't found".into());
+                if !crate::movie::available() {
+                    return Err("this build has no video support, so it can't make movies".into());
                 }
                 crate::movie::make(&path, &pictures, size, &s, &|_| true)?;
                 Ok(Reply::json(json!({ "movie": path.to_string_lossy(), "seconds": crate::movie::duration(pictures.len(), &s) })))

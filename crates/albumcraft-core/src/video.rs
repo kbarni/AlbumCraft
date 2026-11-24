@@ -291,6 +291,12 @@ fn frame(_path: &str, _at: Option<f64>, _max_dim: u32) -> Option<RgbaImage> {
     None
 }
 
+/// Start the FFmpeg libraries (once, quietly).
+#[cfg(feature = "video")]
+pub(crate) fn init_ffmpeg() -> bool {
+    with_ffmpeg::init()
+}
+
 #[cfg(feature = "video")]
 mod with_ffmpeg {
     use super::*;
@@ -651,7 +657,7 @@ mod tests {
     #[cfg(feature = "video")]
     pub(crate) fn test_clip(name: &str, secs: f64, turn: i32, extra: &[&str]) -> Option<std::path::PathBuf> {
         use std::process::{Command, Stdio};
-        if !crate::movie::ffmpeg_available() {
+        if !Command::new("ffmpeg").arg("-version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success()) {
             eprintln!("skipped: no ffmpeg program to make test videos with");
             return None;
         }

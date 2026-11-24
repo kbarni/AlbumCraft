@@ -279,7 +279,7 @@ impl App {
                 }
                 Dialog::Movie { hd } => {
                     let list = if targets.len() > 1 { targets.clone() } else { self.visible_flat() };
-                    let ffmpeg = *self.ffmpeg.get_or_insert_with(crate::movie::ffmpeg_available);
+                    let ffmpeg = *self.ffmpeg.get_or_insert_with(crate::movie::available);
                     let st = self.store.slideshow.clone();
                     let yes_no = |b: bool| if b { "yes" } else { "no" };
                     ui.label(tr!("movie-intro", n = list.len(), seconds = st.interval.round(), fade = yes_no(st.fade), motion = yes_no(st.motion)));
@@ -303,8 +303,6 @@ impl App {
                     if !ffmpeg {
                         ui.add_space(6.0);
                         ui.label(egui::RichText::new(tr!("movie-no-ffmpeg")).color(crate::theme::t().reject));
-                        ui.label(tr!("movie-install-ffmpeg"));
-                        ui.hyperlink_to("ffmpeg.org/download", "https://ffmpeg.org/download.html");
                     }
                     ui.horizontal(|ui| {
                         if ui.add_enabled(ffmpeg && !list.is_empty(), egui::Button::new(tr!("movie-make"))).clicked() {
