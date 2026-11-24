@@ -272,12 +272,6 @@ fn nav_row_sensed(ui: &mut egui::Ui, icon: &str, label: &str, sub: Option<&str>,
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn caption(ui: &mut egui::Ui, text: &str) {
-    ui.add_space(14.0);
-    ui.label(RichText::new(text.to_uppercase()).size(11.0).strong().color(t().text_weak));
-    ui.add_space(2.0);
-}
-
 /// A soft shade over `rect`, from `top` to `bottom` (behind the buttons drawn on a picture).
 fn shade(p: &egui::Painter, rect: Rect, top: Color32, bottom: Color32) {
     let mut mesh = egui::Mesh::default();
@@ -502,17 +496,13 @@ impl App {
                         self.open_places();
                     }
 
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(tr!("nav-albums").to_uppercase()).size(11.0).strong().color(t().text_weak));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_btn(ui, icons::ADD, &tr!("dialog-new-album")).clicked() {
-                                self.dialog = Some(Dialog::NewAlbum { name: String::new() });
-                            }
-                        });
+                    let albums_open = self.section_header(ui, "albums", &tr!("nav-albums"), |app, ui| {
+                        if icon_btn(ui, icons::ADD, &tr!("dialog-new-album")).clicked() {
+                            app.dialog = Some(Dialog::NewAlbum { name: String::new() });
+                        }
                     });
                     let mut delete = None;
-                    for i in 0..self.store.albums.len() {
+                    for i in (0..self.store.albums.len()).filter(|_| albums_open) {
                         let n = counts.albums.get(i).copied().unwrap_or(0);
                         let name = self.store.albums[i].name.clone();
                         let r = nav_row(ui, icons::ALBUM, &name, Some(n), self.source == Source::Album(i));
@@ -564,16 +554,35 @@ impl App {
                         self.undoable(tr!("album-deleted", name = album.name.as_str()), Undo::Album { at: i, album });
                     }
 
-                    caption(ui, &tr!("nav-people"));
-                    self.people_sidebar(ui, &counts.people);
+                    if self.section_header(ui, "people", &tr!("nav-people"), |_, _| {}) {
+                        self.people_sidebar(ui, &counts.people);
+                    }
 
-                    self.folders_caption(ui);
+                    let tag_nodes = self.tag_tree();
+                    if !tag_nodes.is_empty() {
+                        let manage = tr!("tags-manage");
+                        let open = self.section_header(ui, "tags", &tr!("nav-tags"), |app, ui| {
+                            if icon_btn(ui, icons::TAG, &manage).clicked() {
+                                app.open_tag_manager(None);
+                            }
+                        });
+                        if open {
+                            ui.scope(|ui| {
+                                ui.spacing_mut().indent = 10.0;
+                                for node in tag_nodes.iter() {
+                                    self.tag_row(ui, node, 0);
+                                }
+                            });
+                        }
+                    }
+
+                    let folders_open = self.folders_caption(ui);
                     let current_folder = match &self.list_pick {
                         Some(TraySet::Folder(fi)) if self.selection.is_empty() => Some(*fi),
                         _ => self.selection.iter().next().map(|&id| self.photos[id].folder),
                     };
                     let tree = self.store.folder_view == "tree";
-                    if tree {
+                    if tree && folders_open {
                         ui.scope(|ui| {
                             // a narrow step per level: names stay on one line in a narrow sidebar
                             ui.spacing_mut().indent = 10.0;
@@ -582,7 +591,7 @@ impl App {
                             }
                         });
                     }
-                    for (year, fis) in counts.by_year.iter().filter(|_| !tree) {
+                    for (year, fis) in counts.by_year.iter().filter(|_| !tree && folders_open) {
                         let year = *year;
                         egui::CollapsingHeader::new(RichText::new(year.to_string()).size(13.0).strong().color(t().text))
                             .id_salt(("year", year))
@@ -606,20 +615,88 @@ impl App {
             });
     }
 
-    /// The Folders heading, with the choice of how they are listed: by year or as on disk.
-    fn folders_caption(&mut self, ui: &mut egui::Ui) {
+    /// The heading of a sidebar section: a triangle and the name, a click on either folds the
+    /// section away (remembered in `Store.closed_sections`), `extra` is drawn at the right.
+    /// Returns whether the section is open.
+    fn section_header(&mut self, ui: &mut egui::Ui, key: &str, title: &str, extra: impl FnOnce(&mut App, &mut egui::Ui)) -> bool {
+        let open = !self.store.closed_sections.iter().any(|k| k == key);
         ui.add_space(14.0);
+        let mut toggled = false;
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tr!("nav-folders").to_uppercase()).size(11.0).strong().color(t().text_weak));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let tree = self.store.folder_view == "tree";
-                if let Some(tree) = view_toggle(ui, tree) {
-                    self.store.folder_view = if tree { "tree" } else { "years" }.into();
-                    self.dirty = true;
-                }
-            });
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(12.0, 16.0), Sense::click());
+            let c = rect.center();
+            let pts = if open {
+                vec![c + egui::vec2(-4.0, -2.0), c + egui::vec2(4.0, -2.0), c + egui::vec2(0.0, 3.0)]
+            } else {
+                vec![c + egui::vec2(-2.0, -4.0), c + egui::vec2(3.0, 0.0), c + egui::vec2(-2.0, 4.0)]
+            };
+            ui.painter().add(egui::Shape::convex_polygon(pts, t().text_weak, Stroke::NONE));
+            let label = ui.add(egui::Label::new(RichText::new(title.to_uppercase()).size(11.0).strong().color(t().text_weak)).sense(Sense::click()));
+            if resp.clicked() || label.clicked() {
+                toggled = true;
+            }
+            if resp.hovered() || label.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| extra(self, ui));
         });
         ui.add_space(2.0);
+        if toggled {
+            if open {
+                self.store.closed_sections.push(key.to_string());
+            } else {
+                self.store.closed_sections.retain(|k| k != key);
+            }
+            self.dirty = true;
+        }
+        open && !toggled
+    }
+
+    /// The Folders heading, with the choice of how they are listed: by year or as on disk.
+    /// Returns whether the section is open.
+    fn folders_caption(&mut self, ui: &mut egui::Ui) -> bool {
+        self.section_header(ui, "folders", &tr!("nav-folders"), |app, ui| {
+            let tree = app.store.folder_view == "tree";
+            if let Some(tree) = view_toggle(ui, tree) {
+                app.store.folder_view = if tree { "tree" } else { "years" }.into();
+                app.dirty = true;
+            }
+        })
+    }
+
+    /// A tag of the sidebar's tag tree and, when it is open, the tags under it. A click shows
+    /// the pictures with that tag (and those of the tags under it), a second one lets go.
+    fn tag_row(&mut self, ui: &mut egui::Ui, node: &crate::tags::Node, depth: usize) {
+        let key = crate::tags::key(&node.name);
+        let is_current = self.search_terms.iter().any(|s| matches!(s, SearchTerm::Tag(t) if crate::tags::key(t) == key));
+        let draw = |app: &mut App, ui: &mut egui::Ui| {
+            let r = nav_row(ui, icons::TAG, &node.name, Some(node.total), is_current);
+            if r.clicked() {
+                app.search_terms.retain(|s| !matches!(s, SearchTerm::Tag(_)));
+                if !is_current {
+                    app.search_terms.push(SearchTerm::Tag(node.name.clone()));
+                    app.source = Source::Library;
+                    app.selection.clear();
+                    app.tray_set = None;
+                    app.list_pick = None;
+                }
+            }
+        };
+        if node.children.is_empty() {
+            ui.horizontal(|ui| {
+                ui.add_space((16.0 - ui.spacing().item_spacing.x).max(0.0));
+                draw(self, ui);
+            });
+            return;
+        }
+        let id = ui.make_persistent_id(("tag-tree", &key));
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, depth < OPEN_LEVELS)
+            .show_header(ui, |ui| draw(self, ui))
+            .body(|ui| {
+                for child in &node.children {
+                    self.tag_row(ui, child, depth + 1);
+                }
+            });
     }
 
     /// A folder of the tree and, when it is open, the folders in it (the first `OPEN_LEVELS`
