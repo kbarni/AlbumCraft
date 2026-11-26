@@ -424,6 +424,16 @@ export-leave-out = Click to leave this picture out
 
 nav-all = All pictures
 nav-picks = Picks
+nav-timeline = Timeline
+nav-timeline-hint = Every picture by month
+timeline-year-only = { $year } · month unknown
+timeline-no-date = No date
+timeline-select = Select these pictures
+timeline-set-date = Set date…
+timeline-scrubber-hint = Click or drag to go to a month
+settings-timeline-order = Timeline order
+timeline-newest-first = Newest first
+timeline-oldest-first = Oldest first
 nav-places = Places
 nav-places-hint = Your pictures on a map
 nav-albums = Albums

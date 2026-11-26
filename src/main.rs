@@ -38,6 +38,7 @@ mod slides;
 mod slideshow_view;
 mod tags_view;
 mod theme;
+mod timeline;
 mod updates;
 mod player;
 mod video_view;

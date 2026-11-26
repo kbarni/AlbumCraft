@@ -420,6 +420,16 @@ export-leave-out = Klicken, um dieses Foto auszulassen
 
 nav-all = Alle Fotos
 nav-picks = Favoriten
+nav-timeline = Zeitleiste
+nav-timeline-hint = Alle Bilder nach Monat
+timeline-year-only = { $year } · Monat unbekannt
+timeline-no-date = Ohne Datum
+timeline-select = Diese Bilder auswählen
+timeline-set-date = Datum festlegen…
+timeline-scrubber-hint = Klicken oder ziehen, um zu einem Monat zu springen
+settings-timeline-order = Reihenfolge der Zeitleiste
+timeline-newest-first = Neueste zuerst
+timeline-oldest-first = Älteste zuerst
 nav-places = Orte
 nav-places-hint = Ihre Fotos auf einer Karte
 nav-albums = Alben

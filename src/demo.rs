@@ -373,6 +373,33 @@ impl App {
             let ok = mountain.is_some() && first == mountain && mountain.is_some_and(|fi| self.folder_year(fi) == 2010);
             eprintln!("folder dates check: {}", if ok { "ok" } else { "WRONG" });
         }
+        if shot_view == "timeline" {
+            // the samples spread over a few months of 2019 and 2018, one scanned print known only
+            // to the year 1978 and one without a usable date: months newest first, then 1978, then
+            // No date
+            let n = self.photos.len();
+            let base = 1_546_300_800; // Jan 1, 2019
+            for id in 0..n {
+                let t = match id % 7 {
+                    6 => 86_400,
+                    k => base + (k as i64 - 2) * 31 * 86_400 + id as i64 * 3600,
+                };
+                self.taken.insert(id, t);
+                if let Some(dims) = self.photos.get(id).and_then(|p| self.lib.source_dims(&p.key)) {
+                    self.real_dims.insert(id, dims);
+                }
+            }
+            if let Some(p) = self.photos.get(n.saturating_sub(1)) {
+                self.store.meta.entry(p.key.clone()).or_default().taken = crate::taken::parse("1978").ok();
+            }
+            self.taken_rev += 1;
+            self.list_rev += 1;
+            self.source = Source::Timeline;
+            let heads: Vec<Head> = self.groups().iter().map(|(h, _)| *h).collect();
+            let months: Vec<(i32, u8)> = heads.iter().filter_map(|h| if let Head::Month { year, month } = h { Some((*year, *month)) } else { None }).collect();
+            let ok = months.windows(2).all(|w| w[0] > w[1]) && heads.last() == Some(&Head::Undated) && heads.contains(&Head::YearOnly(1978));
+            eprintln!("timeline check: {} {heads:?}", if ok { "ok" } else { "WRONG" });
+        }
         if shot_view == "cached" {
             // the catalogue cache is shown until the first scan's result, never after it
             let folders = library::sample_folders();

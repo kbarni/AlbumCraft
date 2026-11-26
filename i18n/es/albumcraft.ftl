@@ -420,6 +420,16 @@ export-leave-out = Haga clic para excluir esta foto
 
 nav-all = Todas las fotos
 nav-picks = Elegidas
+nav-timeline = Cronología
+nav-timeline-hint = Todas las imágenes por mes
+timeline-year-only = { $year } · mes desconocido
+timeline-no-date = Sin fecha
+timeline-select = Seleccionar estas imágenes
+timeline-set-date = Fijar la fecha…
+timeline-scrubber-hint = Haga clic o arrastre para ir a un mes
+settings-timeline-order = Orden de la cronología
+timeline-newest-first = Las más recientes primero
+timeline-oldest-first = Las más antiguas primero
 nav-places = Lugares
 nav-places-hint = Sus fotos en un mapa
 nav-albums = Álbumes

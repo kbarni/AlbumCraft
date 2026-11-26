@@ -17,7 +17,7 @@ pub use crate::theme::t;
 pub type Group = (Head, Vec<usize>);
 
 /// What a group of the library list is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Head {
     /// The pictures of a folder (by index), under its header.
     Folder(usize),
@@ -25,6 +25,12 @@ pub enum Head {
     Plain,
     /// Pictures found by smart search, best first, under a "Looks like" header.
     LooksLike,
+    /// The Timeline's pictures of a month (1…12), under its header.
+    Month { year: i32, month: u8 },
+    /// The Timeline's pictures whose date is known only to the year.
+    YearOnly(i32),
+    /// The Timeline's pictures without a usable date, last.
+    Undated,
 }
 
 impl Head {
@@ -33,6 +39,11 @@ impl Head {
             Head::Folder(fi) => Some(fi),
             _ => None,
         }
+    }
+
+    /// A group of the Timeline (in date order already).
+    pub fn is_date(self) -> bool {
+        matches!(self, Head::Month { .. } | Head::YearOnly(_) | Head::Undated)
     }
 }
 
@@ -52,7 +63,7 @@ pub struct SidebarCounts {
 pub type TagCounts = Arc<Vec<(String, usize)>>;
 
 /// What the library list depends on (its cache key).
-type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64, (u64, usize));
+type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64, (u64, usize), bool);
 
 /// A word chosen from the search suggestions: matches exactly (any letter case), where typed text
 /// matches anywhere.
@@ -69,6 +80,8 @@ pub enum SearchTerm {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Source {
     Library,
+    /// The whole library by month (`timeline.rs`).
+    Timeline,
     Album(usize),
     /// A person by name: typed on the pictures, or a named group of faces.
     Person(String),
@@ -528,6 +541,8 @@ pub struct App {
     /// The folder at the top of the grid, how far its top is above the grid's top, and the
     /// `folder_order_rev` it was seen at: kept in place when the order changes.
     pub(crate) grid_anchor: Option<(usize, f32, u64)>,
+    /// Where the grid's groups are, for the date scrubber (`timeline.rs`).
+    pub(crate) scrub: crate::timeline::Scrub,
     /// Bumped when a picture's shape (width / height) becomes known or changes: the grid's
     /// row layout is made again.
     pub shape_rev: u64,
@@ -765,6 +780,7 @@ impl App {
             folder_dates_cache: Default::default(),
             folder_order_rev: Default::default(),
             grid_anchor: None,
+            scrub: Default::default(),
             shape_rev: 0,
             grid_cache: None,
             photos: vec![],
@@ -1339,8 +1355,8 @@ impl App {
         let mut cache = self.list_cache.borrow_mut();
         let sort = self.store.sort;
         // the folders' order follows the dates taken too
-        let taken_rev = if sort == library::Sort::Taken || self.source == Source::Library { self.taken_rev } else { 0 };
-        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev, (self.smart.rev, self.smart.shown));
+        let taken_rev = if sort == library::Sort::Taken || matches!(self.source, Source::Library | Source::Timeline) { self.taken_rev } else { 0 };
+        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev, (self.smart.rev, self.smart.shown), self.store.timeline_oldest_first);
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();
@@ -1371,6 +1387,7 @@ impl App {
                 .map(|(fi, f)| (Head::Folder(fi), f.photos.iter().copied().filter(shown).collect::<Vec<_>>()))
                 .filter(|(_, v)| !v.is_empty())
                 .collect(),
+            Source::Timeline => self.timeline_groups(shown),
             // as arranged in the album
             Source::Album(i) => {
                 vec![(Head::Plain, self.store.albums.get(*i).map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).filter(shown).collect()).unwrap_or_default())]
@@ -1397,7 +1414,7 @@ impl App {
     /// The picture belongs to what the list shows (the library, the album, the person, Picks).
     fn in_source(&self, id: usize) -> bool {
         match &self.source {
-            Source::Library => id < self.photos.len(),
+            Source::Library | Source::Timeline => id < self.photos.len(),
             // few pictures are asked about (the ranked ones), an album is short
             Source::Album(i) => self.photos.get(id).is_some_and(|p| self.store.albums.get(*i).is_some_and(|a| a.keys.contains(&p.key))),
             Source::Person(name) => self.people_of(id).iter().any(|p| crate::tags::key(p) == crate::tags::key(name)),
@@ -1414,7 +1431,8 @@ impl App {
             library::Sort::Name => {}
             library::Sort::Taken => {
                 let when = |id: &usize| self.taken_at(*id).or_else(|| Some(self.photos.get(*id)?.modified)).unwrap_or(0);
-                for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h)) {
+                // the Timeline's months are in date order already, newest first or not
+                for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h) && !h.is_date()) {
                     ids.sort_by_cached_key(when);
                 }
             }
