@@ -47,7 +47,7 @@ mod xmp_view;
 // modules are used here under the same names (`crate::library`, `crate::imaging`, …).
 // `online`, `print` and `slides` above add the window's parts (map tiles as textures, printers,
 // music) to the core modules of the same name.
-pub use albumcraft_core::{ai, analysis, auto, catalogue, collage, commands, control, decor, develop, exifinfo, export, face_groups, faces, files, gallery, geometry, geo, geotag, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, taken, steps, thumbcache, video, xmp, xmp_sync};
+pub use albumcraft_core::{ai, analysis, auto, catalogue, collage, commands, control, decor, develop, exifinfo, export, face_groups, faces, files, fonts, gallery, geometry, geo, geotag, imaging, import, library, locale, looks, mail, mcp, movie, msg, raw, smart_search, tag_proposals, tags, taken, steps, thumbcache, video, xmp, xmp_sync};
 
 use std::path::PathBuf;
 
@@ -123,6 +123,8 @@ fn main() -> eframe::Result<()> {
         println!("AlbumCraft {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    // the installed fonts, read on a thread of their own, for the editor's text (also in --mcp)
+    fonts::install();
     if std::env::args().skip(1).any(|a| a == "--mcp") {
         // MCP server on stdin/stdout; no window
         let code = match mcp::Config::default_paths() {

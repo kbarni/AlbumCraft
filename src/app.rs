@@ -371,6 +371,8 @@ pub struct EditState {
     pub show_original: bool,
     /// The crop box being dragged: what was taken hold of, the box and the pointer then.
     pub crop_grip: Option<(crate::steps::Grip, [f32; 4], egui::Pos2)>,
+    /// The text's box being dragged on the picture (moved, scaled or turned).
+    pub text_drag: Option<crate::edit_view::TextDrag>,
     pub tag_buf: String,
     pub person_buf: String,
     /// Face boxes with names drawn over the picture.
@@ -838,6 +840,7 @@ impl App {
                 decor: None,
                 tool: Tool::None,
                 aspect: CropAspect::Manual,
+                text_drag: None,
                 crop_portrait: false,
                 crop_autofit: false,
                 grid_until: 0.0,

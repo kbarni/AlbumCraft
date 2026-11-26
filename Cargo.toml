@@ -16,6 +16,8 @@ albumcraft-ai = { path = "crates/albumcraft-ai", default-features = false }
 albumcraft-core = { path = "crates/albumcraft-core", default-features = false }
 albumcraft-edit = { path = "crates/albumcraft-edit" }
 ab_glyph = "0.2"
+# the fonts installed on this computer, for the editor's text (crates/albumcraft-core: fonts)
+fontdb = "0.23"
 # crash-safe saving (flushed temporary file, renamed over the old one, folder synced; retries on
 # Windows while an antivirus holds the file), shared with the other Craft apps. Every craft-libs
 # crate is pinned to the same rev (craft-update below).

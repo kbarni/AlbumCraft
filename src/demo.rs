@@ -168,7 +168,7 @@ impl App {
             let k = self.photos[4].key.clone();
             let m = self.store.meta.entry(k).or_default();
             m.edits.push(EditOp::Decor(crate::decor::Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }));
-            m.edits.push(EditOp::Decor(crate::decor::Decor::Text(crate::decor::TextOverlay { text: "Summer 2009".into(), anchor: 7, size: 0.07, color: [40, 40, 40], halo: false })));
+            m.edits.push(EditOp::Decor(crate::decor::Decor::Text(crate::decor::TextOverlay { text: "Summer 2009".into(), anchor: 7, pos: Some([0.5, 0.9]), angle: -4.0, italic: true, size: 0.07, color: [40, 40, 40], halo: false, ..Default::default() })));
             self.open_editor(4);
             self.edit.tab = Tab::Effects;
             self.edit.decor = Some(crate::steps::Slot::Text(0));

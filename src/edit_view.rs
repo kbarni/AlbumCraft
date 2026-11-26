@@ -718,7 +718,10 @@ impl App {
                 match self.edit.tab {
                     Tab::Edit => self.edit_tab(ui),
                     Tab::Presets => self.presets_tab(ui),
-                    Tab::Effects => self.effects_tab(ui),
+                    // the text's settings made it taller than the room above the step list on a short window
+                    Tab::Effects => {
+                        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| self.effects_tab(ui));
+                    }
                 }
             });
         self.edit_tools_grip(ui, panel.response.rect);
@@ -1197,7 +1200,7 @@ impl App {
             (icons::FRAME, tr!("edit-add-instant"), Decor::Border { width: 0.05, bottom: 0.15, color: [250, 248, 242] }),
             (icons::SHADOW, tr!("decor-shadow"), Decor::Shadow { size: 0.04, opacity: 0.55, background: white }),
             (icons::ROUNDED, tr!("decor-rounded"), Decor::Rounded { radius: 0.06, background: white }),
-            (icons::TEXT, tr!("edit-add-text"), Decor::Text(TextOverlay { text: tr!("edit-your-text"), ..Default::default() })),
+            (icons::TEXT, tr!("edit-add-text"), Decor::Text(TextOverlay { text: tr!("edit-your-text"), pos: Some([0.5, 0.9]), ..Default::default() })),
         ];
         // the plain border and the instant frame are the same effect: which of the two it is
         let instant = |d: &Decor| matches!(d, Decor::Border { bottom, .. } if *bottom > 0.0);
@@ -1294,25 +1297,34 @@ impl App {
             }
             Decor::Text(t) => {
                 ui.add(egui::TextEdit::singleline(&mut t.text).hint_text(tr!("edit-your-text")).desired_width(f32::INFINITY));
+                // the font, bold and italic
+                ui.horizontal(|ui| {
+                    let shown = if t.font.is_empty() { tr!("edit-font-default") } else { t.font.clone() };
+                    egui::ComboBox::from_id_salt("text_font").selected_text(shown).width((ui.available_width() - 64.0).max(60.0)).show_ui(ui, |ui| {
+                        ui.selectable_value(&mut t.font, String::new(), tr!("edit-font-default"));
+                        let families = crate::fonts::families();
+                        egui::ScrollArea::vertical().max_height(280.0).show_rows(ui, ui.spacing().interact_size.y, families.len(), |ui, rows| {
+                            for f in &families[rows] {
+                                ui.selectable_value(&mut t.font, f.clone(), f);
+                            }
+                        });
+                    });
+                    let toggle = |ui: &mut egui::Ui, on: &mut bool, label: RichText, tip: String| {
+                        if ui.add_sized([26.0, ui.spacing().interact_size.y], egui::Button::selectable(*on, label)).on_hover_text(tip).clicked() {
+                            *on = !*on;
+                        }
+                    };
+                    toggle(ui, &mut t.bold, RichText::new("B").strong(), tr!("edit-bold"));
+                    toggle(ui, &mut t.italic, RichText::new("I").italics(), tr!("edit-italic"));
+                });
                 pct(ui, &tr!("edit-p-size"), &mut t.size, 2.0, 25.0);
                 swatches(ui, &tr!("edit-p-colour"), &mut t.color);
                 ui.checkbox(&mut t.halo, tr!("edit-halo"));
-                ui.label(tr!("export-sig-position"));
-                egui::Grid::new("text_anchor").spacing([2.0, 2.0]).show(ui, |ui| {
-                    for a in 0..9u8 {
-                        let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 20.0), Sense::click());
-                        let on = t.anchor == a;
-                        let fill = if on { crate::theme::t().accent } else if resp.hovered() { crate::theme::t().surface_hover } else { crate::theme::t().surface };
-                        ui.painter().rect_filled(rect, 3, fill);
-                        ui.painter().rect_stroke(rect, 3, Stroke::new(1.0, crate::theme::t().border), StrokeKind::Inside);
-                        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            t.anchor = a;
-                        }
-                        if a % 3 == 2 {
-                            ui.end_row();
-                        }
-                    }
-                });
+                ui.add_space(2.0);
+                ui.label(RichText::new(tr!("edit-text-box-hint")).size(11.0).weak());
+                if t.angle != 0.0 && ui.small_button(tr!("edit-text-level")).clicked() {
+                    t.angle = 0.0;
+                }
             }
         }
         if d != before {
@@ -1752,9 +1764,16 @@ impl App {
             let img_rect = fit_rect(area, tex.size());
             // same id as the zoomed view's, so that a drag started here carries on there
             let resp = ui.interact(canvas, ui.scope_id().with("edit_canvas"), Sense::click_and_drag());
+            // the box round the chosen text (Effects tab): dragging it moves, scales or turns the text
+            let text_box = if self.edit.tool == Tool::None && !original { self.text_box(id, img_rect, tex.size()) } else { None };
+            let on_text = match &text_box {
+                Some(b) => self.text_interaction(ui, &resp, id, b),
+                None => false,
+            };
             // click and drag on the picture: zoom to 100 % around that point and move it with the mouse
             if self.edit.tool == Tool::None
                 && r_prev.is_some()
+                && !on_text
                 && resp.drag_started()
                 && let Some(pos) = resp.interact_pointer_pos().filter(|p| img_rect.contains(*p))
             {
@@ -1768,7 +1787,7 @@ impl App {
                 self.edit.pan = Vec2::ZERO;
                 self.edit.zoom = Some(fit);
                 ui.ctx().request_repaint();
-            } else if self.edit.tool == Tool::None && r_prev.is_some() && resp.hover_pos().is_some_and(|p| img_rect.contains(p)) {
+            } else if self.edit.tool == Tool::None && r_prev.is_some() && !on_text && resp.hover_pos().is_some_and(|p| img_rect.contains(p)) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ZoomIn);
             }
             if self.edit.tool == Tool::None && r_prev.is_some() && resp.hovered() {
@@ -1804,6 +1823,9 @@ impl App {
             }
             if !original && self.edit.tool != Tool::Crop {
                 self.paint_face_boxes(ui.painter(), img_rect, id);
+            }
+            if let Some(b) = &text_box {
+                self.paint_text_box(ui.painter(), b);
             }
 
             match self.edit.tool {
@@ -1955,6 +1977,186 @@ impl App {
     }
 }
 
+
+/// What of the text's box is taken hold of: the inside moves it, the corner at the top right
+/// scales it, the one at the top left turns it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum TextGrip {
+    Move,
+    Scale,
+    Rotate,
+}
+
+/// The text's box being dragged: the text as it was, where the pointer went down and what that
+/// was on.
+#[derive(Clone, Debug)]
+pub(crate) struct TextDrag {
+    grip: TextGrip,
+    start: TextOverlay,
+    origin: Pos2,
+    /// The text's middle (fractions of the picture) when the drag began: the box is made again
+    /// from the changed text every frame, so a move must be measured from here.
+    pos: [f32; 2],
+}
+
+/// The box round the text as it is on the screen, turned with it.
+struct TextBox {
+    slot: crate::steps::Slot,
+    text: TextOverlay,
+    centre: Pos2,
+    /// Half its width and height (with a margin round the letters), before it is turned.
+    half: Vec2,
+    angle: f32,
+    /// The picture the text was drawn on (without a shadow's margin), in the finished picture's
+    /// pixels: its size, and screen points per pixel.
+    size: (f32, f32),
+    per_px: f32,
+    /// The text's middle as fractions of that picture.
+    pos: [f32; 2],
+}
+
+impl TextBox {
+    fn turn(&self, v: Vec2) -> Vec2 {
+        let (s, c) = self.angle.sin_cos();
+        Vec2::new(v.x * c - v.y * s, v.x * s + v.y * c)
+    }
+    fn corner(&self, sx: f32, sy: f32) -> Pos2 {
+        self.centre + self.turn(Vec2::new(sx * self.half.x, sy * self.half.y))
+    }
+    /// What a pointer at `p` would take hold of.
+    fn grip_at(&self, p: Pos2) -> Option<TextGrip> {
+        const REACH: f32 = 10.0;
+        if p.distance(self.corner(1.0, -1.0)) <= REACH {
+            return Some(TextGrip::Scale);
+        }
+        if p.distance(self.corner(-1.0, -1.0)) <= REACH {
+            return Some(TextGrip::Rotate);
+        }
+        // inside: undo the turn
+        let v = p - self.centre;
+        let (s, c) = self.angle.sin_cos();
+        let local = Vec2::new(v.x * c + v.y * s, -v.x * s + v.y * c);
+        (local.x.abs() <= self.half.x && local.y.abs() <= self.half.y).then_some(TextGrip::Move)
+    }
+}
+
+/// `a` turned into -180…180 degrees.
+fn wrap_degrees(a: f32) -> f32 {
+    let a = a % 360.0;
+    if a > 180.0 {
+        a - 360.0
+    } else if a <= -180.0 {
+        a + 360.0
+    } else {
+        a
+    }
+}
+
+/// The text with the box dragged by the pointer from `drag.origin` to `to`.
+fn dragged_text(b: &TextBox, drag: &TextDrag, to: Pos2, snap: bool) -> TextOverlay {
+    let mut t = drag.start.clone();
+    // the start of a text that has no place of its own yet is where its anchor put it
+    t.pos = Some(drag.pos);
+    match drag.grip {
+        TextGrip::Move => {
+            let d = (to - drag.origin) / b.per_px;
+            t.pos = Some([(drag.pos[0] + d.x / b.size.0).clamp(0.0, 1.0), (drag.pos[1] + d.y / b.size.1).clamp(0.0, 1.0)]);
+        }
+        TextGrip::Scale => {
+            let (a, c) = ((drag.origin - b.centre).length().max(1.0), (to - b.centre).length());
+            t.size = (drag.start.size * c / a).clamp(0.02, 0.4);
+        }
+        TextGrip::Rotate => {
+            let (v0, v1) = (drag.origin - b.centre, to - b.centre);
+            let turned = (v1.y.atan2(v1.x) - v0.y.atan2(v0.x)).to_degrees();
+            let mut angle = wrap_degrees(drag.start.angle + turned);
+            // stops where the text is level or upright (always with Shift, else near them)
+            let step = 15.0;
+            let near = (angle / step).round() * step;
+            if snap || (angle - near).abs() < 3.0 {
+                angle = wrap_degrees(near);
+            }
+            t.angle = angle;
+        }
+    }
+    t
+}
+
+impl App {
+    /// The box round the picture's selected text, on the picture shown in `img_rect` (a texture of
+    /// `tex` pixels, the finished picture); None when no text is chosen in the Effects tab.
+    fn text_box(&self, id: usize, img_rect: Rect, tex: [usize; 2]) -> Option<TextBox> {
+        if self.edit.tab != Tab::Effects {
+            return None;
+        }
+        let (slot, Decor::Text(text)) = self.current_decor(id)? else { return None };
+        let finished = (tex[0] as f32, tex[1] as f32);
+        let shadow = self.edits(id).iter().find_map(|e| if let EditOp::Decor(Decor::Shadow { size, .. }) = e { Some(*size) } else { None });
+        let (margin, size) = crate::decor::before_shadow(shadow, finished);
+        let lay = crate::decor::text_layout(&text, size)?;
+        let per_px = img_rect.width() / finished.0.max(1.0);
+        let centre = img_rect.min + (Vec2::splat(margin) + Vec2::new(lay.center.0, lay.center.1)) * per_px;
+        let pad = 7.0;
+        let half = Vec2::new(lay.size.0, lay.size.1) * per_px / 2.0 + Vec2::splat(pad);
+        let pos = text.pos.unwrap_or([lay.center.0 / size.0.max(1.0), lay.center.1 / size.1.max(1.0)]);
+        Some(TextBox { slot, text, centre, half, angle: lay.angle, size, per_px, pos })
+    }
+
+    /// Take hold of the text's box and drag it. True while that goes on (the picture must not
+    /// start zooming from the same drag).
+    fn text_interaction(&mut self, ui: &egui::Ui, resp: &egui::Response, id: usize, b: &TextBox) -> bool {
+        let press = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
+        if resp.drag_started()
+            && let Some(origin) = press
+            && let Some(grip) = b.grip_at(origin)
+        {
+            self.edit.text_drag = Some(TextDrag { grip, start: b.text.clone(), origin, pos: b.pos });
+        }
+        if let Some(drag) = self.edit.text_drag.clone() {
+            if resp.dragged()
+                && let Some(to) = resp.interact_pointer_pos()
+            {
+                let t = dragged_text(b, &drag, to, ui.input(|i| i.modifiers.shift));
+                let slot = b.slot;
+                self.change_edits(id, "decor", |e| crate::steps::set_decor(e, slot, Some(Decor::Text(t))));
+            }
+            if resp.drag_stopped() {
+                self.edit.text_drag = None;
+            }
+        }
+        let shown = self.edit.text_drag.as_ref().map(|d| d.grip).or_else(|| resp.hover_pos().and_then(|p| b.grip_at(p)));
+        let dragging = self.edit.text_drag.is_some();
+        match shown {
+            Some(TextGrip::Move) => ui.ctx().set_cursor_icon(if dragging { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab }),
+            Some(TextGrip::Scale) => ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNeSw),
+            Some(TextGrip::Rotate) => ui.ctx().set_cursor_icon(egui::CursorIcon::Alias),
+            None => {}
+        }
+        dragging || resp.hover_pos().is_some_and(|p| b.grip_at(p).is_some())
+    }
+
+    /// The rectangle round the text with its handles: the middle (position), the top right
+    /// corner (size) and the top left one (rotation).
+    fn paint_text_box(&self, p: &egui::Painter, b: &TextBox) {
+        let corners = [b.corner(-1.0, -1.0), b.corner(1.0, -1.0), b.corner(1.0, 1.0), b.corner(-1.0, 1.0)];
+        // a dark line under a light one: seen on any picture
+        p.add(egui::Shape::closed_line(corners.to_vec(), Stroke::new(3.5, Color32::from_black_alpha(130))));
+        p.add(egui::Shape::closed_line(corners.to_vec(), Stroke::new(1.5, Color32::WHITE)));
+        let ink = Stroke::new(1.0, Color32::from_black_alpha(170));
+        // size: a square
+        let scale = Rect::from_center_size(corners[1], Vec2::splat(11.0));
+        p.rect_filled(scale, 2, Color32::WHITE);
+        p.rect_stroke(scale, 2, ink, StrokeKind::Outside);
+        // rotation: a round handle with the turning arrow
+        p.circle_filled(corners[0], 8.0, Color32::WHITE);
+        p.circle_stroke(corners[0], 8.0, ink);
+        p.text(corners[0], egui::Align2::CENTER_CENTER, icons::ROTATE_RIGHT, egui::FontId::proportional(11.0), Color32::from_gray(40));
+        // position: a ring in the middle
+        p.circle_stroke(b.centre, 5.0, Stroke::new(3.0, Color32::from_black_alpha(130)));
+        p.circle_stroke(b.centre, 5.0, Stroke::new(1.5, Color32::WHITE));
+    }
+}
+
 #[cfg(test)]
 mod zoom_tests {
     use super::*;
@@ -1987,5 +2189,81 @@ mod geometry_tests {
         assert!(((b[3] - b[1]) * 300.0 - 200.0 * 9.0 / 16.0).abs() < 1e-3);
         // the picture's own shape: all of it
         assert_eq!(largest_box(1.5, 300.0, 200.0), [0.0, 0.0, 1.0, 1.0]);
+    }
+}
+
+#[cfg(test)]
+mod text_box_tests {
+    use super::*;
+
+    fn boxed(angle_deg: f32) -> TextBox {
+        TextBox {
+            slot: crate::steps::Slot::Text(0),
+            text: TextOverlay { text: "Hi".into(), pos: Some([0.5, 0.5]), size: 0.1, ..Default::default() },
+            centre: Pos2::new(200.0, 100.0),
+            half: Vec2::new(40.0, 10.0),
+            angle: angle_deg.to_radians(),
+            size: (400.0, 200.0),
+            per_px: 1.0,
+            pos: [0.5, 0.5],
+        }
+    }
+    fn drag(b: &TextBox, grip: TextGrip, origin: Pos2) -> TextDrag {
+        TextDrag { grip, start: b.text.clone(), origin, pos: b.pos }
+    }
+
+    #[test]
+    fn the_corners_and_the_inside_are_told_apart() {
+        let b = boxed(0.0);
+        assert_eq!(b.grip_at(Pos2::new(240.0, 90.0)), Some(TextGrip::Scale));
+        assert_eq!(b.grip_at(Pos2::new(160.0, 90.0)), Some(TextGrip::Rotate));
+        assert_eq!(b.grip_at(Pos2::new(200.0, 100.0)), Some(TextGrip::Move));
+        assert_eq!(b.grip_at(Pos2::new(300.0, 100.0)), None);
+        // turned a quarter: the top right corner is now at the bottom right of the screen
+        let q = boxed(90.0);
+        assert_eq!(q.grip_at(q.corner(1.0, -1.0)), Some(TextGrip::Scale));
+        assert!(q.corner(1.0, -1.0).y > q.centre.y);
+        assert_eq!(q.grip_at(Pos2::new(200.0, 130.0)), Some(TextGrip::Move));
+    }
+
+    #[test]
+    fn moving_scaling_and_turning() {
+        let b = boxed(0.0);
+        let moved = dragged_text(&b, &drag(&b, TextGrip::Move, Pos2::new(200.0, 100.0)), Pos2::new(240.0, 80.0), false);
+        assert_eq!(moved.pos, Some([0.6, 0.4]));
+        let off = dragged_text(&b, &drag(&b, TextGrip::Move, Pos2::new(200.0, 100.0)), Pos2::new(900.0, -500.0), false);
+        assert_eq!(off.pos, Some([1.0, 0.0]), "stays on the picture");
+        // twice as far from the middle: twice the size
+        let o = b.corner(1.0, -1.0);
+        let big = dragged_text(&b, &drag(&b, TextGrip::Scale, o), b.centre + (o - b.centre) * 2.0, false);
+        assert!((big.size - 0.2).abs() < 1e-4);
+        // a quarter turn of the pointer round the middle
+        let o = b.corner(-1.0, -1.0);
+        let v = o - b.centre;
+        let turned = dragged_text(&b, &drag(&b, TextGrip::Rotate, o), b.centre + Vec2::new(-v.y, v.x), false);
+        assert!((turned.angle - 90.0).abs() < 1e-3, "{}", turned.angle);
+        // near level it stops there
+        let v1 = Vec2::new(v.x * 0.9994 + v.y * 0.0349, v.y * 0.9994 - v.x * 0.0349);
+        let level = dragged_text(&b, &drag(&b, TextGrip::Rotate, o), b.centre + v1, false);
+        assert_eq!(level.angle, 0.0);
+    }
+
+    #[test]
+    fn a_move_is_measured_from_where_it_began_not_from_the_last_frame() {
+        let b = boxed(0.0);
+        let d = drag(&b, TextGrip::Move, Pos2::new(200.0, 100.0));
+        let first = dragged_text(&b, &d, Pos2::new(240.0, 100.0), false);
+        // next frame: the box is made again from the moved text, the pointer has not moved
+        let mut again = boxed(0.0);
+        again.pos = first.pos.unwrap();
+        let second = dragged_text(&again, &d, Pos2::new(240.0, 100.0), false);
+        assert_eq!(second.pos, first.pos);
+    }
+
+    #[test]
+    fn degrees_wrap() {
+        assert_eq!(wrap_degrees(190.0), -170.0);
+        assert_eq!(wrap_degrees(-180.0), 180.0);
+        assert_eq!(wrap_degrees(45.0), 45.0);
     }
 }

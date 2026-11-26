@@ -23,6 +23,7 @@ pub mod faces;
 pub mod export;
 pub mod filemeta;
 pub mod files;
+pub mod fonts;
 pub mod gallery;
 pub mod geo;
 pub mod geotag;

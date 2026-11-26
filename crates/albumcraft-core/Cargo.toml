@@ -24,6 +24,7 @@ avif = ["dep:craft-image-codecs", "craft-image-codecs/avif-decode"]
 albumcraft-ai.workspace = true
 albumcraft-edit.workspace = true
 ab_glyph.workspace = true
+fontdb.workspace = true
 ffmpeg-next = { workspace = true, optional = true }
 chrono.workspace = true
 craft-atomic.workspace = true

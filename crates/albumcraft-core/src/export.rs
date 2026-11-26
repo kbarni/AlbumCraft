@@ -102,7 +102,7 @@ pub fn sign(img: RgbaImage, sig: &Signature, logo: Option<&RgbaImage>) -> RgbaIm
     let short = img.width().min(img.height()) as f32;
     // the text step measures letters by the picture's height
     let size = sig.text_size * short / img.height().max(1) as f32;
-    let t = crate::decor::TextOverlay { text: sig.text.trim().to_string(), anchor: sig.anchor, size, color: sig.color, halo: sig.halo };
+    let t = crate::decor::TextOverlay { text: sig.text.trim().to_string(), anchor: sig.anchor, size, color: sig.color, halo: sig.halo, ..Default::default() };
     let drawn = crate::decor::Decor::Text(t).apply(img.clone());
     if sig.opacity >= 0.999 { drawn } else { crate::decor::blend(&img, &drawn, sig.opacity) }
 }
