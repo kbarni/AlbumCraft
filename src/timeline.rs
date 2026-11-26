@@ -34,6 +34,28 @@ pub struct Scrub {
     pub marks: Vec<Mark>,
     /// The scroll offset to set at the next frame (a click or drag on the strip).
     pub scroll_to: Option<f32>,
+    /// A Shift+drag choosing a range of dates: the month and the place where it started.
+    pub range_from: Option<((i32, u32), f32)>,
+}
+
+/// A month as one number (12 a year), for ranges.
+pub fn month_index(year: i32, month: u32) -> i32 {
+    year * 12 + month as i32 - 1
+}
+
+/// `month_index` back to (year, month 1…12).
+pub fn month_of_index(i: i32) -> (i32, u32) {
+    (i.div_euclid(12), i.rem_euclid(12) as u32 + 1)
+}
+
+/// What a range of months is called: "March 2019", "2019", "2017 – 2019", "March 2019 – August 2021".
+pub fn range_title((a, b): (i32, i32)) -> String {
+    let ((ya, ma), (yb, mb)) = (month_of_index(a), month_of_index(b));
+    if a == b {
+        return month_title(ya, ma);
+    }
+    let (from, to) = if ma == 1 && mb == 12 { (ya.to_string(), yb.to_string()) } else { (month_title(ya, ma), month_title(yb, mb)) };
+    if from == to { from } else { tr!("timeline-range", from = from, to = to) }
 }
 
 /// Groups the pictures, given as (id, head, date in seconds), by their head in timeline order;
@@ -82,6 +104,16 @@ impl App {
                 (Head::Month { year, month: month as u8 }, t)
             }
             None => (Head::Undated, 0),
+        }
+    }
+
+    /// The picture was taken in the months of the date filter.
+    pub fn in_dates(&self, id: usize) -> bool {
+        let Some((a, b)) = self.filter.dates else { return true };
+        match self.timeline_slot(id).0 {
+            Head::Month { year, month } => (a..=b).contains(&month_index(year, u32::from(month))),
+            Head::YearOnly(year) => month_index(year, 1) <= b && month_index(year, 12) >= a,
+            _ => false,
         }
     }
 
@@ -219,6 +251,19 @@ impl App {
         if let Some(pos) = pointer.filter(|_| active) {
             let at = content_of(pos.y);
             let month = self.scrub.marks.iter().take_while(|(_, top, _)| *top <= at).filter_map(|(m, _, _)| *m).last().or_else(|| self.scrub.marks.iter().find_map(|(m, _, _)| *m));
+            // Shift+drag: a range of dates, shown as a band; let go, it becomes the date filter
+            if resp.drag_started() && ui.input(|i| i.modifiers.shift) {
+                self.scrub.range_from = month.map(|m| (m, pos.y));
+            }
+            if let (Some((from, y0)), Some(to)) = (self.scrub.range_from, month) {
+                let band = Rect::from_x_y_ranges(strip.x_range(), y0.min(pos.y)..=y0.max(pos.y));
+                p.rect_filled(band, 3, t().accent.gamma_multiply(0.25));
+                if resp.drag_stopped() {
+                    let (a, b) = (month_index(from.0, from.1), month_index(to.0, to.1));
+                    self.filter.dates = Some((a.min(b), a.max(b)));
+                    self.scrub.range_from = None;
+                }
+            }
             p.line_segment([Pos2::new(strip.left(), pos.y), Pos2::new(strip.right(), pos.y)], Stroke::new(1.5, t().accent));
             if let Some((year, m)) = month {
                 let text = month_title(year, m);
@@ -230,7 +275,7 @@ impl App {
             }
             ui.ctx().set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::PointingHand });
             // the month pointed at comes to the top of the grid
-            if (resp.clicked() || resp.dragged()) && resp.interact_pointer_pos().is_some() {
+            if (resp.clicked() || resp.dragged()) && self.scrub.range_from.is_none() && resp.interact_pointer_pos().is_some() {
                 self.scrub.scroll_to = Some(at.min(total - view).max(0.0));
                 ui.ctx().request_repaint();
             }

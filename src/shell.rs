@@ -433,6 +433,12 @@ impl App {
                                 ui.close();
                             }
                         });
+                        // the date filter (Shift+drag on the scrubber): its range, a click clears it
+                        if let Some(range) = self.filter.dates
+                            && chip(ui, &format!("{}  {}  {}", icons::CALENDAR, crate::timeline::range_title(range), icons::CLOSE), true).on_hover_text(tr!("timeline-range-hint")).clicked()
+                        {
+                            self.filter.dates = None;
+                        }
                         // the tags: the tree in a popup, a click shows a tag's pictures
                         let tag_on = self.search_terms.iter().any(|s| matches!(s, SearchTerm::Tag(_)));
                         let label = if wide > 900.0 { format!("{}  {}", icons::TAG, tr!("bar-tags")) } else { icons::TAG.to_string() };

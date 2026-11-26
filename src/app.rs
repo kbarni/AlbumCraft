@@ -105,6 +105,9 @@ pub struct Filter {
     pub hide_rejects: bool,
     /// Pictures by the faces found in them.
     pub people: PeopleFilter,
+    /// Only pictures taken in these months (`timeline::month_index`, both included); pictures
+    /// without a usable date are left out, a year alone counts when the range touches it.
+    pub dates: Option<(i32, i32)>,
 }
 
 /// Pictures by the faces found in them (only pictures looked at for faces count).
@@ -1276,6 +1279,9 @@ impl App {
         let (flag, rating) = (self.flag(id), self.rating(id));
         let f = &self.filter;
         if (f.picks && flag != Flag::Pick) || rating < f.min_rating || (f.hide_rejects && flag == Flag::Reject) {
+            return false;
+        }
+        if f.dates.is_some() && !self.in_dates(id) {
             return false;
         }
         if f.people != PeopleFilter::Any {
