@@ -23,6 +23,12 @@ pub trait Host {
     fn photos(&self) -> &[Photo];
     fn folders(&self) -> &[Folder];
     fn find(&self, key: &str) -> Option<usize>;
+    /// The file's own date taken (Unix seconds, this computer's time zone): its EXIF date, else
+    /// the file's date. The window knows it already; without one the file is read.
+    fn file_taken(&self, id: usize) -> Option<i64> {
+        let p = self.photos().get(id)?;
+        crate::import::date_taken(&p.key).or(Some(p.modified))
+    }
     /// A picture's notes or edits changed (the window refreshes its thumbnail).
     fn changed(&mut self, _id: usize) {}
     /// Look for pictures again after the library's folders changed.
@@ -95,6 +101,20 @@ pub fn remove_place(host: &mut dyn Host, ids: &[usize], back_to_file: bool) {
 /// file's (`file`, Unix seconds in this computer's time zone).
 pub fn taken_of(store: &Store, key: &str, file: Option<i64>) -> Option<craft_metadata::DateTime> {
     store.meta.get(key).and_then(|m| m.taken).or_else(|| file.and_then(crate::taken::from_seconds))
+}
+
+/// File dates before this (1 January 1980) come from a camera whose clock was never set.
+const EARLIEST_FILE_DATE: i64 = 315_532_800;
+
+/// The first and last day a date stands for, as (year, month, day): a year or a month alone
+/// covers all its days.
+fn date_span(d: &craft_metadata::DateTime) -> ((u16, u8, u8), (u16, u8, u8)) {
+    use craft_metadata::DatePrecision;
+    match d.precision {
+        DatePrecision::Year => ((d.year, 1, 1), (d.year, 12, 31)),
+        DatePrecision::Month => ((d.year, d.month, 1), (d.year, d.month, 31)),
+        DatePrecision::Full => ((d.year, d.month, d.day), (d.year, d.month, d.day)),
+    }
 }
 
 /// Set the date these pictures were taken (Some) or go back to the files' own dates (None).
@@ -304,6 +324,8 @@ pub fn specs() -> Vec<Spec> {
                     "flag": { "type": "string", "enum": ["pick", "reject", "none"] },
                     "min_rating": { "type": "integer", "minimum": 0, "maximum": 5 },
                     "has_location": { "type": "boolean", "description": "Only pictures with (true) or without (false) a location" },
+                    "taken_from": { "type": "string", "description": "Only pictures taken on or after this date: 1978, 1978-07 or 1978-07-14 (a year or a month counts from its start). Pictures without a usable date are left out; a date known only to the year or month counts when its span touches the range" },
+                    "taken_to": { "type": "string", "description": "Only pictures taken on or before this date: 1978, 1978-07 or 1978-07-14 (a year or a month counts to its end)" },
                     "near": { "type": "object", "description": "Only pictures taken within radius_km of a point",
                         "properties": { "latitude": { "type": "number" }, "longitude": { "type": "number" }, "radius_km": { "type": "number", "minimum": 0, "default": 10 } },
                         "required": ["latitude", "longitude"] },
@@ -1124,6 +1146,8 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     Some((at, r))
                 }
             };
+            let taken_from = opt_str(args, "taken_from").map(crate::taken::parse).transpose()?.map(|d| date_span(&d).0);
+            let taken_to = opt_str(args, "taken_to").map(crate::taken::parse).transpose()?.map(|d| date_span(&d).1);
             let tag = opt_str(args, "tag").map(str::trim).filter(|t| !t.is_empty());
             // the tag and the tags under it (`tags::family`)
             let tag_family = tag.map(|t| crate::tags::family(host.store(), t));
@@ -1165,6 +1189,13 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                     }
                     if tag_family.as_ref().is_some_and(|f| !m.is_some_and(|m| m.tags.iter().any(|x| f.contains(&crate::tags::key(x))))) {
                         return false;
+                    }
+                    if taken_from.is_some() || taken_to.is_some() {
+                        let d = m.and_then(|m| m.taken).or_else(|| host.file_taken(id).filter(|&t| t >= EARLIEST_FILE_DATE).and_then(crate::taken::from_seconds));
+                        let Some((first, last)) = d.as_ref().map(date_span) else { return false };
+                        if taken_from.is_some_and(|f| last < f) || taken_to.is_some_and(|t| first > t) {
+                            return false;
+                        }
                     }
                     let at = located.as_ref().and_then(|l| l.get(id).copied().flatten());
                     let place_words = || at.map(|a| geo::place_terms(m.and_then(|m| m.place.as_ref()), a)).unwrap_or_default();
@@ -2413,6 +2444,27 @@ mod tests {
         use crate::geotag::Zone::{Fixed, Pictures};
         assert_eq!(["pictures", "UTC", "+02:00", "UTC-03:30", "+0530", "+2", "−05:00"].map(parse_zone), [Some(Pictures), Some(Fixed(0)), Some(Fixed(120)), Some(Fixed(-210)), Some(Fixed(330)), Some(Fixed(120)), Some(Fixed(-300))]);
         assert_eq!(["+15:00", "02:00", "+1:75"].map(parse_zone), [None, None, None]);
+    }
+
+    #[test]
+    fn search_by_date_taken() {
+        let (dir, mut h, keys) = fixture("search-dates");
+        // the camera's date (Aug 18, 2006), a month alone (July 1978), the file's date (now)
+        crate::exifinfo::write_demo_jpeg(Path::new(&keys[0])).unwrap();
+        h.rescan();
+        call(&mut h, "set_date_taken", json!({ "keys": [keys[1]], "date": "1978-07" })).unwrap();
+        let found = |h: &mut Headless, args: Value| -> Vec<String> {
+            let r = call(h, "search_photos", args).unwrap();
+            r["photos"].as_array().unwrap().iter().filter_map(|p| p["key"].as_str().map(str::to_string)).collect()
+        };
+        assert_eq!(found(&mut h, json!({ "taken_from": "2006", "taken_to": "2006-12" })), vec![keys[0].clone()]);
+        assert_eq!(found(&mut h, json!({ "taken_to": "1980" })), vec![keys[1].clone()]);
+        // a month alone counts when the range touches it
+        assert_eq!(found(&mut h, json!({ "taken_from": "1978-07-15", "taken_to": "1978-07-20" })), vec![keys[1].clone()]);
+        // from the day after the camera's date: only the file dated today
+        assert_eq!(found(&mut h, json!({ "taken_from": "2006-08-19" })), vec![keys[2].clone()]);
+        assert!(call(&mut h, "search_photos", json!({ "taken_from": "soon" })).is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

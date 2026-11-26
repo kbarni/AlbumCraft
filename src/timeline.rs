@@ -36,6 +36,10 @@ pub struct Scrub {
     pub scroll_to: Option<f32>,
     /// A Shift+drag choosing a range of dates: the month and the place where it started.
     pub range_from: Option<((i32, u32), f32)>,
+    /// A drag across the Dates popup's bars: the month where it started.
+    pub bars_from: Option<i32>,
+    /// Keep the Dates popup open (the `dates` screenshot).
+    pub show_popup: bool,
 }
 
 /// A month as one number (12 a year), for ranges.
@@ -49,12 +53,21 @@ pub fn month_of_index(i: i32) -> (i32, u32) {
 }
 
 /// What a range of months is called: "March 2019", "2019", "2017 – 2019", "March 2019 – August 2021".
-pub fn range_title((a, b): (i32, i32)) -> String {
+pub fn range_title(range: (i32, i32)) -> String {
+    range_text(range, month_title)
+}
+
+/// `range_title` with short month names, for the chip: "Mar 2019 – Aug 2021".
+pub fn range_short(range: (i32, i32)) -> String {
+    range_text(range, |year, month| tr!("date-month-year", month = crate::locale::month_short((month as usize).saturating_sub(1)), year = year.to_string()))
+}
+
+fn range_text((a, b): (i32, i32), month: impl Fn(i32, u32) -> String) -> String {
     let ((ya, ma), (yb, mb)) = (month_of_index(a), month_of_index(b));
     if a == b {
-        return month_title(ya, ma);
+        return month(ya, ma);
     }
-    let (from, to) = if ma == 1 && mb == 12 { (ya.to_string(), yb.to_string()) } else { (month_title(ya, ma), month_title(yb, mb)) };
+    let (from, to) = if ma == 1 && mb == 12 { (ya.to_string(), yb.to_string()) } else { (month(ya, ma), month(yb, mb)) };
     if from == to { from } else { tr!("timeline-range", from = from, to = to) }
 }
 
@@ -286,6 +299,123 @@ impl App {
     }
 }
 
+/// The Dates popup's bars: `counts` (month index, pictures; ascending) as one bar per month from
+/// the first to the last, the range `on` (both included) highlighted. Gives the month under the
+/// pointer, if any.
+fn paint_bars(ui: &egui::Ui, rect: Rect, counts: &[(i32, usize)], on: Option<(i32, i32)>) -> Option<i32> {
+    let (Some(&(lo, _)), Some(&(hi, _))) = (counts.first(), counts.last()) else { return None };
+    let n = (hi - lo + 1) as usize;
+    let w = rect.width() / n as f32;
+    let bars = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.bottom() - 16.0));
+    let max = counts.iter().map(|&(_, c)| c).max().unwrap_or(1).max(1) as f32;
+    let p = ui.painter();
+    p.line_segment([bars.left_bottom(), bars.right_bottom()], Stroke::new(1.0, t().border));
+    for &(m, c) in counts {
+        let k = (m - lo) as f32;
+        // a square root, so that a quiet month still shows beside a busy one
+        let h = ((c as f32 / max).sqrt() * (bars.height() - 2.0)).max(2.0);
+        let x = bars.left() + k * w;
+        let bar = Rect::from_min_max(Pos2::new(x, bars.bottom() - h), Pos2::new(x + (w - 1.0).max(1.0), bars.bottom()));
+        let inside = on.is_none_or(|(a, b)| (a..=b).contains(&m));
+        p.rect_filled(bar, 1, if inside { t().accent } else { t().text_weak.gamma_multiply(0.35) });
+    }
+    // the years under the bars, where they start (not closer than 34 points)
+    let font = egui::FontId::proportional(11.0);
+    let mut last = f32::NEG_INFINITY;
+    for k in 0..n {
+        let (year, month) = month_of_index(lo + k as i32);
+        let x = bars.left() + k as f32 * w;
+        if (month == 1 || k == 0) && x - last >= 34.0 {
+            p.line_segment([Pos2::new(x, bars.bottom()), Pos2::new(x, bars.bottom() + 3.0)], Stroke::new(1.0, t().text_weak));
+            p.text(Pos2::new(x, bars.bottom() + 4.0), egui::Align2::LEFT_TOP, year.to_string(), font.clone(), t().text_weak);
+            last = x;
+        }
+    }
+    let x = ui.ctx().pointer_latest_pos().filter(|p| rect.contains(*p))?.x;
+    Some(lo + (((x - rect.left()) / w).floor() as i32).clamp(0, n as i32 - 1))
+}
+
+impl App {
+    /// The top bar's Dates chip: "Dates", or the range shown (highlighted); a click opens the
+    /// popup that chooses it (`dates_popup`).
+    /// `wide`: the top bar's width (a range needs more room than "Dates").
+    pub fn dates_chip(&mut self, ui: &mut egui::Ui, wide: f32) {
+        // narrow: the icon alone (highlighted when a range is on), the range in the tip
+        let label = match self.filter.dates {
+            Some(range) if wide > 1100.0 => format!("{}  {}", icons::CALENDAR, range_short(range)),
+            None if wide > 900.0 => format!("{}  {}", icons::CALENDAR, tr!("filter-dates")),
+            _ => icons::CALENDAR.to_string(),
+        };
+        let hint = match self.filter.dates {
+            Some(range) => format!("{}\n{}", range_title(range), tr!("timeline-range-hint")),
+            None => tr!("filter-dates-hint"),
+        };
+        let resp = crate::shell::chip(ui, &label, self.filter.dates.is_some()).on_hover_text(hint);
+        let mut popup = egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        if self.scrub.show_popup {
+            popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
+        }
+        popup.show(|ui| self.dates_popup(ui));
+    }
+
+    /// The months of what the list shows as bars (drag across them, or click one) and its years
+    /// as buttons (Shift adds a year to the range); All dates clears the range.
+    fn dates_popup(&mut self, ui: &mut egui::Ui) {
+        ui.set_width(380.0);
+        ui.label(RichText::new(tr!("dates-title")).strong().color(t().text_strong));
+        ui.label(RichText::new(self.filter.dates.map(range_title).unwrap_or_else(|| tr!("dates-all"))).size(12.5).color(t().text_weak));
+        ui.add_space(6.0);
+        let counts = self.date_counts();
+        if counts.is_empty() {
+            ui.label(RichText::new(tr!("dates-none")).color(t().text_weak));
+            return;
+        }
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(380.0, 86.0), Sense::click_and_drag());
+        let under = paint_bars(ui, rect, &counts, self.filter.dates);
+        if let Some(m) = under {
+            if resp.drag_started() {
+                self.scrub.bars_from = Some(m);
+            }
+            if let Some(from) = self.scrub.bars_from.filter(|_| resp.dragged()) {
+                self.filter.dates = Some((from.min(m), from.max(m)));
+            }
+            if resp.clicked() {
+                self.filter.dates = Some((m, m));
+            }
+            let n = counts.iter().find(|(k, _)| *k == m).map(|&(_, c)| c).unwrap_or(0);
+            let (year, month) = month_of_index(m);
+            resp.on_hover_text_at_pointer(format!("{} · {}", month_title(year, month), tr!("count-pictures", n = n)));
+        }
+        if !ui.input(|i| i.pointer.any_down()) {
+            self.scrub.bars_from = None;
+        }
+        ui.add_space(6.0);
+        // the years, newest first
+        let mut years: Vec<i32> = counts.iter().map(|&(m, _)| month_of_index(m).0).collect();
+        years.dedup();
+        years.reverse();
+        ui.horizontal_wrapped(|ui| {
+            for y in years {
+                let whole = (month_index(y, 1), month_index(y, 12));
+                if ui.selectable_label(self.filter.dates == Some(whole), y.to_string()).clicked() {
+                    let add = ui.input(|i| i.modifiers.shift);
+                    self.filter.dates = match self.filter.dates {
+                        Some((a, b)) if add => Some((a.min(whole.0), b.max(whole.1))),
+                        _ => Some(whole),
+                    };
+                }
+            }
+        });
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui.add_enabled(self.filter.dates.is_some(), egui::Button::new(tr!("dates-all"))).clicked() {
+                self.filter.dates = None;
+            }
+        });
+        ui.label(RichText::new(tr!("dates-hint")).size(12.0).color(t().text_weak));
+    }
+}
+
 /// "July 2019" (month 1…12).
 pub fn month_title(year: i32, month: u32) -> String {
     tr!("date-month-year", month = crate::locale::month_long((month as usize).saturating_sub(1)), year = year.to_string())
@@ -324,6 +454,14 @@ mod tests {
         assert_eq!(heads(&g), vec![Head::YearOnly(2019), m(2019, 2), m(2019, 7), m(2021, 1), Head::Undated]);
         assert_eq!(g[2].1, vec![2, 0]);
         assert_eq!(g[4].1, vec![1, 6]);
+    }
+
+    #[test]
+    fn month_numbers_go_both_ways() {
+        for (y, m) in [(1978, 1), (2019, 7), (2024, 12), (-1, 3)] {
+            assert_eq!(month_of_index(month_index(y, m)), (y, m));
+        }
+        assert_eq!(month_index(2019, 12) + 1, month_index(2020, 1));
     }
 
     #[test]

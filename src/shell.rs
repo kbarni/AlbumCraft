@@ -154,7 +154,7 @@ fn pill(ui: &mut egui::Ui, label: &str, primary: bool) -> egui::Response {
 }
 
 /// A toggle chip (filters).
-fn chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
+pub(crate) fn chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
     chip_with_flag(ui, label, on, false)
 }
 
@@ -433,12 +433,8 @@ impl App {
                                 ui.close();
                             }
                         });
-                        // the date filter (Shift+drag on the scrubber): its range, a click clears it
-                        if let Some(range) = self.filter.dates
-                            && chip(ui, &format!("{}  {}  {}", icons::CALENDAR, crate::timeline::range_title(range), icons::CLOSE), true).on_hover_text(tr!("timeline-range-hint")).clicked()
-                        {
-                            self.filter.dates = None;
-                        }
+                        // the date filter: "Dates" or the range, a popup chooses it
+                        self.dates_chip(ui, wide);
                         // the tags: the tree in a popup, a click shows a tag's pictures
                         let tag_on = self.search_terms.iter().any(|s| matches!(s, SearchTerm::Tag(_)));
                         let label = if wide > 900.0 { format!("{}  {}", icons::TAG, tr!("bar-tags")) } else { icons::TAG.to_string() };

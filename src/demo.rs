@@ -373,7 +373,7 @@ impl App {
             let ok = mountain.is_some() && first == mountain && mountain.is_some_and(|fi| self.folder_year(fi) == 2010);
             eprintln!("folder dates check: {}", if ok { "ok" } else { "WRONG" });
         }
-        if shot_view == "timeline" {
+        if shot_view == "timeline" || shot_view == "dates" {
             // the samples spread over a few months of 2019 and 2018, one scanned print known only
             // to the year 1978 and one without a usable date: months newest first, then 1978, then
             // No date
@@ -399,6 +399,18 @@ impl App {
             let months: Vec<(i32, u8)> = heads.iter().filter_map(|h| if let Head::Month { year, month } = h { Some((*year, *month)) } else { None }).collect();
             let ok = months.windows(2).all(|w| w[0] > w[1]) && heads.last() == Some(&Head::Undated) && heads.contains(&Head::YearOnly(1978));
             eprintln!("timeline check: {} {heads:?}", if ok { "ok" } else { "WRONG" });
+            if shot_view == "dates" {
+                // February to March 2019 chosen in the Dates popup (kept open): only those months
+                let range = (crate::timeline::month_index(2019, 2), crate::timeline::month_index(2019, 3));
+                self.filter.dates = Some(range);
+                self.scrub.show_popup = true;
+                let heads: Vec<Head> = self.groups().iter().map(|(h, _)| *h).collect();
+                let ok = heads == vec![Head::Month { year: 2019, month: 3 }, Head::Month { year: 2019, month: 2 }]
+                    && self.date_counts().len() == 7
+                    && crate::timeline::range_title(range) == "February 2019 – March 2019"
+                    && crate::timeline::range_short(range) == "Feb 2019 – Mar 2019";
+                eprintln!("dates check: {} {heads:?}", if ok { "ok" } else { "WRONG" });
+            }
         }
         if shot_view == "cached" {
             // the catalogue cache is shown until the first scan's result, never after it

@@ -63,6 +63,9 @@ pub struct SidebarCounts {
 pub type TagCounts = Arc<Vec<(String, usize)>>;
 
 /// What the library list depends on (its cache key).
+/// What `App::date_counts` depends on: the library, the dates, the source, the search, the filter
+/// without its dates.
+type DateCountsKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter);
 type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64, (u64, usize), bool);
 
 /// A word chosen from the search suggestions: matches exactly (any letter case), where typed text
@@ -533,6 +536,8 @@ pub struct App {
     pub list_rev: u64,
     /// `groups()` for (list_rev, source, search, filter).
     list_cache: std::cell::RefCell<Option<(ListKey, Rc<Vec<Group>>)>>,
+    /// `date_counts()` for what it was made for.
+    date_counts_cache: std::cell::RefCell<Option<(DateCountsKey, Rc<Vec<(i32, usize)>>)>>,
     /// `search_hay()` for (list_rev, place_rev).
     #[allow(clippy::type_complexity)]
     hay_cache: std::cell::RefCell<Option<((u64, u64), Rc<Vec<String>>)>>,
@@ -778,6 +783,7 @@ impl App {
             icon_tex: None,
             control: None,
             list_cache: Default::default(),
+            date_counts_cache: Default::default(),
             hay_cache: Default::default(),
             sidebar_cache: None,
             folder_dates_cache: Default::default(),
@@ -1276,12 +1282,17 @@ impl App {
     /// Whether a picture passes the filter and the search. `words` is the typed text in lower
     /// case, split; `hay` the text each picture is searched in (`search_hay`).
     fn matches(&self, id: usize, words: &[String], hay: &[String], families: &[HashSet<String>]) -> bool {
+        self.matches_with(id, words, hay, families, true)
+    }
+
+    /// `matches`, with the date filter or without it (`dates`: false, for the Dates popup's bars).
+    fn matches_with(&self, id: usize, words: &[String], hay: &[String], families: &[HashSet<String>], dates: bool) -> bool {
         let (flag, rating) = (self.flag(id), self.rating(id));
         let f = &self.filter;
         if (f.picks && flag != Flag::Pick) || rating < f.min_rating || (f.hide_rejects && flag == Flag::Reject) {
             return false;
         }
-        if f.dates.is_some() && !self.in_dates(id) {
+        if dates && f.dates.is_some() && !self.in_dates(id) {
             return false;
         }
         if f.people != PeopleFilter::Any {
@@ -1410,6 +1421,35 @@ impl App {
             }
         }
         groups
+    }
+
+    /// Pictures per month (`timeline::month_index`, ascending) of what the list shows with the
+    /// date filter set aside: the Dates popup's bars and years. Kept until the list changes.
+    pub fn date_counts(&self) -> Rc<Vec<(i32, usize)>> {
+        let mut filter = self.filter.clone();
+        filter.dates = None;
+        let key = (self.list_rev, self.taken_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), filter);
+        let mut cache = self.date_counts_cache.borrow_mut();
+        if let Some((k, counts)) = cache.as_ref()
+            && *k == key
+        {
+            return counts.clone();
+        }
+        let words: Vec<String> = self.search.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let hay = if words.is_empty() { Rc::new(vec![]) } else { self.search_hay() };
+        let families = self.tag_families();
+        let mut by_month: std::collections::BTreeMap<i32, usize> = Default::default();
+        for id in 0..self.photos.len() {
+            if !self.in_source(id) || !self.matches_with(id, &words, &hay, &families, false) {
+                continue;
+            }
+            if let (Head::Month { year, month }, _) = self.timeline_slot(id) {
+                *by_month.entry(crate::timeline::month_index(year, u32::from(month))).or_default() += 1;
+            }
+        }
+        let counts = Rc::new(by_month.into_iter().collect::<Vec<_>>());
+        *cache = Some((key, counts.clone()));
+        counts
     }
 
     /// For each search term, the tags it finds (a tag term: it and the tags under it; others: none).
@@ -2835,6 +2875,10 @@ impl crate::commands::Host for App {
     }
     fn folders(&self) -> &[Folder] {
         &self.folders
+    }
+    /// Known already (`App.taken`, read in batches by `Job::Dims`): no file is read.
+    fn file_taken(&self, id: usize) -> Option<i64> {
+        self.taken.get(&id).copied()
     }
     fn find(&self, key: &str) -> Option<usize> {
         self.key_index.get(key).copied()
