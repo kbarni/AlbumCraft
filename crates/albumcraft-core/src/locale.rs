@@ -98,6 +98,11 @@ pub fn month_long(month0: usize) -> String {
     with(|l| l.months_long.get(month0).cloned().unwrap_or_default())
 }
 
+/// The short name of a month (0…11): "Jan".
+pub fn month_short(month0: usize) -> String {
+    with(|l| l.months_short.get(month0).cloned().unwrap_or_default())
+}
+
 /// "KB", "MB" or "GB" (0, 1, 2).
 pub fn unit(i: usize) -> String {
     with(|l| l.units.get(i).cloned().unwrap_or_default())

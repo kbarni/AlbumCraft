@@ -80,8 +80,6 @@ enum Step {
 }
 /// The height of a folder's header before it was drawn once (name line and spacing).
 const HEADER_H: f32 = 48.0;
-/// Where the height of the "Looks like" header is kept among the folder headers' heights.
-const LOOKS_LIKE_HEADER: usize = usize::MAX;
 
 /// The grid's layout, kept between frames (`App::grid_rows`).
 pub struct GridCache {
@@ -94,8 +92,8 @@ pub struct GridCache {
     /// (width, row height aimed at, `App::shape_rev`) the rows were made for.
     key: Option<(u32, u32, u64)>,
     layout: Vec<GroupRows>,
-    /// Heights of the folder headers as last drawn, by folder.
-    header_h: HashMap<usize, f32>,
+    /// Heights of the headers (folders, months, "Looks like") as last drawn.
+    header_h: HashMap<Head, f32>,
 }
 
 /// The rows of one group.
@@ -126,7 +124,7 @@ const OPEN_LEVELS: usize = 3;
 // small widgets
 
 /// A square, frameless glyph button.
-fn icon_btn(ui: &mut egui::Ui, glyph: &str, tip: &str) -> egui::Response {
+pub(crate) fn icon_btn(ui: &mut egui::Ui, glyph: &str, tip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
     if resp.hovered() {
         ui.painter().rect_filled(rect, 17, t().surface_hover);
@@ -156,7 +154,7 @@ fn pill(ui: &mut egui::Ui, label: &str, primary: bool) -> egui::Response {
 }
 
 /// A toggle chip (filters).
-fn chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
+pub(crate) fn chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
     chip_with_flag(ui, label, on, false)
 }
 
@@ -320,6 +318,7 @@ impl App {
     fn source_title(&self) -> String {
         match &self.source {
             Source::Library => tr!("nav-all"),
+            Source::Timeline => tr!("nav-timeline"),
             Source::Album(i) => self.store.albums.get(*i).map(|a| a.name.clone()).unwrap_or_default(),
             Source::Person(n) => n.clone(),
             Source::Group(_) => tr!("people-unnamed"),
@@ -434,6 +433,8 @@ impl App {
                                 ui.close();
                             }
                         });
+                        // the date filter: "Dates" or the range, a popup chooses it
+                        self.dates_chip(ui, wide);
                         // the tags: the tree in a popup, a click shows a tag's pictures
                         let tag_on = self.search_terms.iter().any(|s| matches!(s, SearchTerm::Tag(_)));
                         let label = if wide > 900.0 { format!("{}  {}", icons::TAG, tr!("bar-tags")) } else { icons::TAG.to_string() };
@@ -480,6 +481,12 @@ impl App {
                     let all_on = self.source == Source::Library && !self.searching() && self.list_pick.is_none();
                     if nav_row(ui, icons::PHOTOS, &tr!("nav-all"), Some(self.photos.len()), all_on).clicked() {
                         self.source = Source::Library;
+                        self.selection.clear();
+                        self.tray_set = None;
+                        self.list_pick = None;
+                    }
+                    if nav_row(ui, icons::CALENDAR, &tr!("nav-timeline"), Some(self.photos.len()), self.source == Source::Timeline).on_hover_text(tr!("nav-timeline-hint")).clicked() {
+                        self.source = Source::Timeline;
                         self.selection.clear();
                         self.tray_set = None;
                         self.list_pick = None;
@@ -1002,13 +1009,21 @@ impl App {
             if speed {
                 area = area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
             }
-            area.show(ui, |ui| {
+            // the date scrubber: in the Timeline and the library's folders, when there are dates
+            let scrubbing = matches!(self.source, Source::Library | Source::Timeline) && groups.iter().filter(|(h, _)| h.folder().is_some() || h.is_date()).nth(1).is_some();
+            if let Some(y) = self.scrub.scroll_to.take() {
+                area = area.vertical_scroll_offset(y);
+            }
+            // hidden, only its button keeps a narrow column of its own
+            let shown = scrubbing && !self.store.scrubber_hidden;
+            let right = if shown { PAD + crate::timeline::SCRUB_W as i8 } else if scrubbing { PAD + crate::timeline::TOGGLE_W as i8 } else { PAD };
+            let out = area.show(ui, |ui| {
                 if speed && self.grid_rate != 0.0 {
                     let dt = ui.input(|i| i.stable_dt).min(0.1);
                     ui.scroll_with_delta(egui::vec2(0.0, self.grid_rate * dt));
                     ui.ctx().request_repaint();
                 }
-                egui::Frame::new().inner_margin(egui::Margin { left: PAD, right: PAD, top: 8, bottom: 16 }).show(ui, |ui| {
+                egui::Frame::new().inner_margin(egui::Margin { left: PAD, right, top: 8, bottom: 16 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                     let width = ui.available_width();
                     // the background, under the pictures (they are added later and win the
@@ -1062,16 +1077,18 @@ impl App {
                     let order_rev = self.folder_order_rev.get();
                     let keep = self.grid_anchor.filter(|a| a.2 != order_rev && self.source == Source::Library);
                     let mut anchor: Option<(usize, f32, u64)> = None;
+                    let dates = self.folder_dates();
+                    let mut marks = Vec::with_capacity(groups.len());
                     for (gi, (folder, ids)) in groups.iter().enumerate() {
                         let Some(rows) = cache.layout.get(gi) else { break };
                         let (left, top) = (ui.cursor().left(), ui.cursor().top());
                         // a header not drawn yet is taken to be one line high
                         let head = match folder {
-                            Head::Folder(fi) => cache.header_h.get(fi).copied().unwrap_or(HEADER_H) + GAP,
-                            Head::LooksLike => cache.header_h.get(&LOOKS_LIKE_HEADER).copied().unwrap_or(HEADER_H) + GAP,
                             Head::Plain => 0.0,
+                            h => cache.header_h.get(h).copied().unwrap_or(HEADER_H) + GAP,
                         };
                         let total = head + rows.height + 14.0;
+                        marks.push((self.head_month(*folder, &dates), top - origin.y, total));
                         if let Some(fi) = folder.folder() {
                             if anchor.is_none() && top + total >= clip.top() {
                                 anchor = Some((fi, clip.top() - top, order_rev));
@@ -1108,13 +1125,18 @@ impl App {
                         }
                         match folder {
                             Head::Folder(fi) => {
-                                let h = cache.header_h.get(fi).copied().unwrap_or(HEADER_H);
+                                let h = cache.header_h.get(folder).copied().unwrap_or(HEADER_H);
                                 let r = self.group_header(ui, *fi, ids, h);
-                                cache.header_h.insert(*fi, r.rect.height());
+                                cache.header_h.insert(*folder, r.rect.height());
                             }
                             Head::LooksLike => {
                                 let r = self.looks_like_header(ui, ids);
-                                cache.header_h.insert(LOOKS_LIKE_HEADER, r.rect.height());
+                                cache.header_h.insert(*folder, r.rect.height());
+                            }
+                            Head::Month { .. } | Head::YearOnly(_) | Head::Undated => {
+                                let h = cache.header_h.get(folder).copied().unwrap_or(HEADER_H);
+                                let r = self.month_header(ui, *folder, ids, h);
+                                cache.header_h.insert(*folder, r.rect.height());
                             }
                             Head::Plain => {}
                         }
@@ -1183,6 +1205,7 @@ impl App {
                         _ => anchor,
                     };
                     self.grid_cache = Some(cache);
+                    self.scrub.marks = marks;
                     if let (Some(b), Some(area)) = (self.box_select.as_ref(), boxed) {
                         self.selection = b.base.iter().chain(b.inside.iter()).copied().collect();
                         self.tray_set = None;
@@ -1194,6 +1217,14 @@ impl App {
             });
             if speed {
                 self.speed_handle(ui, panel);
+            }
+            if scrubbing {
+                let top = self.scrubber_toggle(ui, Pos2::new(panel.right() - BAR_W - 2.0, panel.top() + 6.0));
+                if shown {
+                    let strip = Rect::from_min_max(Pos2::new(panel.right() - BAR_W - crate::timeline::SCRUB_W, top), Pos2::new(panel.right() - BAR_W - 2.0, panel.bottom() - 8.0));
+                    // the marks are measured from the top of the frame inside the scroll area
+                    self.scrubber(ui, strip, out.content_size.y, out.state.offset().y - 8.0, out.inner_rect.height());
+                }
             }
 
             if let Some((id, m)) = clicked {
@@ -1254,7 +1285,7 @@ impl App {
                     Source::Library if !self.store.roots.is_empty() => {
                         (icons::FOLDER, tr!("empty-unreachable"))
                     }
-                    Source::Library => (icons::PHOTOS, tr!("empty-library")),
+                    Source::Library | Source::Timeline => (icons::PHOTOS, tr!("empty-library")),
                 }
             };
             let unreachable = matches!(self.source, Source::Library) && !self.store.roots.is_empty() && self.photos.is_empty() && !self.scanning;

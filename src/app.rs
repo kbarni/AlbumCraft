@@ -17,7 +17,7 @@ pub use crate::theme::t;
 pub type Group = (Head, Vec<usize>);
 
 /// What a group of the library list is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Head {
     /// The pictures of a folder (by index), under its header.
     Folder(usize),
@@ -25,6 +25,12 @@ pub enum Head {
     Plain,
     /// Pictures found by smart search, best first, under a "Looks like" header.
     LooksLike,
+    /// The Timeline's pictures of a month (1…12), under its header.
+    Month { year: i32, month: u8 },
+    /// The Timeline's pictures whose date is known only to the year.
+    YearOnly(i32),
+    /// The Timeline's pictures without a usable date, last.
+    Undated,
 }
 
 impl Head {
@@ -33,6 +39,11 @@ impl Head {
             Head::Folder(fi) => Some(fi),
             _ => None,
         }
+    }
+
+    /// A group of the Timeline (in date order already).
+    pub fn is_date(self) -> bool {
+        matches!(self, Head::Month { .. } | Head::YearOnly(_) | Head::Undated)
     }
 }
 
@@ -52,7 +63,10 @@ pub struct SidebarCounts {
 pub type TagCounts = Arc<Vec<(String, usize)>>;
 
 /// What the library list depends on (its cache key).
-type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64, (u64, usize));
+/// What `App::date_counts` depends on: the library, the dates, the source, the search, the filter
+/// without its dates.
+type DateCountsKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter);
+type ListKey = (u64, u64, Source, String, Vec<SearchTerm>, Filter, library::Sort, u64, (u64, usize), bool);
 
 /// A word chosen from the search suggestions: matches exactly (any letter case), where typed text
 /// matches anywhere.
@@ -69,6 +83,8 @@ pub enum SearchTerm {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Source {
     Library,
+    /// The whole library by month (`timeline.rs`).
+    Timeline,
     Album(usize),
     /// A person by name: typed on the pictures, or a named group of faces.
     Person(String),
@@ -92,6 +108,9 @@ pub struct Filter {
     pub hide_rejects: bool,
     /// Pictures by the faces found in them.
     pub people: PeopleFilter,
+    /// Only pictures taken in these months (`timeline::month_index`, both included); pictures
+    /// without a usable date are left out, a year alone counts when the range touches it.
+    pub dates: Option<(i32, i32)>,
 }
 
 /// Pictures by the faces found in them (only pictures looked at for faces count).
@@ -517,6 +536,8 @@ pub struct App {
     pub list_rev: u64,
     /// `groups()` for (list_rev, source, search, filter).
     list_cache: std::cell::RefCell<Option<(ListKey, Rc<Vec<Group>>)>>,
+    /// `date_counts()` for what it was made for.
+    date_counts_cache: std::cell::RefCell<Option<(DateCountsKey, Rc<Vec<(i32, usize)>>)>>,
     /// `search_hay()` for (list_rev, place_rev).
     #[allow(clippy::type_complexity)]
     hay_cache: std::cell::RefCell<Option<((u64, u64), Rc<Vec<String>>)>>,
@@ -528,6 +549,8 @@ pub struct App {
     /// The folder at the top of the grid, how far its top is above the grid's top, and the
     /// `folder_order_rev` it was seen at: kept in place when the order changes.
     pub(crate) grid_anchor: Option<(usize, f32, u64)>,
+    /// Where the grid's groups are, for the date scrubber (`timeline.rs`).
+    pub(crate) scrub: crate::timeline::Scrub,
     /// Bumped when a picture's shape (width / height) becomes known or changes: the grid's
     /// row layout is made again.
     pub shape_rev: u64,
@@ -760,11 +783,13 @@ impl App {
             icon_tex: None,
             control: None,
             list_cache: Default::default(),
+            date_counts_cache: Default::default(),
             hay_cache: Default::default(),
             sidebar_cache: None,
             folder_dates_cache: Default::default(),
             folder_order_rev: Default::default(),
             grid_anchor: None,
+            scrub: Default::default(),
             shape_rev: 0,
             grid_cache: None,
             photos: vec![],
@@ -1257,9 +1282,17 @@ impl App {
     /// Whether a picture passes the filter and the search. `words` is the typed text in lower
     /// case, split; `hay` the text each picture is searched in (`search_hay`).
     fn matches(&self, id: usize, words: &[String], hay: &[String], families: &[HashSet<String>]) -> bool {
+        self.matches_with(id, words, hay, families, true)
+    }
+
+    /// `matches`, with the date filter or without it (`dates`: false, for the Dates popup's bars).
+    fn matches_with(&self, id: usize, words: &[String], hay: &[String], families: &[HashSet<String>], dates: bool) -> bool {
         let (flag, rating) = (self.flag(id), self.rating(id));
         let f = &self.filter;
         if (f.picks && flag != Flag::Pick) || rating < f.min_rating || (f.hide_rejects && flag == Flag::Reject) {
+            return false;
+        }
+        if dates && f.dates.is_some() && !self.in_dates(id) {
             return false;
         }
         if f.people != PeopleFilter::Any {
@@ -1339,8 +1372,8 @@ impl App {
         let mut cache = self.list_cache.borrow_mut();
         let sort = self.store.sort;
         // the folders' order follows the dates taken too
-        let taken_rev = if sort == library::Sort::Taken || self.source == Source::Library { self.taken_rev } else { 0 };
-        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev, (self.smart.rev, self.smart.shown));
+        let taken_rev = if sort == library::Sort::Taken || matches!(self.source, Source::Library | Source::Timeline) { self.taken_rev } else { 0 };
+        let key = (self.list_rev, self.geo.place_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), self.filter.clone(), sort, taken_rev, (self.smart.rev, self.smart.shown), self.store.timeline_oldest_first);
         if let Some((k, groups)) = cache.as_ref()
             && *k == key {
                 return groups.clone();
@@ -1371,6 +1404,7 @@ impl App {
                 .map(|(fi, f)| (Head::Folder(fi), f.photos.iter().copied().filter(shown).collect::<Vec<_>>()))
                 .filter(|(_, v)| !v.is_empty())
                 .collect(),
+            Source::Timeline => self.timeline_groups(shown),
             // as arranged in the album
             Source::Album(i) => {
                 vec![(Head::Plain, self.store.albums.get(*i).map(|a| a.keys.iter().filter_map(|k| self.key_index.get(k).copied()).filter(shown).collect()).unwrap_or_default())]
@@ -1389,6 +1423,35 @@ impl App {
         groups
     }
 
+    /// Pictures per month (`timeline::month_index`, ascending) of what the list shows with the
+    /// date filter set aside: the Dates popup's bars and years. Kept until the list changes.
+    pub fn date_counts(&self) -> Rc<Vec<(i32, usize)>> {
+        let mut filter = self.filter.clone();
+        filter.dates = None;
+        let key = (self.list_rev, self.taken_rev, self.source.clone(), self.search.clone(), self.search_terms.clone(), filter);
+        let mut cache = self.date_counts_cache.borrow_mut();
+        if let Some((k, counts)) = cache.as_ref()
+            && *k == key
+        {
+            return counts.clone();
+        }
+        let words: Vec<String> = self.search.to_lowercase().split_whitespace().map(str::to_string).collect();
+        let hay = if words.is_empty() { Rc::new(vec![]) } else { self.search_hay() };
+        let families = self.tag_families();
+        let mut by_month: std::collections::BTreeMap<i32, usize> = Default::default();
+        for id in 0..self.photos.len() {
+            if !self.in_source(id) || !self.matches_with(id, &words, &hay, &families, false) {
+                continue;
+            }
+            if let (Head::Month { year, month }, _) = self.timeline_slot(id) {
+                *by_month.entry(crate::timeline::month_index(year, u32::from(month))).or_default() += 1;
+            }
+        }
+        let counts = Rc::new(by_month.into_iter().collect::<Vec<_>>());
+        *cache = Some((key, counts.clone()));
+        counts
+    }
+
     /// For each search term, the tags it finds (a tag term: it and the tags under it; others: none).
     fn tag_families(&self) -> Vec<HashSet<String>> {
         self.search_terms.iter().map(|t| if let SearchTerm::Tag(tag) = t { crate::tags::family(&self.store, tag) } else { HashSet::new() }).collect()
@@ -1397,7 +1460,7 @@ impl App {
     /// The picture belongs to what the list shows (the library, the album, the person, Picks).
     fn in_source(&self, id: usize) -> bool {
         match &self.source {
-            Source::Library => id < self.photos.len(),
+            Source::Library | Source::Timeline => id < self.photos.len(),
             // few pictures are asked about (the ranked ones), an album is short
             Source::Album(i) => self.photos.get(id).is_some_and(|p| self.store.albums.get(*i).is_some_and(|a| a.keys.contains(&p.key))),
             Source::Person(name) => self.people_of(id).iter().any(|p| crate::tags::key(p) == crate::tags::key(name)),
@@ -1414,7 +1477,8 @@ impl App {
             library::Sort::Name => {}
             library::Sort::Taken => {
                 let when = |id: &usize| self.taken_at(*id).or_else(|| Some(self.photos.get(*id)?.modified)).unwrap_or(0);
-                for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h)) {
+                // the Timeline's months are in date order already, newest first or not
+                for (_, ids) in groups.iter_mut().filter(|(h, _)| !crate::looks_like::ranked(*h) && !h.is_date()) {
                     ids.sort_by_cached_key(when);
                 }
             }
@@ -2811,6 +2875,10 @@ impl crate::commands::Host for App {
     }
     fn folders(&self) -> &[Folder] {
         &self.folders
+    }
+    /// Known already (`App.taken`, read in batches by `Job::Dims`): no file is read.
+    fn file_taken(&self, id: usize) -> Option<i64> {
+        self.taken.get(&id).copied()
     }
     fn find(&self, key: &str) -> Option<usize> {
         self.key_index.get(key).copied()

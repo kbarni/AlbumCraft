@@ -302,6 +302,12 @@ pub struct Store {
     /// How the library's scroll bar works: the handle's position or its distance from the middle.
     #[serde(deserialize_with = "or_default")]
     pub scroll_mode: ScrollMode,
+    /// The Timeline starts with the oldest month instead of the newest.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub timeline_oldest_first: bool,
+    /// The date scrubber beside the grid is hidden (its button at the top right of the grid).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub scrubber_hidden: bool,
     /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
     pub edit_advanced: bool,
     /// The editor's histogram shows the red, green and blue curves rather than luminance.
@@ -418,6 +424,8 @@ impl Default for Store {
             sort: Sort::Name,
             bar_style: BarStyle::Compact,
             scroll_mode: ScrollMode::Speed,
+            timeline_oldest_first: false,
+            scrubber_hidden: false,
             edit_advanced: false,
             hist_rgb: false,
             steps_h: 0.0,
@@ -1608,6 +1616,12 @@ fn local(ts: i64) -> i64 {
 /// The year of a timestamp, in local time.
 pub fn local_year(ts: i64) -> i32 {
     civil(local(ts)).0
+}
+
+/// The year and month (1…12) of a timestamp, in local time.
+pub fn local_month(ts: i64) -> (i32, u32) {
+    let (y, m, _) = civil(local(ts));
+    (y, m)
 }
 
 /// "May 12, 2009", in local time.

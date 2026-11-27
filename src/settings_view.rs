@@ -252,6 +252,14 @@ impl App {
             self.dirty = true;
         }
         ui.add_space(14.0);
+        group(ui, &tr!("settings-timeline-order"));
+        let before = self.store.timeline_oldest_first;
+        ui.radio_value(&mut self.store.timeline_oldest_first, false, tr!("timeline-newest-first"));
+        ui.radio_value(&mut self.store.timeline_oldest_first, true, tr!("timeline-oldest-first"));
+        if self.store.timeline_oldest_first != before {
+            self.dirty = true;
+        }
+        ui.add_space(14.0);
         group(ui, &tr!("settings-excluded-title"));
         note(ui, &tr!("settings-excluded-intro"));
         ui.add_space(6.0);
