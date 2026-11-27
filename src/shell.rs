@@ -1014,7 +1014,9 @@ impl App {
             if let Some(y) = self.scrub.scroll_to.take() {
                 area = area.vertical_scroll_offset(y);
             }
-            let right = if scrubbing { PAD + crate::timeline::SCRUB_W as i8 } else { PAD };
+            // hidden, only its button keeps a narrow column of its own
+            let shown = scrubbing && !self.store.scrubber_hidden;
+            let right = if shown { PAD + crate::timeline::SCRUB_W as i8 } else if scrubbing { PAD + crate::timeline::TOGGLE_W as i8 } else { PAD };
             let out = area.show(ui, |ui| {
                 if speed && self.grid_rate != 0.0 {
                     let dt = ui.input(|i| i.stable_dt).min(0.1);
@@ -1217,9 +1219,12 @@ impl App {
                 self.speed_handle(ui, panel);
             }
             if scrubbing {
-                let strip = Rect::from_min_max(Pos2::new(panel.right() - BAR_W - crate::timeline::SCRUB_W, panel.top() + 8.0), Pos2::new(panel.right() - BAR_W - 2.0, panel.bottom() - 8.0));
-                // the marks are measured from the top of the frame inside the scroll area
-                self.scrubber(ui, strip, out.content_size.y, out.state.offset().y - 8.0, out.inner_rect.height());
+                let top = self.scrubber_toggle(ui, Pos2::new(panel.right() - BAR_W - 2.0, panel.top() + 6.0));
+                if shown {
+                    let strip = Rect::from_min_max(Pos2::new(panel.right() - BAR_W - crate::timeline::SCRUB_W, top), Pos2::new(panel.right() - BAR_W - 2.0, panel.bottom() - 8.0));
+                    // the marks are measured from the top of the frame inside the scroll area
+                    self.scrubber(ui, strip, out.content_size.y, out.state.offset().y - 8.0, out.inner_rect.height());
+                }
             }
 
             if let Some((id, m)) = clicked {

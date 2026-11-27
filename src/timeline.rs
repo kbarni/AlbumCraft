@@ -24,6 +24,9 @@ use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke};
 /// The scrubber's width (labels and ticks), left of the scroll bar.
 pub const SCRUB_W: f32 = 46.0;
 
+/// The width kept for the scrubber's button while the scrubber is hidden.
+pub const TOGGLE_W: f32 = 26.0;
+
 /// A group of the grid on the scrubber: its month (None for a group without one), its top and
 /// height in the grid.
 pub type Mark = (Option<(i32, u32)>, f32, f32);
@@ -217,6 +220,28 @@ impl App {
             self.anchor = Some(first);
             self.cursor = Some(first);
         }
+    }
+
+    /// The button that shows or hides the scrubber (`Store.scrubber_hidden`), its top right
+    /// corner at `corner`. Gives where the scrubber's strip starts, under it.
+    pub fn scrubber_toggle(&mut self, ui: &mut egui::Ui, corner: Pos2) -> f32 {
+        let size = TOGGLE_W - 4.0;
+        let rect = Rect::from_min_size(Pos2::new(corner.x - size, corner.y), egui::vec2(size, size));
+        let resp = ui.interact(rect, egui::Id::new("date_scrubber_toggle"), Sense::click());
+        let hidden = self.store.scrubber_hidden;
+        let p = ui.painter();
+        if resp.hovered() {
+            p.rect_filled(rect, size / 2.0, t().surface_hover);
+        }
+        let glyph = if hidden { icons::CHEVRON_LEFT } else { icons::CHEVRON_RIGHT };
+        crate::color_icons::paint(ui.ctx(), p, glyph, rect.center(), 16.0, t().text_weak);
+        let tip = if hidden { tr!("timeline-scrubber-show") } else { tr!("timeline-scrubber-hide") };
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip).clicked() {
+            self.store.scrubber_hidden = !hidden;
+            self.scrub.range_from = None;
+            self.dirty = true;
+        }
+        rect.bottom() + 6.0
     }
 
     /// The scrubber in `strip`, for a grid of height `total` scrolled to `offset` with `view` of

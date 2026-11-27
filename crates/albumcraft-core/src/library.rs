@@ -305,6 +305,9 @@ pub struct Store {
     /// The Timeline starts with the oldest month instead of the newest.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub timeline_oldest_first: bool,
+    /// The date scrubber beside the grid is hidden (its button at the top right of the grid).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub scrubber_hidden: bool,
     /// The editor's Edit tab opens on its sliders (Advanced) rather than the one-click fixes.
     pub edit_advanced: bool,
     /// The editor's histogram shows the red, green and blue curves rather than luminance.
@@ -417,6 +420,7 @@ impl Default for Store {
             bar_style: BarStyle::Compact,
             scroll_mode: ScrollMode::Speed,
             timeline_oldest_first: false,
+            scrubber_hidden: false,
             edit_advanced: false,
             hist_rgb: false,
             steps_h: 0.0,

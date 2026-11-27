@@ -374,6 +374,8 @@ impl App {
             eprintln!("folder dates check: {}", if ok { "ok" } else { "WRONG" });
         }
         if shot_view == "timeline" || shot_view == "dates" {
+            // ALBUMCRAFT_SHOT_SCRUBBER=hidden: the scrubber hidden, only its button shown
+            self.store.scrubber_hidden = std::env::var("ALBUMCRAFT_SHOT_SCRUBBER").is_ok_and(|v| v == "hidden");
             // the samples spread over a few months of 2019 and 2018, one scanned print known only
             // to the year 1978 and one without a usable date: months newest first, then 1978, then
             // No date
