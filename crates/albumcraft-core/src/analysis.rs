@@ -41,6 +41,9 @@ pub type SharedTable = Arc<RwLock<Table>>;
 /// Sends an answer to the window (and wakes it); callable from any thread.
 pub type Send_ = Arc<dyn Fn(Done) + Send + Sync>;
 
+/// Pictures an analyser of one kind must not look at (by key): true leaves it out.
+pub type Skip = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
 /// An analyser that fails this many times in a row is stopped until the next start: something
 /// is wrong with it, not with the pictures.
 const MAX_FAILURES: usize = 20;
@@ -68,6 +71,8 @@ struct State {
     /// The library's pictures, as last given.
     files: Arc<Vec<FileStamp>>,
     waiting: VecDeque<Waiting>,
+    /// Pictures left out, by kind of result (`Spec.kind`).
+    skips: std::collections::HashMap<String, Skip>,
     /// Jobs given to the pool and not finished.
     in_pool: usize,
     done: usize,
@@ -89,8 +94,9 @@ impl State {
         self.waiting.clear();
         for (i, lane) in self.lanes.iter().enumerate().filter(|(_, l)| !l.stopped) {
             let table = lane.table.read().unwrap_or_else(PoisonError::into_inner);
+            let skip = self.skips.get(&table.spec().kind);
             for (key, modified, bytes) in self.files.iter() {
-                if !key.starts_with(SAMPLE_PREFIX) && !table.has(key, (*modified, *bytes)) {
+                if !key.starts_with(SAMPLE_PREFIX) && !skip.is_some_and(|s| s(key)) && !table.has(key, (*modified, *bytes)) {
                     self.waiting.push_back(Waiting { lane: i, key: key.clone(), stamp: (*modified, *bytes) });
                 }
             }
@@ -203,6 +209,24 @@ impl Analysis {
     pub fn set_pictures(&self, files: Vec<FileStamp>) {
         let mut s = self.state();
         s.files = Arc::new(files);
+        s.plan();
+        let progress = s.progress();
+        drop(s);
+        (self.0.send)(Done::Analysis(progress));
+        self.feed();
+    }
+
+    /// Leave out the pictures `skip` says, for the analysers of `kind` (None: none left out).
+    /// What was found in them before stays in the file.
+    pub fn set_skip(&self, kind: &str, skip: Option<Skip>) {
+        let mut s = self.state();
+        match skip {
+            Some(f) => s.skips.insert(kind.to_string(), f),
+            None => s.skips.remove(kind),
+        };
+        if s.files.is_empty() {
+            return;
+        }
         s.plan();
         let progress = s.progress();
         drop(s);
@@ -491,6 +515,26 @@ mod tests {
         assert_eq!(analysis.progress().total, 9);
         let _ = std::fs::remove_dir_all(&s.dir);
         let _ = std::fs::remove_dir_all(&again.dir);
+    }
+
+    #[test]
+    fn pictures_left_out_are_not_analysed() {
+        let s = setup("skip");
+        let files = pictures(&s.dir, 5);
+        let sizes = Sizes::new("sizes-skip");
+        let table = s.analysis.add(sizes.clone()).unwrap();
+        let out = files[1].0.clone();
+        s.analysis.set_skip("test", Some(Arc::new(move |k: &str| k == out)));
+        // another kind's list leaves nothing out of this one
+        s.analysis.set_skip("faces", Some(Arc::new(|_: &str| true)));
+        s.analysis.set_pictures(files.clone());
+        assert_eq!(wait_done(&s.rx).last(), Some(&Progress { done: 4, total: 4, paused: false }));
+        assert_eq!(sizes.seen.load(Ordering::SeqCst), 4);
+        assert!(table.read().unwrap().get(&files[1].0, (files[1].1, files[1].2)).is_none());
+        // taken back in: it is analysed then
+        s.analysis.set_skip("test", None);
+        assert_eq!(wait_done(&s.rx).last(), Some(&Progress { done: 1, total: 1, paused: false }));
+        assert_eq!(sizes.seen.load(Ordering::SeqCst), 5);
     }
 
     #[test]

@@ -86,6 +86,19 @@ pub fn use_faces(analysis: &Analysis, on: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Pictures and folders not to look at for faces (`Store.faces_excluded`): the background
+/// analysis leaves them out. What was found in them before stays in the analysis file, and
+/// `group` / `saved_index` leave it out of the people.
+pub fn exclude(analysis: &Analysis, excluded: Vec<String>) {
+    let skip: Option<crate::analysis::Skip> = (!excluded.is_empty()).then(|| Arc::new(move |key: &str| crate::library::no_faces_in(&excluded, key).is_some()) as crate::analysis::Skip);
+    analysis.set_skip(&detect_only().kind, skip);
+}
+
+/// The library's pictures without those kept out of face detection.
+fn looked_at(files: &[crate::geo::FileStamp], excluded: &[String]) -> Vec<crate::geo::FileStamp> {
+    files.iter().filter(|f| crate::library::no_faces_in(excluded, &f.0).is_none()).cloned().collect()
+}
+
 // ---------------------------------------------------------------------------
 // Grouping: the groups of the library's faces, kept between runs
 
@@ -205,6 +218,8 @@ pub struct Decided {
     /// Groups the user took faces out of just now: their other faces are looked at again
     /// (`face_groups::recheck`). Not kept: asked once, with the correction.
     pub recheck: HashSet<GroupId>,
+    /// Pictures and folders kept out of face detection (`Store.faces_excluded`).
+    pub excluded: Vec<String>,
 }
 
 pub fn decided(store: &crate::library::Store) -> Decided {
@@ -213,6 +228,7 @@ pub fn decided(store: &crate::library::Store) -> Decided {
         refused: store.refused_merges.iter().map(|&(a, b)| (a.min(b), a.max(b))).collect(),
         notes: store.meta.iter().flat_map(|(k, m)| m.faces.iter().map(move |n| (k.clone(), n.clone()))).collect(),
         recheck: HashSet::new(),
+        excluded: store.faces_excluded.clone(),
     }
 }
 
@@ -768,6 +784,7 @@ pub fn group(analysis: &Analysis, files: &[crate::geo::FileStamp], d: &Decided, 
         Some(t) => t,
         None => Arc::new(RwLock::new(Table::open(dir, &spec)?)),
     };
+    let files = &looked_at(files, &d.excluded);
     let p = Params::default();
     let r = read(&shared.read().unwrap_or_else(PoisonError::into_inner), files, &p);
     let (c, states) = apply(d, &r);
@@ -822,6 +839,7 @@ pub fn saved_index(files: &[crate::geo::FileStamp], d: &Decided) -> Option<FaceI
     if !path.exists() {
         return None;
     }
+    let files = &looked_at(files, &d.excluded);
     let p = Params::default();
     let r = read(&Table::open(&dir, &spec).ok()?, files, &p);
     let mut groups = load_groups(&path, &r.records);
@@ -900,6 +918,18 @@ mod tests {
         std::fs::write(&path, b"{").unwrap();
         assert_eq!(load_groups(&path, &records), Groups::default());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pictures_kept_out_of_face_detection_are_left_out_of_the_people() {
+        let j = |parts: &[&str]| parts.iter().collect::<std::path::PathBuf>().to_string_lossy().to_string();
+        let mut store = crate::library::Store::default();
+        store.set_no_faces(&[j(&["/p", "museum"]), j(&["/p", "games", "shot.png"])], true);
+        let d = decided(&store);
+        assert_eq!(d.excluded, store.faces_excluded);
+        let files: Vec<crate::geo::FileStamp> = [j(&["/p", "museum", "a.jpg"]), j(&["/p", "games", "shot.png"]), j(&["/p", "games", "b.jpg"]), j(&["/p", "trip", "c.jpg"])].into_iter().map(|k| (k, 1, 1)).collect();
+        let kept: Vec<String> = looked_at(&files, &d.excluded).into_iter().map(|f| f.0).collect();
+        assert_eq!(kept, vec![j(&["/p", "games", "b.jpg"]), j(&["/p", "trip", "c.jpg"])]);
     }
 
     #[test]

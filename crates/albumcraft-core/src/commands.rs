@@ -716,6 +716,15 @@ Call `rescan` afterwards to see the new pictures in the library.",
             }, "required": ["group"] }),
         },
         Spec {
+            name: "exclude_from_face_detection",
+            description: "Keep pictures or whole folders (with everything under them) out of face detection: paintings in a museum, screenshots of games, posters. Their faces are not looked for, and those found before are left out of the people. `excluded: false` looks at them again (a picture inside a folder that is kept out stays out with it). Without pictures or folders, only lists what is kept out.",
+            schema: || json!({ "type": "object", "properties": {
+                "keys": { "type": "array", "items": { "type": "string" }, "description": "Pictures, by key" },
+                "folders": { "type": "array", "items": { "type": "string" }, "description": "Folders, as listed by list_folders" },
+                "excluded": { "type": "boolean", "default": true }
+            } }),
+        },
+        Spec {
             name: "ai_status",
             description: "The AI features (faces, smart search, tag proposals; everything is computed on the user's computer): whether this build can run networks, the packs of networks that can be downloaded with their size, licence and whether they are installed, and how far the background analysis of the library is (only while the AlbumCraft window is open).",
             schema: || json!({ "type": "object", "properties": {} }),
@@ -1416,6 +1425,18 @@ pub fn run(host: &mut dyn Host, name: &str, args: &Value) -> Result<Outcome, Str
                 host.store_mut().refused_merges.push(pair);
             }
             now(json!({ "two_people": [a, b] }))
+        }
+        "exclude_from_face_detection" => {
+            let out = opt_bool(args, "excluded")?.unwrap_or(true);
+            let mut paths: Vec<String> = match args.get("keys") {
+                None | Some(Value::Null) => vec![],
+                _ => ids(&*host, args)?.into_iter().filter_map(|id| host.photos().get(id).map(|p| p.key.clone())).collect(),
+            };
+            for f in strings(args, "folders")? {
+                paths.push(library_dir(&*host, &f)?);
+            }
+            let changed = !paths.is_empty() && host.store_mut().set_no_faces(&paths, out);
+            now(json!({ "changed": changed, "excluded": host.store().faces_excluded }))
         }
         "hide_person" => {
             let g = crate::faces::resolve(host.store(), group_arg(&*host, args.get("group"), "group")?);
@@ -2373,6 +2394,25 @@ mod tests {
         let mut h = Headless::open(dir.join("library.json")).unwrap();
         h.gps_cache = Some(dir.join("gps.json"));
         (dir, h, keys)
+    }
+
+    #[test]
+    fn pictures_and_folders_are_kept_out_of_face_detection() {
+        let (dir, mut h, keys) = fixture("nofaces");
+        h.rescan();
+        let folder = dir.join("pics").to_string_lossy().to_string();
+        let r = call(&mut h, "exclude_from_face_detection", json!({ "keys": [keys[0]] })).unwrap();
+        assert_eq!((r["changed"].clone(), r["excluded"].clone()), (json!(true), json!([keys[0]])));
+        let r = call(&mut h, "exclude_from_face_detection", json!({ "folders": [folder] })).unwrap();
+        assert_eq!(r["excluded"], json!([folder]), "the folder takes the place of its picture");
+        // nothing named: the list only
+        assert_eq!(call(&mut h, "exclude_from_face_detection", json!({})).unwrap()["changed"], false);
+        let r = call(&mut h, "exclude_from_face_detection", json!({ "folders": [folder], "excluded": false })).unwrap();
+        assert_eq!(r["excluded"], json!([]));
+        assert!(call(&mut h, "exclude_from_face_detection", json!({ "keys": ["/no/such.jpg"] })).is_err());
+        assert!(call(&mut h, "exclude_from_face_detection", json!({ "folders": ["/no/such/folder"] })).is_err());
+        assert!(call(&mut h, "exclude_from_face_detection", json!({ "keys": [keys[1]], "excluded": "yes" })).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

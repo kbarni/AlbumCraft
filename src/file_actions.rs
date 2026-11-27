@@ -166,6 +166,7 @@ impl App {
             self.toast(tr!("notice-copied-path", n = 1));
             ui.close();
         }
+        self.no_faces_menu(ui, std::slice::from_ref(&f.path));
         if ui.button(format!("{} {}", icons::REFRESH, tr!("folder-refresh"))).on_hover_text(tr!("folder-refresh-hint")).clicked() {
             self.refresh_thumbs(&ids);
             self.toast(tr!("folder-refreshing", name = f.name.as_str()));

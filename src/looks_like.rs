@@ -32,6 +32,8 @@ pub struct SmartSearch {
     told: Option<Option<String>>,
     /// Faces as the library was last told: looked for, and with the Faces pack downloaded.
     faces_told: Option<(bool, bool)>,
+    /// The pictures and folders kept out of face detection, as the library was last told.
+    pub faces_excluded_told: Option<Vec<String>>,
     checked_at: Option<f64>,
     /// The typed text as last seen, and when it changed.
     text: String,

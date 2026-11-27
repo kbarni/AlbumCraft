@@ -341,6 +341,11 @@ pub struct Store {
     pub refused_merges: Vec<(u32, u32)>,
     /// Groups of faces kept out of the way (strangers): not listed with the people.
     pub hidden_groups: std::collections::BTreeSet<u32>,
+    /// Pictures and folders (with everything under them) not looked at for faces: paintings,
+    /// screenshots of games… Their faces are not found, and those found before are left out of
+    /// the people (`Store::no_faces`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub faces_excluded: Vec<String>,
     /// Last used web gallery theme, layout, picture size and captions.
     #[serde(deserialize_with = "or_default")]
     pub gallery: crate::gallery::GallerySettings,
@@ -430,6 +435,7 @@ impl Default for Store {
             refused_names: vec![],
             refused_merges: vec![],
             hidden_groups: Default::default(),
+            faces_excluded: vec![],
             gallery: Default::default(),
             check_updates: true,
             xmp_embedded: true,
@@ -1038,8 +1044,34 @@ impl Store {
         }
         relist(&mut self.roots, &new_path);
         relist(&mut self.excluded, &new_path);
+        relist(&mut self.faces_excluded, &new_path);
         relist(&mut self.imported_ini, &new_path);
         crate::video::sync_posters(&self.meta);
+    }
+
+    /// The entry of `faces_excluded` that keeps this picture or folder out of face detection:
+    /// itself, or a folder it is in.
+    pub fn no_faces(&self, path: &str) -> Option<&str> {
+        no_faces_in(&self.faces_excluded, path)
+    }
+
+    /// Keep pictures or folders out of face detection (`out`), or look at them again. Taking a
+    /// path back in also takes back what is under it; a path inside a folder left out stays out
+    /// with its folder. True when something changed.
+    pub fn set_no_faces(&mut self, paths: &[String], out: bool) -> bool {
+        let before = self.faces_excluded.clone();
+        for path in paths.iter().filter(|p| !p.is_empty()) {
+            let p = Path::new(path);
+            if out {
+                if self.no_faces(path).is_none() {
+                    self.faces_excluded.retain(|e| !Path::new(e).starts_with(p));
+                    self.faces_excluded.push(path.clone());
+                }
+            } else {
+                self.faces_excluded.retain(|e| !Path::new(e).starts_with(p));
+            }
+        }
+        self.faces_excluded != before
     }
 
     /// The folder is in the library: inside a library folder and not left out.
@@ -1047,6 +1079,12 @@ impl Store {
         let p = Path::new(dir);
         self.roots.iter().any(|r| p.starts_with(r)) && !self.excluded.iter().any(|e| p.starts_with(e))
     }
+}
+
+/// The entry of `excluded` (pictures and folders) that `path` is, or is in.
+pub fn no_faces_in<'a>(excluded: &'a [String], path: &str) -> Option<&'a str> {
+    let p = Path::new(path);
+    excluded.iter().find(|e| p.starts_with(e)).map(String::as_str)
 }
 
 /// Whether `dir` is one of the excluded folders or inside one.
@@ -1176,6 +1214,34 @@ mod moved_tests {
         s.moved(&j(&["/p"]), &j(&["/q"]));
         assert_eq!(s.roots, vec![j(&["/q"])]);
         assert!(s.shows_folder(&j(&["/q", "2024"])) && !s.shows_folder(&j(&["/q", "2024", "trip", "raw"])) && !s.shows_folder(&j(&["/p"])));
+    }
+
+    #[test]
+    fn pictures_and_folders_are_kept_out_of_face_detection() {
+        let j = |parts: &[&str]| parts.iter().collect::<PathBuf>().to_string_lossy().to_string();
+        let (museum, painting, other) = (j(&["/p", "museum"]), j(&["/p", "museum", "a.jpg"]), j(&["/p", "museumx", "b.jpg"]));
+        let shot = j(&["/p", "games", "shot.png"]);
+        let mut s = Store::default();
+        assert!(s.set_no_faces(&[painting.clone(), shot.clone()], true));
+        assert_eq!(s.no_faces(&painting), Some(painting.as_str()));
+        // the folder replaces the picture inside it; a name that only starts the same is not in it
+        assert!(s.set_no_faces(std::slice::from_ref(&museum), true));
+        assert_eq!(s.faces_excluded, vec![shot.clone(), museum.clone()]);
+        assert_eq!(s.no_faces(&painting), Some(museum.as_str()));
+        assert_eq!(s.no_faces(&other), None);
+        assert!(!s.set_no_faces(std::slice::from_ref(&painting), true), "already out with its folder");
+        // a picture of a folder left out stays out with it
+        assert!(!s.set_no_faces(std::slice::from_ref(&painting), false));
+        assert!(s.no_faces(&painting).is_some());
+        // the list follows the files
+        s.moved(&j(&["/p", "games"]), &j(&["/p", "play"]));
+        assert_eq!(s.no_faces(&j(&["/p", "play", "shot.png"])), Some(j(&["/p", "play", "shot.png"]).as_str()));
+        assert!(s.set_no_faces(std::slice::from_ref(&museum), false));
+        assert_eq!(s.no_faces(&painting), None);
+        // kept in library.json, and an old one without it reads
+        let back: Store = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.faces_excluded, s.faces_excluded);
+        assert!(serde_json::from_str::<Store>("{}").unwrap().faces_excluded.is_empty());
     }
 }
 

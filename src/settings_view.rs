@@ -662,6 +662,32 @@ impl App {
             if on && !p.installed {
                 note(ui, &tr!("settings-faces-without-pack"));
             }
+            if on {
+                ui.add_space(4.0);
+                ui.label(RichText::new(tr!("settings-faces-excluded")).strong());
+                if self.store.faces_excluded.is_empty() {
+                    note(ui, &tr!("settings-faces-excluded-none"));
+                }
+                let mut look_again = None;
+                for (i, e) in self.store.faces_excluded.iter().enumerate() {
+                    // a picture, or a folder (with everything under it)
+                    let icon = if self.key_index.contains_key(e) { icons::PHOTOS } else { icons::FOLDER };
+                    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+                    ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button(tr!("button-remove")).on_hover_text(tr!("settings-faces-excluded-remove-hint")).clicked() {
+                            look_again = Some(i);
+                        }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(format!("{icon} {e}")).truncate()).on_hover_text(e.as_str());
+                        });
+                    });
+                }
+                if let Some(i) = look_again.filter(|&i| i < self.store.faces_excluded.len()) {
+                    self.store.faces_excluded.remove(i);
+                    self.dirty = true;
+                }
+                ui.add_space(4.0);
+            }
             if ui.button(tr!("settings-faces-delete")).on_hover_text(tr!("settings-faces-delete-hint")).clicked() {
                 delete_faces = true;
             }

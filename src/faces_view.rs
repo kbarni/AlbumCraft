@@ -112,6 +112,15 @@ impl App {
     /// Faces found and grouped: once at the start, every `REGROUP_EVERY` seconds while the
     /// analysis finds more, and when it ends.
     pub fn faces_tick(&mut self, now: f64) {
+        // pictures kept out of face detection (menus, Settings, a command): the analysis leaves
+        // them out, and the change is a decision the groups follow
+        if self.smart.faces_excluded_told.as_ref() != Some(&self.store.faces_excluded) {
+            let first = self.smart.faces_excluded_told.replace(self.store.faces_excluded.clone()).is_none();
+            self.lib.exclude_from_faces(self.store.faces_excluded.clone());
+            if !first {
+                self.list_rev += 1;
+            }
+        }
         let on = self.store.ai_enabled && crate::ai::runtime::available() && self.store.faces_enabled == Some(true) && crate::faces::pack().is_some();
         if !on {
             self.face_groups = FaceGroups::default();
@@ -155,6 +164,43 @@ impl App {
         let mut decided = crate::faces::decided(&self.store);
         decided.recheck = std::mem::take(&mut self.face_groups.recheck);
         self.lib.group_faces(decided, named);
+    }
+
+    /// Faces are being looked for (the menus offer to leave pictures out only then).
+    pub fn finding_faces(&self) -> bool {
+        self.store.ai_enabled && crate::ai::runtime::available() && self.store.faces_enabled == Some(true) && !self.using_samples
+    }
+
+    /// The context menu's item that keeps these pictures or this folder out of face detection
+    /// (paintings, screenshots of games), or looks at them again.
+    pub fn no_faces_menu(&mut self, ui: &mut egui::Ui, paths: &[String]) {
+        if !self.finding_faces() || paths.is_empty() {
+            return;
+        }
+        let by: Vec<Option<String>> = paths.iter().map(|p| self.store.no_faces(p).map(str::to_string)).collect();
+        if by.iter().all(Option::is_some) {
+            // out by a folder above them: taken back in only there
+            let own = paths.iter().zip(&by).any(|(p, b)| b.as_deref() == Some(p.as_str()));
+            if !own {
+                let folder = by.first().cloned().flatten().unwrap_or_default();
+                ui.add_enabled(false, egui::Button::new(tr!("ctx-faces-again"))).on_disabled_hover_text(tr!("ctx-no-faces-by-folder", folder = folder));
+            } else if ui.button(tr!("ctx-faces-again")).on_hover_text(tr!("ctx-faces-again-hint")).clicked() {
+                self.set_no_faces(paths, false);
+                ui.close();
+            }
+        } else if ui.button(tr!("ctx-no-faces")).on_hover_text(tr!("ctx-no-faces-hint")).clicked() {
+            self.set_no_faces(paths, true);
+            ui.close();
+        }
+    }
+
+    /// Keep pictures or folders out of face detection, or look at them again (`faces_tick`
+    /// tells the analysis and groups again).
+    pub fn set_no_faces(&mut self, paths: &[String], out: bool) {
+        if self.store.set_no_faces(paths, out) {
+            self.dirty = true;
+            self.toast(if out { tr!("notice-no-faces") } else { tr!("notice-faces-again") });
+        }
     }
 
     /// The people of a picture: names typed on it and people recognised in it.
@@ -882,6 +928,7 @@ fn decisions_hash(store: &crate::library::Store) -> u64 {
     store.refused_names.hash(&mut h);
     store.refused_merges.hash(&mut h);
     store.hidden_groups.hash(&mut h);
+    store.faces_excluded.hash(&mut h);
     // the notes on faces, in a fixed order
     let mut notes: Vec<(&String, String)> = store.meta.iter().filter(|(_, m)| !m.faces.is_empty()).map(|(k, m)| (k, serde_json::to_string(&m.faces).unwrap_or_default())).collect();
     notes.sort();
