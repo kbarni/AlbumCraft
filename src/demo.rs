@@ -423,8 +423,11 @@ impl App {
             };
             // the search packs as built in (their search section makes them a choice of one)
             let search = |id: &str, title: &str, about: &str, licence: &str, size: u64| crate::ai::models::manifest().pack(id).cloned().unwrap_or_else(|| pack(id, title, about, licence, size));
+            // faces on, with a folder and a picture left out of face detection
+            self.store.faces_enabled = Some(true);
+            self.store.faces_excluded = vec!["/home/me/Pictures/Museum of Fine Arts".into(), "/home/me/Pictures/Screenshots/game-01.png".into()];
             self.packs = vec![
-                crate::analysis::PackState { pack: pack("faces", "Faces", "Finds faces and groups them by person; you name the groups.", "Apache 2.0", 9 << 20), installed: true },
+                crate::analysis::PackState { pack: crate::faces::pack().cloned().unwrap_or_else(|| pack("faces", "Faces", "Finds faces and groups them by person; you name the groups.", "Apache 2.0", 9 << 20)), installed: true },
                 crate::analysis::PackState { pack: search("search-light", "Smart search: Light", "Find pictures by describing them, in English.", "MIT", 218 << 20), installed: false },
                 crate::analysis::PackState { pack: search("search-multilingual", "Smart search: Multilingual", "Find pictures by describing them, in your language.", "Apache 2.0", 511 << 20), installed: false },
             ];

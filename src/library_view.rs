@@ -775,6 +775,8 @@ impl App {
                     ui.close();
                 }
             self.person_menu(ui, &tray);
+            let keys: Vec<String> = tray.iter().filter_map(|&t| self.photos.get(t)).filter(|p| !p.is_sample()).map(|p| p.key.clone()).collect();
+            self.no_faces_menu(ui, &keys);
             if ui.add(egui::Button::new(crate::color_icons::atoms(ui.ctx(), format!("{} {}", icons::TAG, tr!("ctx-tags")), 13.5))).clicked() {
                 self.dialog = Some(Dialog::Tag { tags: String::new(), people: String::new() });
                 ui.close();

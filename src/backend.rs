@@ -153,6 +153,8 @@ pub trait Library {
     /// Look for faces in the library's pictures (`on`), with vectors when the Faces pack is
     /// downloaded, or stop looking (`faces::use_faces`).
     fn use_faces(&self, on: bool);
+    /// Leave these pictures and folders out of face detection (`faces::exclude`).
+    fn exclude_from_faces(&self, excluded: Vec<String>);
     /// Remove the faces found, the groups, the reference faces and the face crops (names and
     /// corrections stay in the library).
     fn delete_face_data(&self) -> Result<(), String>;
@@ -671,6 +673,10 @@ impl Library for LocalLibrary {
         if let Err(e) = crate::faces::use_faces(&self.analysis, on) {
             self.sender()(Done::Report(Report::failed(tr!("faces-failed", error = e))));
         }
+    }
+
+    fn exclude_from_faces(&self, excluded: Vec<String>) {
+        crate::faces::exclude(&self.analysis, excluded);
     }
 
     fn group_faces(&self, decided: crate::faces::Decided, named: std::collections::HashSet<u32>) {
